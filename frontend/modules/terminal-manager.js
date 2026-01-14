@@ -142,6 +142,18 @@ class TerminalManager {
         }, 3000);
 
         console.log('Terminal window creation completed successfully');
+        
+        // Maximize the window on creation - need to clear transform first
+        setTimeout(() => {
+            // Remove the centering transform before maximizing
+            window.style.transform = 'none';
+            window.style.left = '100px';
+            window.style.top = '100px';
+            
+            // Now maximize
+            this.desktop.maximizeWindow(windowId);
+        }, 50);
+        
         return window;
     }
 
@@ -225,6 +237,11 @@ class TerminalManager {
                     if (hasServerReadyMessage && terminalInfo.status === 'starting') {
                         console.log('Server ready message detected, updating status to running');
                         this.updateServerStatus(windowId, 'running');
+                        
+                        // Auto-switch to chat tab when server is running
+                        setTimeout(() => {
+                            this.switchTab(windowId, 'chat');
+                        }, 500);
                     }
 
                     // Save output to terminal data (keep last 1000 lines)
@@ -317,6 +334,11 @@ class TerminalManager {
                 if (terminalInfo && terminalInfo.status === 'starting') {
                     console.log('Health check successful, updating status to running');
                     this.updateServerStatus(windowId, 'running');
+                    
+                    // Auto-switch to chat tab when server is running
+                    setTimeout(() => {
+                        this.switchTab(windowId, 'chat');
+                    }, 500);
                 }
             } else {
                 throw new Error(`Server responded with status ${response.status}`);

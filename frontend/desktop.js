@@ -3188,8 +3188,18 @@ class DesktopManager {
                                 }
                             }
                         }, 10); // Small delay to ensure display:block takes effect
+                    } else if (window.style.zIndex < this.windowZIndex) {
+                        // Window is visible but not on top - bring it to front
+                        window.style.zIndex = ++this.windowZIndex;
+                        
+                        // Update active states
+                        document.querySelectorAll('.window').forEach(w => w.classList.remove('active'));
+                        window.classList.add('active');
+                        
+                        document.querySelectorAll('.taskbar-item').forEach(t => t.classList.remove('active'));
+                        item.classList.add('active');
                     } else {
-                        // Minimize window
+                        // Window is already on top - minimize it
                         this.minimizeWindow(id);
                     }
                 }
