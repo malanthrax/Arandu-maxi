@@ -31,5 +31,5 @@ https://github.com/fredconex/Arandu/releases
 <img width="1437" height="968" alt="image" src="https://github.com/user-attachments/assets/beb39b0c-9a17-4d88-ac77-5d0ee3439b80" />
 
 
-# Support me
+# Support development
 <a href="https://www.paypal.com/donate/?hosted_button_id=24CJHH95X3AQS"><img width=256px src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" /></a>
