@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arandu</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/search-history.css">
+    <script src="modules/theme-definitions.js"></script>
+    <script>
+        // Immediate theme loading to prevent color flash
+        (function () {
+            // Get theme from server-provided variable or default to navy
+            const theme = '{{ global_config.theme_color or "navy" }}';
+
+            // Apply the selected theme immediately using centralized definitions
+            const selectedTheme = themeDefinitions[theme] || themeDefinitions.navy;
+            const root = document.documentElement;
+
+            root.style.setProperty('--theme-primary', selectedTheme.primary);
+            root.style.setProperty('--theme-light', selectedTheme.light);
+            root.style.setProperty('--theme-dark', selectedTheme.dark);
+            root.style.setProperty('--theme-accent', selectedTheme.accent);
+            root.style.setProperty('--theme-bg', selectedTheme.bg);
+            root.style.setProperty('--theme-surface', selectedTheme.surface);
+            root.style.setProperty('--theme-error', selectedTheme.error);
+            root.style.setProperty('--theme-error-bg', selectedTheme.errorBg);
+            root.style.setProperty('--theme-warning', selectedTheme.warning);
+            root.style.setProperty('--theme-warning-bg', selectedTheme.warningBg);
+            root.style.setProperty('--theme-success', selectedTheme.success);
+            root.style.setProperty('--theme-success-bg', selectedTheme.successBg);
+            root.style.setProperty('--theme-surface-light', selectedTheme.surfaceLight);
+            root.style.setProperty('--theme-text', selectedTheme.text);
+            root.style.setProperty('--theme-text-muted', selectedTheme.textMuted);
+            root.style.setProperty('--theme-border', selectedTheme.border);
+            root.style.setProperty('--theme-hover', selectedTheme.hover);
+            root.style.setProperty('--theme-gradient-start', selectedTheme.gradientStart);
+            root.style.setProperty('--theme-gradient-middle', selectedTheme.gradientMiddle);
+            root.style.setProperty('--theme-gradient-end', selectedTheme.gradientEnd);
+            root.style.setProperty('--theme-glow', selectedTheme.glow);
+            root.style.setProperty('--theme-glow-light', selectedTheme.glowLight);
+            root.style.setProperty('--theme-glow-strong', selectedTheme.glowStrong);
+            root.style.setProperty('--theme-bg-light', selectedTheme.bgLight);
+            root.style.setProperty('--theme-bg-medium', selectedTheme.bgMedium);
+            root.style.setProperty('--theme-bg-strong', selectedTheme.bgStrong);
+        })();
+    </script>
+    <script src="modules/search-history.js" defer></script>
+    <script src="desktop.js" defer></script>
+    <script src="modules/modal-dialog.js" defer></script>
+
+    <script src="modules/huggingface-app.js" defer></script>
+    <script src="modules/terminal-manager.js" defer></script>
+    <script src="modules/properties-manager.js" defer></script>
+    <script src="modules/download-manager.js" defer></script>
+    <script src="modules/llamacpp-manager.js" defer></script>
+    <script src="modules/module-manager.js" defer></script>
+</head>
+
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loading-screen">
+        <div class="loading-content">
+            <h1 class="loading-title">Arandu</h1>
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+    <div class="desktop" id="desktop">
+        <!-- Desktop Icons Area -->
+        <div class="desktop-icons" id="desktop-icons">
+            <!-- Models will be populated dynamically by Tauri -->
+        </div>
+
+        <!-- Model Info Hint -->
+        <div class="model-hint hidden" id="model-hint"></div>
+
+        <!-- RAM and VRAM usage indicators on desktop -->
+        <div class="desktop-memory-monitor" id="desktop-memory-monitor" title="System Information">
+            <div class="memory-monitor-details" id="memory-monitor-details">
+                <!-- Details will be populated here -->
+            </div>
+            <div class="memory-bars-wrapper">
+                <div class="memory-bar-container" title="RAM Usage">
+                    <div class="memory-bar-ram memory-bar">
+                        <div class="memory-fill"></div>
+                        <div class="memory-text">RAM</div>
+                    </div>
+                </div>
+                <div class="memory-bar-container" title="VRAM Usage">
+                    <div class="memory-bar-vram memory-bar">
+                        <div class="memory-fill"></div>
+                        <div class="memory-text">VRAM</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- macOS-style Dock -->
+        <div class="dock" id="dock">
+            <!-- Permanent app icons -->
+            <button class="dock-item permanent" id="search-dock-icon" title="Search Desktop" data-app="search">
+                <span class="material-icons">search</span>
+            </button>
+            <div class="dock-separator"></div>
+            <button class="dock-item permanent" id="settings-dock-icon" title="Settings" data-app="settings">
+                <span class="material-icons">settings</span>
+            </button>
+            <button class="dock-item permanent" id="huggingface-dock-icon" title="Hugging Face Models" data-app="huggingface">
+                <span class="material-icons">cloud_download</span>
+            </button>
+            <button class="dock-item permanent" id="llamacpp-dock-icon" title="Llama.cpp Releases" data-app="llamacpp">
+                <span class="material-icons">build</span>
+            </button>
+            <button class="dock-item permanent" id="downloads-dock-icon" title="Download History" data-app="downloads">
+                <span class="material-icons">download</span>
+            </button>
+            <div class="dock-separator"></div>
+            <!-- Running applications will appear here -->
+        </div>
+    </div>
+
+    <!-- Start Menu - Hidden (replaced by taskbar icons) -->
+    <div class="start-menu hidden" id="start-menu" style="display: none;">
+        <div class="start-menu-header">
+            <h3>Arandu</h3>
+        </div>
+        <div class="start-menu-items">
+            <div class="start-menu-item" data-action="settings">
+                <span class="material-icons">settings</span>
+                <span class="start-menu-text">Settings</span>
+            </div>
+            <div class="start-menu-item" data-action="huggingface">
+                <span class="material-icons">cloud_download</span>
+                <span class="start-menu-text">Hugging Face Models</span>
+            </div>
+            <div class="start-menu-item" data-action="llamacpp-manager">
+                <span class="material-icons">build</span>
+                <span class="start-menu-text">Llama.cpp Releases</span>
+            </div>
+            <div class="start-menu-item" data-action="restart">
+                <span class="material-icons">restart_alt</span>
+                <span class="start-menu-text">Restart Server</span>
+            </div>
+            <div class="start-menu-separator"></div>
+            <div class="start-menu-item" data-action="about">
+                <span class="material-icons">info</span>
+                <span class="start-menu-text">About</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu hidden" id="context-menu">
+        <!-- This will be dynamically populated by desktop.js -->
+    </div>
+
+    <!-- Dock Context Menu -->
+    <div class="context-menu hidden" id="dock-context-menu">
+        <!-- This will be dynamically populated for dock items -->
+    </div>
+
+    <!-- Search Balloon -->
+    <div class="search-balloon hidden" id="search-balloon">
+        <div class="search-balloon-content">
+            <div class="search-input-wrapper">
+                <input type="text" class="search-input" id="search-input" placeholder="Search desktop icons..."
+                    autocomplete="off">
+            </div>
+            <button class="search-hf" id="search-hf" title="Search on Hugging Face">
+                HF
+            </button>
+            <button class="search-clear" id="search-clear" title="Clear search">
+                <span class="material-icons">close</span>
+            </button>
+            <div class="search-history-dropdown" id="search-history-dropdown">
+                <div class="search-history-header">
+                    <span class="search-history-title">Recent Searches</span>
+                    <button class="search-history-clear" id="search-history-clear-all">Clear All</button>
+                </div>
+                <ul class="search-history-list" id="search-history-list">
+                    <!-- History items will be populated here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Window -->
+    <div class="window settings-window hidden" id="settings-window">
+        <div class="window-header">
+            <span class="window-title"><span class="material-icons">settings</span> Global Settings</span>
+            <div class="window-controls">
+                <button class="window-control minimize" onclick="desktop.minimizeWindow('settings-window')"></button>
+                <button class="window-control maximize" onclick="desktop.maximizeWindow('settings-window')"></button>
+                <button class="window-control close" onclick="desktop.closeSettingsPanel()"></button>
+            </div>
+        </div>
+        <div class="window-content" style="display: flex; gap: 20px; padding: 15px; position: relative;">
+            <div class="settings-left" style="flex: 1; min-width: 0; padding-bottom: 50px;">
+                <div class="property-group">
+                    <h4><span class="material-icons">folder</span> Model Directory</h4>
+                    <div class="property-row">
+                        <input type="text" class="property-input" id="models-directory"
+                            placeholder="Path to models folder (e.g., C:\AI\models)">
+                        <button class="browse-btn" onclick="desktop.browseFolder('models-directory')"
+                            title="Browse for folder"><span class="material-icons">folder_open</span></button>
+                    </div>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Directory where your .gguf model files
+                        are stored</small>
+                </div>
+                <div class="property-group">
+                    <h4><span class="material-icons">rocket_launch</span> Llama Server Path</h4>
+                    <div class="property-row">
+                        <input type="text" class="property-input" id="executable-folder"
+                            placeholder="Path to llama-server folder (e.g., C:\AI\llama.cpp\bin)">
+                        <button class="browse-btn" onclick="desktop.browseFolder('executable-folder')"
+                            title="Browse for folder"><span class="material-icons">folder_open</span></button>
+                    </div>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Folder containing the llama-server
+                        executable</small>
+                </div>
+                <div class="property-group">
+                    <h4><span class="material-icons">palette</span> Theme</h4>
+                    <div class="property-row" id="theme-selectors">
+                        <select class="property-input" id="theme-color"></select>
+                        <button id="theme-sync-button" class="sync-button" title="Toggle theme sync">
+                            <span class="material-icons">sync_alt</span>
+                        </button>
+                        <select class="property-input" id="background-color"></select>
+                    </div>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Change the interface colors. Left is
+                        for UI, right for background.</small>
+                </div>
+                <button class="settings-window-save" id="save-config"><span class="material-icons">save</span> Save
+                    Settings & Scan Models</button>
+            </div>
+            <div class="settings-right" style="flex: 0 0 280px; display: flex; flex-direction: column;">
+                <div class="about-section" style="background: linear-gradient(135deg, var(--theme-surface) 0%, var(--theme-surface-light) 50%, var(--theme-surface) 100%); border-radius: 8px; padding: 20px; border: 1px solid var(--theme-border); box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <img src="assets/logo.png" alt="Arandu" style="width: 120px; height: 120px;">
+                    </div>
+                    <h3 style="margin: 0 0 10px 0; font-size: 18px; text-align: center; color: var(--theme-text);">Arandu</h3>
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <span style="display: inline-block; padding: 4px 12px; background: var(--theme-primary); color: white; border-radius: 12px; font-size: 11px; font-weight: 500;">v0.3.2-beta</span>
+                    </div>
+                    <div style="border-top: 1px solid var(--theme-border); padding-top: 15px; display: flex; flex-direction: column; gap: 8px;">
+                        <a href="#" onclick="desktop.openExternalLink('https://github.com/fredconex/Arandu'); return false;" 
+                           style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; text-decoration: none; color: var(--theme-text); transition: background 0.2s;"
+                           onmouseover="this.style.background='var(--theme-hover)'" 
+                           onmouseout="this.style.background='transparent'">
+                            <span class="material-icons" style="font-size: 18px; color: var(--theme-primary);">code</span>
+                            <span style="font-size: 12px;">GitHub Repository</span>
+                        </a>
+                        <a href="#" onclick="desktop.openExternalLink('https://github.com/fredconex/Arandu/releases'); return false;" 
+                           style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; text-decoration: none; color: var(--theme-text); transition: background 0.2s;"
+                           onmouseover="this.style.background='var(--theme-hover)'" 
+                           onmouseout="this.style.background='transparent'">
+                            <span class="material-icons" style="font-size: 18px; color: var(--theme-primary);">download</span>
+                            <span style="font-size: 12px;">Download Releases</span>
+                        </a>
+                        <a href="#" onclick="desktop.openExternalLink('https://www.paypal.com/donate/?hosted_button_id=24CJHH95X3AQS'); return false;" 
+                           style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; text-decoration: none; color: var(--theme-text); transition: background 0.2s;"
+                           onmouseover="this.style.background='var(--theme-hover)'" 
+                           onmouseout="this.style.background='transparent'">
+                            <span class="material-icons" style="font-size: 18px; color: var(--theme-primary);">favorite</span>
+                            <span style="font-size: 12px;">Support Development</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

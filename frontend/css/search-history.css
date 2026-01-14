@@ -1,0 +1,243 @@
+/* Search History Dropdown Styles */
+
+/* Taskbar search history - appears ABOVE the input */
+#search-history-dropdown {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+#search-history-dropdown.show {
+    display: block;
+}
+
+/* HuggingFace search history - appears below and matches input width */
+#hf-search-history-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+#hf-search-history-dropdown.show {
+    display: block;
+}
+
+.search-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--theme-border);
+    background: var(--theme-surface-light);
+    border-radius: 8px 8px 0 0;
+}
+
+/* HF Dropdown Specific - Header at bottom */
+#hf-search-history-dropdown .search-history-header {
+    border-bottom: none;
+    border-top: 1px solid var(--theme-border);
+    border-radius: 0 0 8px 8px;
+}
+
+.search-history-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theme-text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.search-history-clear {
+    background: transparent;
+    border: none;
+    color: var(--theme-text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.search-history-clear:hover {
+    background: var(--theme-error-bg);
+    color: var(--theme-error);
+}
+
+.search-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.search-history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--theme-border);
+    transition: all 0.2s ease;
+    gap: 8px;
+}
+
+.search-history-item:last-child {
+    border-bottom: none;
+}
+
+.search-history-item:hover {
+    background: var(--theme-surface-light);
+}
+
+/* Rounded corners for the first item when header is at bottom */
+#hf-search-history-dropdown .search-history-item:first-child {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+/* Ensure border remains for items followed by header */
+#hf-search-history-dropdown .search-history-item:last-child {
+    border-bottom: 1px solid var(--theme-border);
+}
+
+.search-history-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--theme-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-history-delete {
+    background: transparent;
+    border: none;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    font-size: 16px;
+}
+
+.search-history-item:hover .search-history-delete {
+    opacity: 1;
+}
+
+.search-history-delete:hover {
+    background: var(--theme-error-bg);
+    color: var(--theme-error);
+}
+
+.search-history-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--theme-text-muted);
+    font-size: 13px;
+}
+
+#hf-search-history-dropdown .search-history-empty {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom: 1px solid var(--theme-border);
+}
+
+/* Add position relative to search balloon content */
+.search-balloon-content {
+    position: relative;
+}
+
+.search-input-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+/* Search history button inside the input field */
+.search-history-btn {
+    position: absolute;
+    right: 8px;
+    /* Move to right */
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.search-history-btn:hover {
+    background: var(--theme-surface-light);
+    color: var(--theme-primary);
+}
+
+.search-history-btn .material-icons {
+    font-size: 20px;
+}
+
+/* For HuggingFace search - button inside the wrapper */
+#hf-search-history-btn {
+    position: absolute;
+    /* Changed to absolute to sit over input */
+    right: 8px;
+    margin-right: 0;
+}
+
+/* Adjust input padding to make room for history button (taskbar search) */
+.search-balloon-content .search-input {
+    padding-right: 12px;
+    padding-left: 12px;
+    width: 100%;
+}
+
+/* HuggingFace input padding */
+#hf-search-input {
+    padding-right: 40px;
+    padding-left: 12px;
+}
+
+.search-history-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+
+.search-history-dropdown::-webkit-scrollbar-thumb {
+    background: var(--theme-border);
+    border-radius: 3px;
+}
+
+.search-history-dropdown::-webkit-scrollbar-thumb:hover {
+    background: var(--theme-primary);
+}
+
+/* Add position relative to search balloon content */
+.search-balloon-content {
+    position: relative;
+}
