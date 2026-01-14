@@ -1669,7 +1669,7 @@ class DesktopManager {
         }
     }
 
-    toggleSettingsPanel() {
+    async toggleSettingsPanel() {
         const windowElement = document.getElementById('settings-window');
         const settingsDockIcon = document.getElementById('settings-dock-icon');
         
@@ -1688,6 +1688,9 @@ class DesktopManager {
                     windowElement.style.top = '50%';
                     windowElement.style.transform = 'translate(-50%, -50%)';
                 }
+
+                // Fetch and display app version
+                this.updateAppVersion();
 
                 // Populate theme selectors dynamically
                 const themeColorSelect = document.getElementById('theme-color');
@@ -1758,6 +1761,19 @@ class DesktopManager {
             } catch (error) {
                 console.error('Error reverting theme settings:', error);
             }
+        }
+    }
+
+    async updateAppVersion() {
+        const versionBadge = document.getElementById('app-version-badge');
+        if (!versionBadge) return;
+
+        try {
+            const version = await invoke('get_app_version');
+            versionBadge.textContent = `v${version}`;
+        } catch (error) {
+            console.error('Failed to get app version:', error);
+            versionBadge.textContent = 'Unknown';
         }
     }
 
