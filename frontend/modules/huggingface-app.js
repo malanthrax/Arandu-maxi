@@ -170,10 +170,10 @@ class HuggingFaceApp {
                         <p>Enter a search term and press Enter to find llama.cpp compatible text generation models</p>
                         <div class="search-suggestions">
                             <span class="suggestion-label">Popular searches:</span>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('llama')"># llama</button>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('mistral')"># mistral</button>
                             <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('qwen')"># qwen</button>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('codellama')"># codellama</button>
+                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('minimax')"># minimax</button>
+                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('glm')"># glm</button>
+                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('mistral')"># mistral</button>
                         </div>
                     </div>
                 </div>
