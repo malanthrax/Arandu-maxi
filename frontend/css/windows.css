@@ -323,6 +323,29 @@
 	opacity: 0.6;
 }
 
+.server-btn.auto-switch-btn {
+	background: #666;
+	padding: 4px 6px;
+	min-width: 32px;
+}
+
+.server-btn.auto-switch-btn:hover:not(:disabled) {
+	background: #777;
+}
+
+.server-btn.auto-switch-btn.active {
+	background: #4caf50;
+}
+
+.server-btn.auto-switch-btn.active:hover:not(:disabled) {
+	background: #45a049;
+}
+
+.server-btn.auto-switch-btn .material-icons {
+	font-size: 18px;
+	vertical-align: middle;
+}
+
 .server-output {
 	flex: 1;
 	overflow-y: auto;

@@ -9,6 +9,9 @@ class TerminalManager {
         // Initialize Tauri API access
         this.invoke = null;
         this.initTauriAPI();
+
+        // Load auto-switch setting from localStorage (default: enabled)
+        this.autoSwitchEnabled = localStorage.getItem('terminalAutoSwitch') !== 'false';
     }
 
     initTauriAPI() {
@@ -45,6 +48,7 @@ class TerminalManager {
                             <span class="server-status starting"><span class="material-icons" style="color: #ffc107; font-size: 14px;">circle</span> Starting</span>
                             <span class="server-details">${modelName} - <span class="clickable" style="cursor: pointer; text-decoration: underline;" onclick="terminalManager.openUrl('http://${host}:${port}')">${host}:${port}</span><button class="copy-link-btn" style="background: none; border: none; cursor: pointer; margin-left: 5px; padding: 0; font-size: 14px; vertical-align: middle;" onclick="terminalManager.copyToClipboard('http://${host}:${port}', this)" title="Copy link"><span class="material-icons" style="font-size: 14px; color: var(--theme-text-muted);">content_copy</span></button></span>
                             <div class="server-controls">
+                                <button class="server-btn auto-switch-btn ${this.autoSwitchEnabled ? 'active' : ''}" id="auto-switch-btn-${windowId}" onclick="terminalManager.toggleAutoSwitch('${windowId}')" title="${this.autoSwitchEnabled ? 'Auto-switch to chat: ON' : 'Auto-switch to chat: OFF'}"><span class="material-icons">${this.autoSwitchEnabled ? 'toggle_on' : 'toggle_off'}</span></button>
                                 <button class="server-btn stop-btn" id="stop-btn-${windowId}"><span class="material-icons">stop</span> Stop</button>
                             </div>
                         </div>
@@ -238,10 +242,12 @@ class TerminalManager {
                         console.log('Server ready message detected, updating status to running');
                         this.updateServerStatus(windowId, 'running');
                         
-                        // Auto-switch to chat tab when server is running
-                        setTimeout(() => {
-                            this.switchTab(windowId, 'chat');
-                        }, 500);
+                        // Auto-switch to chat tab when server is running (if enabled)
+                        if (this.autoSwitchEnabled) {
+                            setTimeout(() => {
+                                this.switchTab(windowId, 'chat');
+                            }, 500);
+                        }
                     }
 
                     // Save output to terminal data (keep last 1000 lines)
@@ -335,10 +341,12 @@ class TerminalManager {
                     console.log('Health check successful, updating status to running');
                     this.updateServerStatus(windowId, 'running');
                     
-                    // Auto-switch to chat tab when server is running
-                    setTimeout(() => {
-                        this.switchTab(windowId, 'chat');
-                    }, 500);
+                    // Auto-switch to chat tab when server is running (if enabled)
+                    if (this.autoSwitchEnabled) {
+                        setTimeout(() => {
+                            this.switchTab(windowId, 'chat');
+                        }, 500);
+                    }
                 }
             } else {
                 throw new Error(`Server responded with status ${response.status}`);
@@ -652,6 +660,31 @@ class TerminalManager {
         }
     }
 
+    toggleAutoSwitch(windowId) {
+        // Toggle the global auto-switch setting
+        this.autoSwitchEnabled = !this.autoSwitchEnabled;
+        
+        // Save to localStorage
+        localStorage.setItem('terminalAutoSwitch', this.autoSwitchEnabled.toString());
+        
+        // Update all auto-switch buttons across all terminals
+        const allAutoSwitchButtons = document.querySelectorAll('.auto-switch-btn');
+        allAutoSwitchButtons.forEach(btn => {
+            const icon = btn.querySelector('.material-icons');
+            if (this.autoSwitchEnabled) {
+                btn.classList.add('active');
+                btn.title = 'Auto-switch to chat: ON';
+                if (icon) icon.textContent = 'toggle_on';
+            } else {
+                btn.classList.remove('active');
+                btn.title = 'Auto-switch to chat: OFF';
+                if (icon) icon.textContent = 'toggle_off';
+            }
+        });
+        
+        console.log(`Auto-switch ${this.autoSwitchEnabled ? 'enabled' : 'disabled'}`);
+    }
+
     openNativeChatForServer(modelName, host, port) {
         const url = `http://${host}:${port}`;
         const windowId = `native_chat_${Date.now()}`; // Unique ID for each window
@@ -913,6 +946,7 @@ class TerminalManager {
                             </span>
                             <span class="server-details">${terminalData.modelName} - <span class="clickable" style="cursor: pointer; text-decoration: underline;" onclick="terminalManager.openUrl('http://${terminalData.host}:${terminalData.port}')">${terminalData.host}:${terminalData.port}</span><button class="copy-link-btn" style="background: none; border: none; cursor: pointer; margin-left: 5px; padding: 0; font-size: 14px; vertical-align: middle;" onclick="terminalManager.copyToClipboard('http://${terminalData.host}:${terminalData.port}', this)" title="Copy link"><span class="material-icons" style="font-size: 14px; color: var(--theme-text-muted);">content_copy</span></button></span>
                             <div class="server-controls">
+                                <button class="server-btn auto-switch-btn ${this.autoSwitchEnabled ? 'active' : ''}" id="auto-switch-btn-${windowId}" onclick="terminalManager.toggleAutoSwitch('${windowId}')" title="${this.autoSwitchEnabled ? 'Auto-switch to chat: ON' : 'Auto-switch to chat: OFF'}"><span class="material-icons">${this.autoSwitchEnabled ? 'toggle_on' : 'toggle_off'}</span></button>
                                 ${terminalData.status === 'running' || terminalData.status === 'starting' ?
                 `<button class="server-btn stop-btn" onclick="terminalManager.stopServer('${terminalData.processId}', '${windowId}', '${terminalData.modelPath}', '${terminalData.modelName}')"><span class="material-icons">stop</span> Stop</button>` :
                 `<button class="server-btn start-btn" onclick="terminalManager.restartServer('${windowId}', '${terminalData.modelPath}', '${terminalData.modelName}')"><span class="material-icons">play_arrow</span> Start</button>`
