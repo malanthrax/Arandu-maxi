@@ -6,8 +6,64 @@ class HuggingFaceApp {
         // Initialize Tauri API access - defer until needed
         this.invoke = null;
         this.tauriInitialized = false;
+        // Load suggestions from config file
+        this.suggestions = [];
+        this.loadSuggestions();
         // Don't call initTauriAPI here - wait until first use
         this.setupEventListeners();
+    }
+
+    async loadSuggestions() {
+        try {
+            const response = await fetch('huggingface-suggestions.json');
+            const data = await response.json();
+            this.suggestions = data.suggestions || [];
+        } catch (error) {
+            console.error('Failed to load suggestions:', error);
+            // Fallback to default suggestions
+            this.suggestions = ['qwen', 'minimax', 'glm', 'mistral'];
+        }
+    }
+
+    generateSuggestionsHTML() {
+        // Split suggestions into two rows: 4 in first row, remaining in second row
+        const firstRow = this.suggestions.slice(0, 4);
+        const secondRow = this.suggestions.slice(4);
+        
+        let html = '';
+        
+        if (firstRow.length > 0) {
+            html += '<div class="suggestions-row">\n';
+            html += firstRow.map(term => 
+                `                        <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('${term}')">${term}</button>`
+            ).join('\n');
+            html += '\n                    </div>';
+        }
+        
+        if (secondRow.length > 0) {
+            html += '\n                    <div class="suggestions-row">\n';
+            html += secondRow.map(term => 
+                `                        <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('${term}')">${term}</button>`
+            ).join('\n');
+            html += '\n                    </div>';
+        }
+        
+        return html;
+    }
+
+    generatePlaceholderHTML() {
+        return `
+            <div class="search-placeholder">
+                <div class="search-placeholder-icon">Search</div>
+                <p>Enter a search term and press Enter to find llama.cpp compatible text generation models</p>
+                <div class="search-suggestions">
+                    <span class="suggestion-label">Popular searches:</span>
+                    <div class="suggestions-grid">
+                    ${this.generateSuggestionsHTML()}
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     initTauriAPI() {
@@ -165,17 +221,7 @@ class HuggingFaceApp {
                 </div>
                 
                 <div class="search-results" id="hf-search-results">
-                    <div class="search-placeholder">
-                        <div class="search-placeholder-icon">Search</div>
-                        <p>Enter a search term and press Enter to find llama.cpp compatible text generation models</p>
-                        <div class="search-suggestions">
-                            <span class="suggestion-label">Popular searches:</span>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('qwen')"># qwen</button>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('minimax')"># minimax</button>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('glm')"># glm</button>
-                            <button class="suggestion-btn" onclick="huggingFaceApp.quickSearch('mistral')"># mistral</button>
-                        </div>
-                    </div>
+                    ${this.generatePlaceholderHTML()}
                 </div>
             </div>
         `;
@@ -251,6 +297,11 @@ class HuggingFaceApp {
             searchClearBtn.addEventListener('click', () => {
                 searchInput.value = '';
                 searchInput.focus();
+                // Reset to initial page with suggestions
+                const resultsContainer = window.querySelector('#hf-search-results');
+                if (resultsContainer) {
+                    resultsContainer.innerHTML = this.generatePlaceholderHTML();
+                }
             });
         }
 
