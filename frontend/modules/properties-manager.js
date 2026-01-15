@@ -1671,193 +1671,7 @@ class PropertiesManager {
         }
     }
 
-    // DEPRECATED: Old popup-based add setting menu - replaced with sidebar
-    /*
-    async openAddSettingMenu(buttonElement) {
-        this.closePopover();
-
-        const settingsConfig = await this.desktop.loadSettingsConfig();
-        
-        // Use the window containing the button to ensure we get the correct context
-        const activeWindow = buttonElement.closest('.properties-window') || document.querySelector('.properties-window:not(.hidden)');
-        if (!activeWindow) return;
-        
-        const textarea = activeWindow.querySelector('[data-field="custom_args"]');
-        const customArgs = textarea.value;
-        const parsedSettings = customArgs && customArgs.trim() ? await this.desktop.parseArgumentsToSettings(customArgs) : {};
-
-        // Group by category, including all settings (enabled and disabled)
-        const categories = {};
-        let hasAvailableSettings = false;
-
-        settingsConfig.forEach(setting => {
-            const cat = setting.category || 'Other';
-            if (!categories[cat]) categories[cat] = [];
-            
-            // Mark if setting is already enabled
-            setting.isEnabled = parsedSettings[setting.id + '_enabled'] || false;
-            categories[cat].push(setting);
-            
-            // Count available (non-enabled) settings
-            if (!setting.isEnabled) {
-                hasAvailableSettings = true;
-            }
-        });
-
-        const popover = document.createElement('div');
-        popover.className = 'setting-popover add-setting-menu';
-        popover.id = 'setting-popover';
-
-        let menuHTML = `
-            <div class="menu-search-container">
-                <input type="text" class="menu-search-input" placeholder="Search settings..."
-                       oninput="propertiesManager.filterAddMenu(this.value)" 
-                       onkeydown="propertiesManager.handleSearchKeydown(event)"
-                       onclick="event.stopPropagation()">
-            </div>
-            <div class="add-menu-content">
-        `;
-        
-        if (!hasAvailableSettings) {
-             menuHTML += '<div class="menu-empty">All settings are already in use</div>';
-        } else {
-            const sortedCats = Object.keys(categories).sort();
-            
-            for (const cat of sortedCats) {
-                // Categories start collapsed
-                menuHTML += `
-                    <div class="menu-category collapsed" data-category="${cat}">
-                        <div class="menu-category-header" onclick="propertiesManager.toggleCategory(this.parentNode)">
-                            <span class="material-icons arrow-icon">expand_more</span>
-                            ${cat}
-                            <span class="category-count">(${categories[cat].length})</span>
-                        </div>
-                        <div class="menu-category-items">
-                `;
-                
-                categories[cat].forEach(setting => {
-                    // Searchable text includes name, description, and argument
-                    const searchText = `${setting.name} ${setting.description} ${setting.argument} ${setting.aliases ? setting.aliases.join(' ') : ''}`.toLowerCase();
-                    
-                    // Determine if setting is enabled and create appropriate classes and onclick
-                    const isEnabled = setting.isEnabled;
-                    const itemClass = isEnabled ? 'menu-item disabled' : 'menu-item';
-                    const onclick = isEnabled ? '' : `onclick="propertiesManager.addSettingById('${setting.id}'); propertiesManager.closePopover();"`;
-                    const title = isEnabled ? `${setting.description} (Already in use)` : setting.description;
-                    
-                    menuHTML += `
-                        <div class="${itemClass}"
-                             ${onclick}
-                             title="${title}"
-                             data-search-text="${searchText}">
-                            ${setting.name}
-                            ${isEnabled ? '<span class="menu-item-status">✓ In use</span>' : ''}
-                        </div>
-                    `;
-                });
-                
-                menuHTML += `</div></div>`;
-            }
-        }
-        
-        // Add custom argument option at the bottom
-        menuHTML += `
-            <div class="menu-category">
-                <div class="menu-item custom-arg-item" onclick="propertiesManager.addCustomArgument(); propertiesManager.closePopover();" title="Add a custom argument">
-                    <span>+ Custom Argument</span>
-                </div>
-            </div>
-        `;
-        
-        menuHTML += '</div>';
-        popover.innerHTML = menuHTML;
-        
-        document.body.appendChild(popover);
-        
-        // Position popover
-        const rect = buttonElement.getBoundingClientRect();
-        popover.style.left = rect.left + 'px';
-        popover.style.top = (rect.bottom + 8) + 'px';
-        
-        // Adjust if off screen
-        const popRect = popover.getBoundingClientRect();
-        if (popRect.right > window.innerWidth) {
-            popover.style.left = (window.innerWidth - popRect.width - 20) + 'px';
-        }
-        if (popRect.bottom > window.innerHeight) {
-            popover.style.top = (rect.top - popRect.height - 8) + 'px';
-        }
-
-        // Focus search input
-        const searchInput = popover.querySelector('.menu-search-input');
-        if (searchInput) {
-            // Small delay to ensure render
-            setTimeout(() => {
-                searchInput.focus();
-                // Initialize auto-selection with empty query
-                this.filterAddMenu('');
-            }, 50);
-        }
-
-        // Close on click outside
-        setTimeout(() => {
-            const closeHandler = (e) => {
-                const clickedInside = popover.contains(e.target) || buttonElement.contains(e.target);
-                if (!clickedInside) {
-                    this.closePopover();
-                    document.removeEventListener('click', closeHandler);
-                    document.removeEventListener('keydown', keyHandler);
-                }
-            };
-            
-            const keyHandler = (e) => {
-                // Handle keyboard navigation in search input
-                if (e.target.classList.contains('menu-search-input')) {
-                    if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        this.navigateMenuItem(popover, 1);
-                        return;
-                    } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        this.navigateMenuItem(popover, -1);
-                        return;
-                    } else if (e.key === 'Enter') {
-                        const selectedItemOnclick = popover.dataset.selectedItem;
-                        if (selectedItemOnclick) {
-                            e.preventDefault();
-                            // Execute the onclick function
-                            try {
-                                eval(selectedItemOnclick);
-                            } catch (error) {
-                                console.error('Error executing selected item action:', error);
-                            }
-                            return;
-                        }
-                    }
-                }
-                
-                // Don't close popover if user is typing in an input field
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
-                    if (e.key === 'Escape') {
-                        this.closePopover();
-                        document.removeEventListener('click', closeHandler);
-                        document.removeEventListener('keydown', keyHandler);
-                    }
-                    return;
-                }
-                
-                if (e.key === 'Escape' || e.key === 'Enter') {
-                    this.closePopover();
-                    document.removeEventListener('click', closeHandler);
-                    document.removeEventListener('keydown', keyHandler);
-                }
-            };
-            
-            document.addEventListener('click', closeHandler);
-            document.addEventListener('keydown', keyHandler);
-        }, 0);
-    }
-    */
+    
 
     toggleCategory(categoryElement) {
         categoryElement.classList.toggle('collapsed');
@@ -2128,41 +1942,27 @@ class PropertiesManager {
         }
 
         // Add event listeners for inputs
-        const inputs = popover.querySelectorAll('input, select');
-        let closeHandlerActive = true;
-        
-        inputs.forEach(input => {
-            // Use 'input' event for input elements and 'change' event for select elements
-            const eventType = input.tagName.toLowerCase() === 'select' ? 'change' : 'input';
-            
-            // For select elements, disable close handler when focused
-            if (input.tagName.toLowerCase() === 'select') {
-                input.addEventListener('focus', () => {
-                    closeHandlerActive = false;
-                });
-                
-                input.addEventListener('blur', () => {
-                    setTimeout(() => {
-                        closeHandlerActive = true;
-                    }, 200);
-                });
-            }
-            
-            input.addEventListener(eventType, async (e) => {
-                // Update value display
-                if (input.type === 'range') {
-                    const display = popover.querySelector('.value-display');
-                    if (display) display.textContent = input.value;
-                }
-
-                await this.updateSettingValue(setting.id, input.value || input.checked);
-                
-                // Close popover after selecting from dropdown
-                if (input.tagName.toLowerCase() === 'select') {
-                    this.closePopover();
-                }
-            });
-        });
+                 const inputs = popover.querySelectorAll('input, select');
+                 
+                 inputs.forEach(input => {
+                     // Use 'input' event for input elements and 'change' event for select elements
+                     const eventType = input.tagName.toLowerCase() === 'select' ? 'change' : 'input';
+                     
+                     input.addEventListener(eventType, async (e) => {
+                         // Update value display
+                         if (input.type === 'range') {
+                             const display = popover.querySelector('.value-display');
+                             if (display) display.textContent = input.value;
+                         }
+         
+                         await this.updateSettingValue(setting.id, input.value || input.checked);
+                         
+                         // Close popover after selecting from dropdown
+                         if (input.tagName.toLowerCase() === 'select') {
+                             this.closePopover();
+                         }
+                     });
+                 });
 
         // Add Enter key handler for all input elements (not select or range) - separate loop to ensure it's added after other handlers
         const textInputs = popover.querySelectorAll('input:not([type="range"])');
@@ -2244,34 +2044,36 @@ class PropertiesManager {
         }
 
         // Prevent close handler from interfering with popover interactions
-        popover.addEventListener('click', (e) => {
-            // Stop all clicks inside the popover from bubbling up to document
-            e.stopPropagation();
-        });
-        
-        // Simple close handler - only close when clicking completely outside
-        setTimeout(() => {
-            const closeHandler = (e) => {
-                // Don't close if close handler is disabled (select is focused)
-                if (!closeHandlerActive) return;
+                popover.addEventListener('click', (e) => {
+                    // Stop all clicks inside the popover from bubbling up to document
+                    e.stopPropagation();
+                });
                 
-                // If we get here, the click was outside the popover and chip
-                this.closePopover();
-                document.removeEventListener('click', closeHandler);
-                document.removeEventListener('keydown', keyHandler);
-            };
-            
-            const keyHandler = (e) => {
-                if (e.key === 'Escape') {
-                    this.closePopover();
-                    document.removeEventListener('click', closeHandler);
-                    document.removeEventListener('keydown', keyHandler);
-                }
-            };
-            
-            document.addEventListener('click', closeHandler);
-            document.addEventListener('keydown', keyHandler);
-        }, 50); // Very short delay since we're using stopPropagation
+                // Close handler - close when clicking outside the popover
+                                 setTimeout(() => {
+                                     const closeHandler = (e) => {
+                                         // Check if the click was outside the popover and the original chip
+                                         const clickedInsidePopover = popover.contains(e.target);
+                                         const clickedInsideChip = chipElement.contains(e.target);
+                                         
+                                         if (!clickedInsidePopover && !clickedInsideChip) {
+                                             this.closePopover();
+                                             document.removeEventListener('click', closeHandler);
+                                             document.removeEventListener('keydown', keyHandler);
+                                         }
+                                     };
+                                     
+                                     const keyHandler = (e) => {
+                                         if (e.key === 'Escape') {
+                                             this.closePopover();
+                                             document.removeEventListener('click', closeHandler);
+                                             document.removeEventListener('keydown', keyHandler);
+                                         }
+                                     };
+                                     
+                                     document.addEventListener('click', closeHandler);
+                                     document.addEventListener('keydown', keyHandler);
+                                 }, 50); // Very short delay since we're using stopPropagation
     }
 
     closePopover() {
@@ -2380,27 +2182,30 @@ class PropertiesManager {
         });
 
         // Close when clicking outside
-        setTimeout(() => {
-            const closeHandler = (e) => {
-                const clickedInside = popover.contains(e.target) || chipElement.contains(e.target);
-                if (!clickedInside) {
-                    this.closePopover();
-                    document.removeEventListener('click', closeHandler);
-                    document.removeEventListener('keydown', keyHandler);
-                }
-            };
-            
-            const keyHandler = (e) => {
-                if (e.key === 'Escape') {
-                    this.closePopover();
-                    document.removeEventListener('click', closeHandler);
-                    document.removeEventListener('keydown', keyHandler);
-                }
-            };
-            
-            document.addEventListener('click', closeHandler);
-            document.addEventListener('keydown', keyHandler);
-        }, 0);
+                setTimeout(() => {
+                    const closeHandler = (e) => {
+                        // Check if the click was outside the popover and the original chip
+                        const clickedInsidePopover = popover.contains(e.target);
+                        const clickedInsideChip = chipElement.contains(e.target);
+                        
+                        if (!clickedInsidePopover && !clickedInsideChip) {
+                            this.closePopover();
+                            document.removeEventListener('click', closeHandler);
+                            document.removeEventListener('keydown', keyHandler);
+                        }
+                    };
+                    
+                    const keyHandler = (e) => {
+                        if (e.key === 'Escape') {
+                            this.closePopover();
+                            document.removeEventListener('click', closeHandler);
+                            document.removeEventListener('keydown', keyHandler);
+                        }
+                    };
+                    
+                    document.addEventListener('click', closeHandler);
+                    document.addEventListener('keydown', keyHandler);
+                }, 0);
     }
 
     async updateUnknownArg(encodedOldArg, newArg) {
