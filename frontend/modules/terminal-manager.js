@@ -246,7 +246,7 @@ class TerminalManager {
                         if (this.autoSwitchEnabled) {
                             setTimeout(() => {
                                 this.switchTab(windowId, 'chat');
-                            }, 500);
+                            }, 4000);
                         }
                     }
 
