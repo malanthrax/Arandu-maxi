@@ -903,6 +903,11 @@
 	background: var(--theme-hover);
 }
 
+.context-menu-item .material-icons {
+	font-size: 12px;
+	vertical-align: middle;
+}
+
 .context-menu-separator {
 	height: 1px;
 	background: var(--theme-border);

@@ -784,9 +784,9 @@ class DesktopManager {
                         presetsHTML = '<div class="context-menu-submenu">';
                         presetsHTMLExternal = '<div class="context-menu-submenu">';
                         presets.forEach(preset => {
-                            const defaultBadge = preset.is_default ? ' ★' : '';
-                            presetsHTML += `<div class="context-menu-item" data-action="launch-preset" data-preset-id="${preset.id}">${preset.name}${defaultBadge}</div>`;
-                            presetsHTMLExternal += `<div class="context-menu-item" data-action="launch-preset-external" data-preset-id="${preset.id}">${preset.name}${defaultBadge}</div>`;
+                            const defaultBadge = preset.is_default ? ' <span class="material-icons" style="font-size: 12px; vertical-align: middle;">home</span>' : '';
+                              presetsHTML += `<div class="context-menu-item" data-action="launch-preset" data-preset-id="${preset.id}">${preset.name}${defaultBadge}</div>`;
+                              presetsHTMLExternal += `<div class="context-menu-item" data-action="launch-preset-external" data-preset-id="${preset.id}">${preset.name}${defaultBadge}</div>`;
                         });
                         presetsHTML += '</div>';
                         presetsHTMLExternal += '</div>';
