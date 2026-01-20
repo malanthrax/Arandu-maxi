@@ -400,10 +400,30 @@ async fn execute_download(
             }
         }
 
-        // Move temp file to final location
-        tokio::fs::rename(&temp_path, &final_path).await
-            .map_err(|e| format!("Failed to finalize file: {}", e))?;
-
+        
+                // Move temp file to final location
+                // First, try to remove the final path if it exists (in case of resumed download)
+                if final_path.exists() {
+                    if let Err(e) = tokio::fs::remove_file(&final_path).await {
+                        return Err(format!("Failed to remove existing file before finalizing download: {}", e));
+                    }
+                }
+                
+                // Now rename the temp file to final location
+                if let Err(e) = tokio::fs::rename(&temp_path, &final_path).await {
+                    // If rename fails, try alternative approach using copy and remove
+                    if let Err(copy_error) = tokio::fs::copy(&temp_path, &final_path).await {
+                        // Attempt to clean up the temp file
+                        let _ = tokio::fs::remove_file(&temp_path).await;
+                        return Err(format!("Failed to finalize file (both rename and copy failed): {}, copy error: {}", e, copy_error));
+                    } else {
+                        // Copy succeeded, now remove the temp file
+                        if let Err(remove_error) = tokio::fs::remove_file(&temp_path).await {
+                            // Log the error but continue - the file was copied successfully
+                            eprintln!("Warning: Could not remove temp file after copying: {}", remove_error);
+                        }
+                    }
+                }
         // Extract if requested and file is a zip
         if config.auto_extract && file_name.to_lowercase().ends_with(".zip") {
             // Update status to extracting
@@ -430,7 +450,9 @@ async fn execute_download(
                 }
             } else {
                 // Remove the zip file after successful extraction
-                let _ = tokio::fs::remove_file(&final_path).await;
+                if let Err(e) = tokio::fs::remove_file(&final_path).await {
+                    eprintln!("Warning: Failed to remove zip file after extraction: {}", e);
+                }
             }
         }
 
@@ -556,6 +578,10 @@ async fn extract_zip(zip_path: &Path, destination: &str, download_id: &str, app_
                 if !p.exists() {
                     std::fs::create_dir_all(p).map_err(|e| format!("Failed to create parent directory: {}", e))?;
                 }
+            }
+            // Ensure the destination file doesn't exist before extraction to avoid conflicts
+            if outpath.exists() {
+                std::fs::remove_file(&outpath).map_err(|e| format!("Failed to remove existing file before extraction: {}", e))?;
             }
             let mut outfile = File::create(&outpath).map_err(|e| format!("Failed to create output file: {}", e))?;
             std::io::copy(&mut file, &mut outfile).map_err(|e| format!("Failed to extract file: {}", e))?;
