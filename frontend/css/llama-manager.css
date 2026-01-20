@@ -126,10 +126,54 @@
 .installed-path { font-size: 12px; color: var(--theme-text-muted); word-break: break-all; }
 
 .installed-status { justify-self: end; }
-.badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.badge.active { background: var(--theme-success, #2e7d32); color: #fff; }
-.badge.ok { background: var(--theme-primary); color: #fff; }
-.badge.warn { background: #8d6e63; color: #fff; }
+.badge { 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    min-width: 60px;
+    height: 28px;
+    box-sizing: border-box;
+    text-align: center;
+    border: 1px solid var(--theme-border);
+}
+.badge.active { 
+    background: #4caf50; 
+    color: #fff; 
+    border-color: #4caf50;
+}
+.badge.ok { 
+    background: var(--theme-surface-elevated); 
+    color: var(--theme-text); 
+    border-color: var(--theme-border);
+}
+.badge.warn { 
+    background: #8d6e63; 
+    color: #fff; 
+    border-color: #8d6e63;
+}
+.badge.activate {
+    background: var(--theme-surface-elevated);
+    color: var(--theme-text);
+    border-color: var(--theme-border);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.badge.activate:hover {
+    border-color: var(--theme-primary);
+    color: var(--theme-primary);
+}
+.badge.activate.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.badge.activate.disabled:hover {
+    border-color: var(--theme-border);
+    color: var(--theme-text);
+}
 
 .installed-actions { display: flex; gap: 8px; }
 .installed-actions button {
@@ -584,8 +628,8 @@
 
 .backend-item {
     display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 12px;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 8px;
     align-items: center;
     padding: 12px 16px;
     border-bottom: 1px solid var(--theme-border);
@@ -601,9 +645,13 @@
     background: rgba(0, 0, 0, 0.3);
 }
 
-.backend-item.active {
-    background: rgba(255, 255, 255, 0.08);
-    border-left: 3px solid var(--theme-text-muted);
+.backend-item.active .backend-type {
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.backend-item.active .backend-path {
+    color: rgba(255, 255, 255, 0.8);
 }
 
 .backend-info {
@@ -635,9 +683,24 @@
     justify-self: end;
 }
 
+.backend-activate {
+    justify-self: end;
+}
+
 .backend-actions {
-    display: flex;
-    gap: 6px;
+    justify-self: end;
+}
+
+.backend-actions .installed-delete {
+    background: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.backend-actions .installed-delete:hover {
+    background: #c82333;
+    border-color: #c82333;
+    color: white;
 }
 
 .backend-actions button {
@@ -652,6 +715,8 @@
     cursor: pointer;
     font-size: 11px;
     transition: all 0.2s ease;
+    height: 28px;
+    box-sizing: border-box;
 }
 
 .backend-actions button:hover {

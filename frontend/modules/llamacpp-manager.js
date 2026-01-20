@@ -162,17 +162,20 @@ class LlamaCppReleasesManager {
                                         </div>
                                         <div class="backend-path">${v.path}</div>
                                     </div>
-                                    <div class="backend-status">${status}</div>
-                                    <div class="backend-actions">
-                                        ${isActive ? '' : `
-                                            <button
-                                                class="${activateButtonClass}"
+                                    <div class="backend-status">
+                                        ${isActive ? '' : (v.has_server ? '' : '<span class="badge warn">Missing server</span>')}
+                                    </div>
+                                    <div class="backend-activate">
+                                        ${isActive ? '<span class="badge active">Active</span>' : `
+                                            <span
+                                                class="badge activate ${activateButtonDisabled ? 'disabled' : ''}"
                                                 onclick="if(!${activateButtonDisabled}) { llamacppReleasesManager.setActiveVersion('${escapedPath}'); }"
-                                                ${activateButtonDisabled ? 'disabled' : ''}
                                                 title="${activateButtonTitle}">
-                                                <span class="material-icons">check_circle</span> Activate
-                                            </button>
+                                                Activate
+                                            </span>
                                         `}
+                                    </div>
+                                    <div class="backend-actions">
                                         <button 
                                             class="installed-delete" 
                                             onclick="llamacppReleasesManager.deleteVersion('${escapedPath}')"
