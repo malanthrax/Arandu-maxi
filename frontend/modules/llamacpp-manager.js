@@ -94,53 +94,114 @@ class LlamaCppReleasesManager {
             container.innerHTML = '<div class="no-installed">No versions installed yet.</div>';
             return;
         }
-        // Sort versions by numeric version descending (e.g., b6356 > b6355)
-        const extractVersionNumber = (v) => {
-            const name = v?.name || (v?.path ? v.path.split(/[\\/]/).pop() : '');
+        
+        // Group versions by base version (ignoring backend suffix)
+        const versionGroups = {};
+        versions.forEach(v => {
+            const baseName = v.name.split('-')[0]; // Get base version name
+            if (!versionGroups[baseName]) {
+                versionGroups[baseName] = [];
+            }
+            versionGroups[baseName].push(v);
+        });
+        
+        // Sort version groups by numeric version descending
+        const extractVersionNumber = (name) => {
             const match = String(name).match(/(\d+)/);
             return match ? parseInt(match[1], 10) : -Infinity;
         };
-        const sortedVersions = [...versions].sort((a, b) => extractVersionNumber(b) - extractVersionNumber(a));
+        const sortedGroupNames = Object.keys(versionGroups).sort((a, b) => 
+            extractVersionNumber(b) - extractVersionNumber(a)
+        );
 
         const activePath = cfg?.active_executable_folder || null;
         const activeNorm = this.normalizePath(activePath);
-        const rows = sortedVersions.map(v => {
-            const isActive = !!activeNorm && this.normalizePath(v.path) === activeNorm;
-            const status = isActive ? '<span class="badge active">Active</span>' : (v.has_server ? '<span class="badge ok">Ready</span>' : '<span class="badge warn">Missing server</span>');
-            const name = v.name || (v.path ? v.path.split(/[\\/]/).pop() : '');
-            const escapedPath = this.escapeForOnclick(v.path || '');
+        
+        const rows = sortedGroupNames.map(baseName => {
+            const groupVersions = versionGroups[baseName];
             
-            // Determine if the activate button should be disabled
-            const isReady = v.has_server;
-            const activateButtonDisabled = !isReady;
-            const activateButtonClass = `installed-activate${activateButtonDisabled ? ' disabled' : ''}`;
-            const activateButtonTitle = activateButtonDisabled ? 'Cannot activate: server executable is missing' : 'Set as active version';
-
+            // Sort backends within group: CPU first, then others alphabetically
+            groupVersions.sort((a, b) => {
+                const aBackend = a.backend_type || 'cpu';
+                const bBackend = b.backend_type || 'cpu';
+                
+                if (aBackend === 'cpu' && bBackend !== 'cpu') return -1;
+                if (bBackend === 'cpu' && aBackend !== 'cpu') return 1;
+                
+                return aBackend.localeCompare(bBackend);
+            });
+            
             return `
-                <div class="installed-item">
-                    <div class="installed-info">
-                        <div class="installed-name">${name}</div>
-                        <div class="installed-path">${v.path}</div>
+                <div class="version-group">
+                    <div class="version-group-header">
+                        <h4>${baseName}</h4>
+                        <span class="version-count">${groupVersions.length} backend${groupVersions.length !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="installed-status">${status}</div>
-                    <div class="installed-actions">
-                        ${isActive ? '' : `
-                            <button
-                                class="${activateButtonClass}"
-                                onclick="if(!${activateButtonDisabled}) { llamacppReleasesManager.setActiveVersion('${escapedPath}'); }"
-                                ${activateButtonDisabled ? 'disabled' : ''}
-                                title="${activateButtonTitle}">
-                                <span class="material-icons">check_circle</span> Set Active
-                            </button>
-                        `}
-                        <button class="installed-delete" onclick="llamacppReleasesManager.deleteVersion('${escapedPath}')"><span class="material-icons">delete</span></button>
+                    <div class="backend-list">
+                        ${groupVersions.map(v => {
+                            const isActive = !!activeNorm && this.normalizePath(v.path) === activeNorm;
+                            const backendType = v.backend_type || 'cpu';
+                            const backendDisplay = this.getBackendDisplayName(backendType);
+                            const status = isActive ? '<span class="badge active">Active</span>' : 
+                                         (v.has_server ? '<span class="badge ok">Ready</span>' : 
+                                         '<span class="badge warn">Missing server</span>');
+                            const escapedPath = this.escapeForOnclick(v.path || '');
+                            
+                            const isReady = v.has_server;
+                            const activateButtonDisabled = !isReady;
+                            const activateButtonClass = `installed-activate${activateButtonDisabled ? ' disabled' : ''}`;
+                            const activateButtonTitle = activateButtonDisabled ? 
+                                'Cannot activate: server executable is missing' : 
+                                `Set ${backendDisplay} as active backend`;
+
+                            return `
+                                <div class="backend-item ${isActive ? 'active' : ''}">
+                                    <div class="backend-info">
+                                        <div class="backend-name">
+                                            <span class="backend-type">${backendDisplay}</span>
+                                        </div>
+                                        <div class="backend-path">${v.path}</div>
+                                    </div>
+                                    <div class="backend-status">${status}</div>
+                                    <div class="backend-actions">
+                                        ${isActive ? '' : `
+                                            <button
+                                                class="${activateButtonClass}"
+                                                onclick="if(!${activateButtonDisabled}) { llamacppReleasesManager.setActiveVersion('${escapedPath}'); }"
+                                                ${activateButtonDisabled ? 'disabled' : ''}
+                                                title="${activateButtonTitle}">
+                                                <span class="material-icons">check_circle</span> Activate
+                                            </button>
+                                        `}
+                                        <button 
+                                            class="installed-delete" 
+                                            onclick="llamacppReleasesManager.deleteVersion('${escapedPath}')"
+                                            title="Delete this backend">
+                                            <span class="material-icons">delete</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             `;
         }).join('');
+        
         container.innerHTML = `
             <div class="installed-list">${rows}</div>
         `;
+    }
+
+    getBackendDisplayName(backendType) {
+        const displayNames = {
+            'cpu': 'CPU',
+            'cuda': 'CUDA',
+            'vulkan': 'Vulkan',
+            'opencl': 'OpenCL',
+            'metal': 'Metal'
+        };
+        return displayNames[backendType] || backendType.toUpperCase();
     }
 
     async setActiveVersion(path) {
@@ -229,22 +290,47 @@ class LlamaCppReleasesManager {
             content_type: 'application/octet-stream' // Default content type since GitHub API sometimes returns unexpected values
         };
         
-        // Choose version folder using tag name (strip leading 'v'), fallback to asset name sans .zip
-        let versionFolder = (tagName || '').toString().trim().replace(/^v/, '');
-        if (!versionFolder) {
-            versionFolder = (name || '').replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
+        // Detect backend type from asset name
+        const backendType = this.detectBackendType(name);
+        
+        // Choose version folder using tag name and backend type
+        let baseVersion = (tagName || '').toString().trim().replace(/^v/, '');
+        if (!baseVersion) {
+            baseVersion = (name || '').replace(/\.zip$/i, '').replace(/[^A-Za-z0-9._-]/g, '_');
+        }
+        
+        // Create version folder name with backend suffix if not CPU
+        let versionFolder = baseVersion;
+        if (backendType !== 'cpu') {
+            versionFolder = `${baseVersion}-${backendType}`;
         }
 
         try {
             const invoke = this.getInvoke();
             if (!invoke) throw new Error('Tauri API not available');
             await invoke('download_llamacpp_asset_to_version', { asset, versionFolder: versionFolder });
-            console.log(`Started download of ${name} to ${versionFolder}`);
+            console.log(`Started download of ${name} (${backendType}) to ${versionFolder}`);
             // Auto-switch to Installed tab only when the downloaded version becomes Ready
             this.autoSwitchWhenVersionReady(versionFolder);
         } catch (error) {
             console.error(`Failed to start download of ${name}:`, error);
             alert(`Failed to start download: ${error.message}`);
+        }
+    }
+
+    detectBackendType(assetName) {
+        const name = assetName.toLowerCase();
+        
+        if (name.includes('cuda') || name.includes('cudart')) {
+            return 'cuda';
+        } else if (name.includes('vulkan')) {
+            return 'vulkan';
+        } else if (name.includes('opencl')) {
+            return 'opencl';
+        } else if (name.includes('metal')) {
+            return 'metal';
+        } else {
+            return 'cpu';
         }
     }
 
@@ -525,7 +611,8 @@ class LlamaCppReleasesManager {
                     return `
                         <div class="release-asset${grayClass}">
                             <div class="asset-info">
-                                <span class="asset-name">${name}</span>${warningHTML}
+                                <span class="asset-name">${name}</span>
+                                ${warningHTML}
                             </div>
                             <button class="asset-download" onclick="llamacppReleasesManager.handleAssetDownload(${asset.id}, '${name}', '${asset.download_url}', ${asset.size}, '${release.tag_name}')" title="Download ${name} (${this.formatFileSize(asset.size)})">
                                 <span class="material-icons">download</span> Download (${this.formatFileSize(asset.size)})

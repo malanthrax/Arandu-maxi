@@ -26,6 +26,37 @@ use system_monitor::*;
 // Import ProcessHandle from process module
 use process::ProcessHandle;
 
+/// Detect backend type from asset name
+fn detect_backend_type(asset_name: &str) -> String {
+    let name_lower = asset_name.to_lowercase();
+    
+    if name_lower.contains("cuda") || name_lower.contains("cudart") {
+        "cuda".to_string()
+    } else if name_lower.contains("vulkan") {
+        "vulkan".to_string()
+    } else if name_lower.contains("opencl") {
+        "opencl".to_string()
+    } else if name_lower.contains("metal") {
+        "metal".to_string()
+    } else if name_lower.contains("cpu") || (!name_lower.contains("cuda") && !name_lower.contains("vulkan") && !name_lower.contains("opencl") && !name_lower.contains("metal")) {
+        "cpu".to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
+/// Get backend display information
+fn get_backend_info(backend_type: &str) -> (String, String) {
+    match backend_type {
+        "cuda" => ("CUDA".to_string(), "NVIDIA GPU acceleration".to_string()),
+        "vulkan" => ("Vulkan".to_string(), "Cross-platform GPU acceleration".to_string()),
+        "opencl" => ("OpenCL".to_string(), "OpenCL GPU acceleration".to_string()),
+        "metal" => ("Metal".to_string(), "Apple GPU acceleration".to_string()),
+        "cpu" => ("CPU".to_string(), "CPU-only execution".to_string()),
+        _ => ("Unknown".to_string(), "Unknown backend type".to_string()),
+    }
+}
+
 // Global application state
 #[derive(Debug)]
 pub struct AppState {
@@ -1192,6 +1223,7 @@ struct LlamaCppInstalledVersion {
     has_server: bool,
     created: Option<i64>,
     is_active: bool,
+    backend_type: Option<String>,
 }
 
 #[tauri::command]
@@ -1222,6 +1254,8 @@ async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec
                         .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs() as i64);
                     let path_string = path.to_string_lossy().to_string();
+                    // Detect backend type from the folder name or any contained files
+                    let backend_type = detect_backend_type(&name);
                     // Determine active by version name first, then fallback to path match
                     let is_active = if let Some(active_ver) = &active_version {
                         active_ver == &name
@@ -1240,7 +1274,14 @@ async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec
                             a == b
                         }
                     } else { false };
-                    out.push(LlamaCppInstalledVersion { name, path: path_string, has_server, created, is_active });
+                    out.push(LlamaCppInstalledVersion { 
+                        name, 
+                        path: path_string, 
+                        has_server, 
+                        created, 
+                        is_active,
+                        backend_type: Some(backend_type),
+                    });
                 }
             }
         }
