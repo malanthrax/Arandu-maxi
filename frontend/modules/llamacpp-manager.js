@@ -646,19 +646,19 @@ class LlamaCppReleasesManager {
                     </div>
                     <div class="release-details">
                         <div class="release-tabs">
-                            <button class="release-tab active" onclick="llamacppReleasesManager.switchReleaseTab(this, 'notes')" data-tab="notes">
-                                <span class="material-icons">description</span> Release Notes
-                            </button>
-                            <button class="release-tab" onclick="llamacppReleasesManager.switchReleaseTab(this, 'downloads')" data-tab="downloads">
+                            <button class="release-tab active" onclick="llamacppReleasesManager.switchReleaseTab(this, 'downloads')" data-tab="downloads">
                                 <span class="material-icons">download</span> Downloads (${release.assets.length})
+                            </button>
+                            <button class="release-tab" onclick="llamacppReleasesManager.switchReleaseTab(this, 'notes')" data-tab="notes">
+                                <span class="material-icons">description</span> Release Notes
                             </button>
                         </div>
                         <div class="release-tab-content">
-                            <div class="release-tab-pane active" data-pane="notes">
-                                <div class="release-body">${release.body || 'No release notes available for this release.'}</div>
-                            </div>
-                            <div class="release-tab-pane" data-pane="downloads">
+                            <div class="release-tab-pane active" data-pane="downloads">
                                 ${assetsHTML}
+                            </div>
+                            <div class="release-tab-pane" data-pane="notes">
+                                <div class="release-body">${release.body || 'No release notes available for this release.'}</div>
                             </div>
                         </div>
                     </div>
