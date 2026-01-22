@@ -382,6 +382,34 @@ class DesktopManager {
         });
     }
 
+    handleGlobalClickInteraction() {
+        this.hideContextMenu();
+        this.hideDockContextMenu();
+
+        // Collapse memory monitor
+        const memoryMonitor = document.getElementById('desktop-memory-monitor');
+        if (memoryMonitor) {
+            memoryMonitor.classList.remove('expanded');
+            memoryMonitor.classList.remove('active');
+        }
+
+        // Close search balloon
+        const searchBalloon = document.getElementById('search-balloon');
+        const searchDockIcon = document.getElementById('search-dock-icon');
+        if (searchBalloon && searchDockIcon) {
+            searchBalloon.classList.add('hidden');
+            searchDockIcon.classList.remove('active');
+            
+            // Also hide history dropdown
+            const dropdown = document.getElementById('search-history-dropdown');
+            if (dropdown) {
+                dropdown.classList.remove('show');
+            }
+        }
+        
+        this.deselectAllIcons();
+    }
+
     setupEventListeners() {
         this.setupDockBehavior();
         const themeColor = document.getElementById('theme-color');

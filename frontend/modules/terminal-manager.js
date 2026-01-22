@@ -100,6 +100,37 @@ class TerminalManager {
                 zIndex: window.style.zIndex,
                 classList: Array.from(window.classList)
             });
+
+            // Handle focus/click to bring to front and handle global click interactions
+            // Since iframe consumes clicks, we monitor window blur which happens when clicking into iframe
+            setTimeout(() => {
+                const chatPanel = window.querySelector(`#panel-chat-${windowId}`);
+                if (chatPanel) {
+                    const iframe = chatPanel.querySelector('iframe');
+                    if (iframe) {
+                        const blurHandler = () => {
+                            if (document.activeElement === iframe) {
+                                // Bring this window to front
+                                window.style.zIndex = ++this.desktop.windowZIndex;
+                                
+                                // Update visual active state
+                                document.querySelectorAll('.window').forEach(w => w.classList.remove('active'));
+                                window.classList.add('active');
+                                
+                                document.querySelectorAll('.taskbar-item').forEach(t => t.classList.remove('active'));
+                                const taskbarItem = document.getElementById(`taskbar-${windowId}`);
+                                if (taskbarItem) taskbarItem.classList.add('active');
+
+                                // Trigger global click interactions (hide menus, collapse hardware monitor)
+                                if (this.desktop.handleGlobalClickInteraction) {
+                                    this.desktop.handleGlobalClickInteraction();
+                                }
+                            }
+                        };
+                        globalThis.addEventListener('blur', blurHandler);
+                    }
+                }
+            }, 100);
         } else {
             console.error('Failed to create terminal window!');
             return null;
