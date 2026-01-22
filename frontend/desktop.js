@@ -335,7 +335,7 @@ class DesktopManager {
                          dock.classList.remove('visible');
                     }
                     hideTimeout = null;
-                }, 2000);
+                }, 200);
             }
         });
 
@@ -372,7 +372,7 @@ class DesktopManager {
                             dock.classList.remove('visible');
                         }
                         hideTimeout = null;
-                    }, 2000);
+                    }, 200);
                 }
             } else if (inKeepAliveZone && hideTimeout) {
                 // If we moved back into keep alive zone, cancel hiding
