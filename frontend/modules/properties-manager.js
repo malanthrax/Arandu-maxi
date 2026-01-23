@@ -78,7 +78,7 @@ class PropertiesManager {
                         custom_args: config.custom_args || '',
                         is_default: true
                     };
-                    await invoke('save_model_preset', { modelPath: modelPath, preset: defaultPreset });
+                    // Only add to working presets, don't save to backend yet
                     presets = [defaultPreset];
                 }
                 
@@ -613,22 +613,25 @@ class PropertiesManager {
 
     async setDefaultPreset(presetId, modelPath) {
         try {
-            const invoke = this.getInvoke();
-            if (!invoke) throw new Error('Tauri API not available');
-
-            await invoke('set_default_preset', { modelPath: modelPath, presetId: presetId });
-
-            // Update working presets to match backend
             const activeWindow = document.querySelector('.properties-window:not(.hidden)');
-            if (activeWindow) {
-                // Reload working presets from backend to ensure sync
+            if (!activeWindow) return;
+
+            // Initialize working presets if not exists
+            if (!activeWindow.workingPresets) {
+                const invoke = this.getInvoke();
+                if (!invoke) return;
                 activeWindow.workingPresets = await invoke('get_model_presets', { modelPath: modelPath });
-                
-                // Update UI with working presets
-                const presetsList = activeWindow.querySelector('#presets-list');
-                if (presetsList) {
-                    presetsList.innerHTML = this.generatePresetsListHTML(activeWindow.workingPresets);
-                }
+            }
+
+            // Update the default preset in working presets only (don't save to backend yet)
+            for (const preset of activeWindow.workingPresets) {
+                preset.is_default = preset.id === presetId;
+            }
+
+            // Update UI with working presets
+            const presetsList = activeWindow.querySelector('#presets-list');
+            if (presetsList) {
+                presetsList.innerHTML = this.generatePresetsListHTML(activeWindow.workingPresets);
             }
         } catch (error) {
             console.error('Error setting default preset:', error);
