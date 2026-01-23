@@ -1294,11 +1294,6 @@ class PropertiesManager {
         }
     }
 
-    // DEPRECATED: Use toggleSetting instead
-    async addSettingById(settingId) {
-        return this.toggleSetting(settingId);
-    }
-
     async deleteModelFile(encodedModelPath) {
         // Decode the base64-encoded model path
         const modelPath = atob(encodedModelPath);
@@ -1678,122 +1673,7 @@ class PropertiesManager {
             console.error('Error toggling setting:', error);
         }
     }
-
-    
-
-    toggleCategory(categoryElement) {
-        categoryElement.classList.toggle('collapsed');
-    }
-
-    filterAddMenu(query) {
-        const popover = document.getElementById('setting-popover');
-        if (!popover) return;
-
-        const q = query.toLowerCase();
-        const categories = popover.querySelectorAll('.menu-category');
-        let firstVisibleItem = null;
-
-        // Clear previous selection
-        popover.querySelectorAll('.menu-item').forEach(item => {
-            item.classList.remove('auto-selected');
-        });
-
-        categories.forEach(cat => {
-            const items = cat.querySelectorAll('.menu-item');
-            let hasVisibleItems = false;
-
-            items.forEach(item => {
-                const text = item.dataset.searchText;
-                if (text && text.includes(q)) {
-                    item.style.display = 'block';
-                    hasVisibleItems = true;
-                    
-                    // Track the first visible, non-disabled item
-                    if (!firstVisibleItem && !item.classList.contains('disabled')) {
-                        firstVisibleItem = item;
-                    }
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-
-            if (hasVisibleItems) {
-                cat.style.display = 'block';
-                // Expand if searching, otherwise respect collapsed state
-                if (q.length > 0) {
-                    cat.classList.remove('collapsed');
-                } else {
-                    cat.classList.add('collapsed');
-                }
-            } else {
-                cat.style.display = 'none';
-            }
-        });
-
-        // Auto-select the first visible item
-        if (firstVisibleItem) {
-            firstVisibleItem.classList.add('auto-selected');
-            // Store reference for Enter key handling
-            popover.dataset.selectedItem = firstVisibleItem.getAttribute('onclick') || '';
-        } else {
-            popover.dataset.selectedItem = '';
-        }
-
-        // Update the visible items list for keyboard navigation
-        this.updateVisibleMenuItems(popover);
-    }
-
-    updateVisibleMenuItems(popover) {
-        // Get all visible, non-disabled menu items for keyboard navigation
-        const visibleItems = Array.from(popover.querySelectorAll('.menu-item'))
-            .filter(item => item.style.display !== 'none' && !item.classList.contains('disabled'));
-        
-        // Store for keyboard navigation
-        popover.visibleMenuItems = visibleItems;
-        
-        // Find current selected index
-        const selectedItem = popover.querySelector('.menu-item.auto-selected');
-        popover.selectedIndex = selectedItem ? visibleItems.indexOf(selectedItem) : -1;
-    }
-
-    navigateMenuItem(popover, direction) {
-        if (!popover.visibleMenuItems || popover.visibleMenuItems.length === 0) return;
-
-        // Clear current selection
-        popover.querySelectorAll('.menu-item').forEach(item => {
-            item.classList.remove('auto-selected');
-        });
-
-        // Calculate new index
-        let newIndex = popover.selectedIndex + direction;
-        
-        // Wrap around
-        if (newIndex < 0) {
-            newIndex = popover.visibleMenuItems.length - 1;
-        } else if (newIndex >= popover.visibleMenuItems.length) {
-            newIndex = 0;
-        }
-
-        // Update selection
-        popover.selectedIndex = newIndex;
-        const selectedItem = popover.visibleMenuItems[newIndex];
-        
-        if (selectedItem) {
-            selectedItem.classList.add('auto-selected');
-            popover.dataset.selectedItem = selectedItem.getAttribute('onclick') || '';
-            
-            // Scroll item into view if needed
-            selectedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
-    }
-
-    handleSearchKeydown(event) {
-        // Prevent default behavior for arrow keys to avoid cursor movement in input
-        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            event.preventDefault();
-        }
-    }
-
+  
     async openSettingPopover(chipElement, settingId) {
         // Close existing popover
         this.closePopover();
@@ -2182,14 +2062,6 @@ class PropertiesManager {
         }
     }
 
-    async addSettingFromMenu(settingId) {
-        // Close the popup menu immediately
-        const menu = document.getElementById('settings-popup-menu');
-        if (menu) menu.classList.add('hidden');
-
-        await this.addSettingById(settingId);
-    }
-
     async openUnknownArgPopover(chipElement, encodedArg) {
         // Close existing popover
         this.closePopover();
@@ -2382,38 +2254,6 @@ class PropertiesManager {
         }
     }
 
-    async addCustomArgument() {
-        try {
-            const activeWindow = document.querySelector('.properties-window:not(.hidden)');
-            if (!activeWindow) return;
-
-            const textarea = activeWindow.querySelector('[data-field="custom_args"]');
-            const settingsConfig = await this.desktop.loadSettingsConfig();
-            
-            // Add a placeholder custom argument
-            const currentArgs = textarea.value.trim();
-            const newArgs = currentArgs ? `${currentArgs} --custom-arg value` : '--custom-arg value';
-            textarea.value = newArgs;
-            
-            // Regenerate visualizer
-            await this.regenerateVisualizer(activeWindow, newArgs);
-
-            // Automatically open the popover for the new custom argument
-            setTimeout(() => {
-                const customChips = activeWindow.querySelectorAll('.arg-chip.unknown');
-                const newChip = Array.from(customChips).find(chip => 
-                    chip.textContent.includes('--custom-arg value')
-                );
-                if (newChip) {
-                    this.openUnknownArgPopover(newChip, encodeURIComponent('--custom-arg value'));
-                }
-            }, 100);
-
-        } catch (error) {
-            console.error('Error adding custom argument:', error);
-        }
-    }
-
     // Drag and Drop functionality using mouse events
     async updateArgumentsFromChipOrder() {
         try {
@@ -2439,11 +2279,5 @@ class PropertiesManager {
         } catch (error) {
             console.error('Error updating arguments from chip order:', error);
         }
-    }
-
-    async updateArgumentsFromChipOrderWithPlaceholder() {
-        // This method is intentionally simplified to reduce lag during drag
-        // The actual update happens in updateArgumentsFromChipOrder on drop
-        return;
     }
 }
