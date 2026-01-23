@@ -355,45 +355,58 @@ class PropertiesManager {
     }
 
     setupPresetListeners(window, modelPath) {
-        const presetsList = window.querySelector('#presets-list');
-        if (!presetsList) return;
-
-        // Store the currently selected preset ID on the window
-        window.dataset.selectedPresetId = '';
-        
-        // Initialize working presets list - this is the single source of truth
-        if (!window.workingPresets) {
-            window.workingPresets = [];
-        }
-
-        // Click on preset to load it
-        presetsList.addEventListener('click', async (e) => {
-            const presetItem = e.target.closest('.preset-item');
-            if (presetItem && !e.target.closest('.preset-action-btn')) {
-                // Don't handle click if we're clicking on an editable preset name
-                const presetName = e.target.closest('.preset-name');
-                if (presetName && presetName.contentEditable === 'true') {
-                    return;
-                }
-
-                const presetId = presetItem.dataset.presetId;
-                
-                // Save current preset's arguments to temp storage before switching
-                await this.saveCurrentPresetToTemp(window, modelPath);
-                
-                // Update visual selection
-                presetsList.querySelectorAll('.preset-item').forEach(item => {
-                    item.classList.remove('selected');
-                });
-                presetItem.classList.add('selected');
-                
-                // Store selected preset ID
-                window.dataset.selectedPresetId = presetId;
-                
-                await this.loadPreset(presetId, modelPath, window);
+            const presetsList = window.querySelector('#presets-list');
+            if (!presetsList) return;
+    
+            // Store the currently selected preset ID on the window
+            window.dataset.selectedPresetId = '';
+            
+            // Initialize working presets list - this is the single source of truth
+            if (!window.workingPresets) {
+                window.workingPresets = [];
             }
-        });
-    }
+    
+            // Click on preset to load it
+            presetsList.addEventListener('click', async (e) => {
+                const presetItem = e.target.closest('.preset-item');
+                if (presetItem && !e.target.closest('.preset-action-btn')) {
+                    // Don't handle click if we're clicking on an editable preset name
+                    const presetName = e.target.closest('.preset-name');
+                    if (presetName && presetName.contentEditable === 'true') {
+                        return;
+                    }
+    
+                    const presetId = presetItem.dataset.presetId;
+                    
+                    // Save current preset's arguments to temp storage before switching
+                    await this.saveCurrentPresetToTemp(window, modelPath);
+                    
+                    // Update visual selection
+                    presetsList.querySelectorAll('.preset-item').forEach(item => {
+                        item.classList.remove('selected');
+                    });
+                    presetItem.classList.add('selected');
+                    
+                    // Store selected preset ID
+                    window.dataset.selectedPresetId = presetId;
+                    
+                    await this.loadPreset(presetId, modelPath, window);
+                }
+            });
+    
+            // Double-click on preset name to start inline editing
+            presetsList.addEventListener('dblclick', (e) => {
+                const presetName = e.target.closest('.preset-name');
+                if (presetName) {
+                    e.preventDefault(); // Prevent text selection on double click
+                    const presetItem = presetName.closest('.preset-item');
+                    const presetId = presetItem.dataset.presetId;
+                    
+                    // Start inline editing
+                    this.startInlineEdit(presetName, presetId, modelPath);
+                }
+            });
+        }
 
     async saveCurrentPresetToTemp(window, modelPath) {
         const currentPresetId = window.dataset.selectedPresetId;
