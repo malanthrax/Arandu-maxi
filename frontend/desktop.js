@@ -776,9 +776,20 @@ class DesktopManager {
         // Clear all history button
         const clearAllBtn = document.getElementById('search-history-clear-all');
         if (clearAllBtn) {
-            clearAllBtn.addEventListener('click', () => {
-                searchHistory.clearHistory();
-                this.updateSearchHistoryDropdown();
+            clearAllBtn.addEventListener('click', async () => {
+                // Show confirmation dialog before clearing history
+                const confirmed = await ModalDialog.showConfirmation({
+                    title: 'Clear Search History',
+                    message: 'Are you sure you want to clear all search history? This action cannot be undone.',
+                    confirmText: 'Clear History',
+                    cancelText: 'Cancel',
+                    type: 'danger'
+                });
+                
+                if (confirmed) {
+                    searchHistory.clearHistory();
+                    this.updateSearchHistoryDropdown();
+                }
             });
         }
 
