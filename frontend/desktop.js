@@ -1345,9 +1345,15 @@ class DesktopManager {
         const icons = desktopIcons.querySelectorAll('.desktop-icon');
         const term = searchTerm.toLowerCase().trim();
 
+        // Extract only alphanumeric characters from the search term
+        const cleanTerm = term.replace(/[^a-z0-9]/g, '');
+
         icons.forEach(icon => {
             const iconName = icon.dataset.name.toLowerCase();
-            if (term === '' || iconName.includes(term)) {
+            // Extract only alphanumeric characters from the icon name
+            const cleanIconName = iconName.replace(/[^a-z0-9]/g, '');
+            
+            if (cleanTerm === '' || cleanIconName.includes(cleanTerm)) {
                 icon.style.display = 'flex';
             } else {
                 icon.style.display = 'none';
