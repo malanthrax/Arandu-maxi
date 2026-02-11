@@ -69,7 +69,7 @@ class PropertiesManager {
             .then(async ([config, presets]) => {
                 console.log('Loaded config for', modelPath, ':', config);
                 console.log('Loaded presets for', modelPath, ':', presets);
-                
+
                 // If no presets exist, create a default one
                 if (!presets || presets.length === 0) {
                     const defaultPreset = {
@@ -81,25 +81,25 @@ class PropertiesManager {
                     // Only add to working presets, don't save to backend yet
                     presets = [defaultPreset];
                 }
-                
+
                 const content = await this.generatePropertiesContent(config, modelPath, metadata, presets);
                 const window = this.desktop.createWindow(windowId, `Properties - ${modelName}`, 'properties-window', content);
                 // Add to taskbar
                 this.desktop.addTaskbarItem(`Properties - ${modelName}`, windowId, '<span class="material-icons">settings</span>');
                 this.setupPropertiesSync(window);
-                
+
                 // Setup drag and drop for initial content
                 const visualizer = window.querySelector('#arguments-visualizer');
                 if (visualizer) {
                     this.initDragAndDrop(visualizer);
                 }
-                
+
                 // Setup preset list interactions
                 this.setupPresetListeners(window, modelPath);
-                
+
                 // Initialize working presets
                 window.workingPresets = [...presets]; // Create a copy for editing
-                
+
                 // Auto-select default preset or first preset
                 const defaultPreset = presets.find(p => p.is_default) || presets[0];
                 if (defaultPreset) {
@@ -298,7 +298,7 @@ class PropertiesManager {
         settingsConfig.forEach(setting => {
             const cat = setting.category || 'Other';
             if (!categories[cat]) categories[cat] = [];
-            
+
             // Mark if setting is already enabled
             setting.isEnabled = parsedSettings[setting.id + '_enabled'] || false;
             categories[cat].push(setting);
@@ -306,7 +306,7 @@ class PropertiesManager {
 
         let html = '';
         const sortedCats = Object.keys(categories).sort();
-        
+
         for (const cat of sortedCats) {
             html += `
                 <div class="settings-category collapsed" data-category="${cat}">
@@ -317,14 +317,14 @@ class PropertiesManager {
                     </div>
                     <div class="settings-category-items">
             `;
-            
+
             categories[cat].forEach(setting => {
                 const searchText = `${setting.name} ${setting.description} ${setting.argument} ${setting.aliases ? setting.aliases.join(' ') : ''}`.toLowerCase();
                 const isEnabled = setting.isEnabled;
                 const itemClass = isEnabled ? 'settings-item in-use' : 'settings-item';
                 const onclick = `onclick="propertiesManager.toggleSetting('${setting.id}')"`;
                 const title = setting.description;
-                
+
                 html += `
                     <div class="${itemClass}"
                          ${onclick}
@@ -337,10 +337,10 @@ class PropertiesManager {
                     </div>
                 `;
             });
-            
+
             html += `</div></div>`;
         }
-        
+
         // Add custom argument option at the bottom - outside any category
         html += `
             <div class="settings-item custom-arg-item" onclick="propertiesManager.addCustomArgument()" title="Add a custom argument" style="margin-top: 8px;">
@@ -350,63 +350,63 @@ class PropertiesManager {
                 </div>
             </div>
         `;
-        
+
         return html;
     }
 
     setupPresetListeners(window, modelPath) {
-            const presetsList = window.querySelector('#presets-list');
-            if (!presetsList) return;
-    
-            // Store the currently selected preset ID on the window
-            window.dataset.selectedPresetId = '';
-            
-            // Initialize working presets list - this is the single source of truth
-            if (!window.workingPresets) {
-                window.workingPresets = [];
-            }
-    
-            // Click on preset to load it
-            presetsList.addEventListener('click', async (e) => {
-                const presetItem = e.target.closest('.preset-item');
-                if (presetItem && !e.target.closest('.preset-action-btn')) {
-                    // Don't handle click if we're clicking on an editable preset name
-                    const presetName = e.target.closest('.preset-name');
-                    if (presetName && presetName.contentEditable === 'true') {
-                        return;
-                    }
-    
-                    const presetId = presetItem.dataset.presetId;
-                    
-                    // Save current preset's arguments to temp storage before switching
-                    await this.saveCurrentPresetToTemp(window, modelPath);
-                    
-                    // Update visual selection
-                    presetsList.querySelectorAll('.preset-item').forEach(item => {
-                        item.classList.remove('selected');
-                    });
-                    presetItem.classList.add('selected');
-                    
-                    // Store selected preset ID
-                    window.dataset.selectedPresetId = presetId;
-                    
-                    await this.loadPreset(presetId, modelPath, window);
-                }
-            });
-    
-            // Double-click on preset name to start inline editing
-            presetsList.addEventListener('dblclick', (e) => {
-                const presetName = e.target.closest('.preset-name');
-                if (presetName) {
-                    e.preventDefault(); // Prevent text selection on double click
-                    const presetItem = presetName.closest('.preset-item');
-                    const presetId = presetItem.dataset.presetId;
-                    
-                    // Start inline editing
-                    this.startInlineEdit(presetName, presetId, modelPath);
-                }
-            });
+        const presetsList = window.querySelector('#presets-list');
+        if (!presetsList) return;
+
+        // Store the currently selected preset ID on the window
+        window.dataset.selectedPresetId = '';
+
+        // Initialize working presets list - this is the single source of truth
+        if (!window.workingPresets) {
+            window.workingPresets = [];
         }
+
+        // Click on preset to load it
+        presetsList.addEventListener('click', async (e) => {
+            const presetItem = e.target.closest('.preset-item');
+            if (presetItem && !e.target.closest('.preset-action-btn')) {
+                // Don't handle click if we're clicking on an editable preset name
+                const presetName = e.target.closest('.preset-name');
+                if (presetName && presetName.contentEditable === 'true') {
+                    return;
+                }
+
+                const presetId = presetItem.dataset.presetId;
+
+                // Save current preset's arguments to temp storage before switching
+                await this.saveCurrentPresetToTemp(window, modelPath);
+
+                // Update visual selection
+                presetsList.querySelectorAll('.preset-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+                presetItem.classList.add('selected');
+
+                // Store selected preset ID
+                window.dataset.selectedPresetId = presetId;
+
+                await this.loadPreset(presetId, modelPath, window);
+            }
+        });
+
+        // Double-click on preset name to start inline editing
+        presetsList.addEventListener('dblclick', (e) => {
+            const presetName = e.target.closest('.preset-name');
+            if (presetName) {
+                e.preventDefault(); // Prevent text selection on double click
+                const presetItem = presetName.closest('.preset-item');
+                const presetId = presetItem.dataset.presetId;
+
+                // Start inline editing
+                this.startInlineEdit(presetName, presetId, modelPath);
+            }
+        });
+    }
 
     async saveCurrentPresetToTemp(window, modelPath) {
         const currentPresetId = window.dataset.selectedPresetId;
@@ -456,7 +456,7 @@ class PropertiesManager {
             const textarea = activeWindow.querySelector('[data-field="custom_args"]');
             if (textarea) {
                 textarea.value = preset.custom_args;
-                
+
                 // Update visualizer
                 await this.regenerateVisualizer(activeWindow, preset.custom_args);
             }
@@ -521,10 +521,10 @@ class PropertiesManager {
                     item.classList.remove('selected');
                 });
                 newPresetItem.classList.add('selected');
-                
+
                 // Store selected preset ID
                 activeWindow.dataset.selectedPresetId = preset.id;
-                
+
                 // Load the preset
                 await this.loadPreset(preset.id, modelPath, activeWindow);
 
@@ -543,7 +543,7 @@ class PropertiesManager {
 
     async showPresetMenu(event, presetId) {
         event.stopPropagation();
-        
+
         const activeWindow = document.querySelector('.properties-window:not(.hidden)');
         if (!activeWindow) return;
 
@@ -562,21 +562,21 @@ class PropertiesManager {
         // Find the current preset to check if it's already default
         const currentPreset = activeWindow.workingPresets.find(p => p.id === presetId);
         const isDefault = currentPreset && currentPreset.is_default;
-        
+
         // Check if delete should be shown (more than one preset)
         const canDelete = activeWindow.workingPresets.length > 1;
 
         // Build menu items conditionally
         let menuItems = [];
-        
+
         // Only show "Set as Default" if not already default
         if (!isDefault) {
             menuItems.push('<div class="context-menu-item" data-action="set-default">Set as Default</div>');
         }
-        
+
         menuItems.push('<div class="context-menu-item" data-action="duplicate">Duplicate</div>');
         menuItems.push('<div class="context-menu-item" data-action="rename">Rename</div>');
-        
+
         // Only show delete if there's more than one preset
         if (canDelete) {
             menuItems.push('<div class="context-menu-separator"></div>');
@@ -717,11 +717,11 @@ class PropertiesManager {
     startInlineEdit(presetNameElement, presetId, modelPath) {
         // Store original name for cancellation
         const originalName = presetNameElement.dataset.originalName || presetNameElement.textContent;
-        
+
         // Make element editable
         presetNameElement.contentEditable = true;
         presetNameElement.classList.add('editing');
-        
+
         // Select all text
         presetNameElement.focus();
         const range = document.createRange();
@@ -734,7 +734,7 @@ class PropertiesManager {
         const finishEdit = async (save = true) => {
             presetNameElement.contentEditable = false;
             presetNameElement.classList.remove('editing');
-            
+
             if (save) {
                 const newName = presetNameElement.textContent.trim();
                 if (newName && newName !== originalName) {
@@ -792,7 +792,7 @@ class PropertiesManager {
             const preset = activeWindow.workingPresets.find(p => p.id === presetId);
             if (preset) {
                 preset.name = newName;
-                
+
                 // Update the data attribute for future reference
                 const presetNameElement = activeWindow.querySelector(`[data-preset-id="${presetId}"] .preset-name`);
                 if (presetNameElement) {
@@ -854,13 +854,13 @@ class PropertiesManager {
             if (wasDefault && activeWindow.workingPresets.length > 0) {
                 // Clear any existing default flags (safety measure)
                 activeWindow.workingPresets.forEach(p => p.is_default = false);
-                
+
                 // Try to use the next preset, or the previous one if we deleted the last preset
                 let newDefaultIndex = presetIndex;
                 if (newDefaultIndex >= activeWindow.workingPresets.length) {
                     newDefaultIndex = activeWindow.workingPresets.length - 1;
                 }
-                
+
                 // Set the new default
                 activeWindow.workingPresets[newDefaultIndex].is_default = true;
                 console.log(`Assigned default to preset: ${activeWindow.workingPresets[newDefaultIndex].name}`);
@@ -876,7 +876,7 @@ class PropertiesManager {
             const currentPresetId = activeWindow.dataset.selectedPresetId;
             if (currentPresetId === presetId && activeWindow.workingPresets.length > 0) {
                 let newPresetToSelect;
-                
+
                 // If we deleted the default, select the new default preset
                 if (wasDefault) {
                     newPresetToSelect = activeWindow.workingPresets.find(p => p.is_default);
@@ -886,7 +886,7 @@ class PropertiesManager {
                 } else {
                     newPresetToSelect = activeWindow.workingPresets[0];
                 }
-                
+
                 // Update visual selection
                 const presetsList = activeWindow.querySelector('#presets-list');
                 if (presetsList) {
@@ -898,10 +898,10 @@ class PropertiesManager {
                         newPresetItem.classList.add('selected');
                     }
                 }
-                
+
                 // Store selected preset ID
                 activeWindow.dataset.selectedPresetId = newPresetToSelect.id;
-                
+
                 // Load the preset
                 await this.loadPreset(newPresetToSelect.id, modelPath, activeWindow);
             }
@@ -937,23 +937,23 @@ class PropertiesManager {
 
         // Add mouse event listeners to all draggable chips
         const chips = container.querySelectorAll('.arg-chip:not(.add-arg-btn)');
-        
+
         chips.forEach(chip => {
             chip.style.cursor = 'grab';
-            
+
             chip.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return; // Only left mouse button
-                
+
                 // Don't start drag if clicking on popover elements or select elements
                 if (e.target.closest('.setting-popover') || e.target.tagName === 'SELECT') return;
-                
+
                 draggedElement = chip;
                 startX = e.clientX;
                 startY = e.clientY;
-                
+
                 // Prevent text selection and default drag
                 e.preventDefault();
-                
+
                 document.addEventListener('mousemove', handleMouseMove);
                 document.addEventListener('mouseup', handleMouseUp);
             });
@@ -961,14 +961,14 @@ class PropertiesManager {
 
         const handleMouseMove = (e) => {
             if (!draggedElement) return;
-            
+
             // Only start dragging if mouse moved enough (prevents accidental drags)
             const deltaX = Math.abs(e.clientX - startX);
             const deltaY = Math.abs(e.clientY - startY);
-            
+
             if (!isDragging && (deltaX > 5 || deltaY > 5)) {
                 isDragging = true;
-                
+
                 // Create a clone that follows the cursor
                 draggedClone = draggedElement.cloneNode(true);
                 draggedClone.style.position = 'fixed';
@@ -979,50 +979,52 @@ class PropertiesManager {
                 draggedClone.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.3)';
                 draggedClone.classList.add('dragging-clone');
                 document.body.appendChild(draggedClone);
-                
+
                 // Create placeholder
                 placeholder = document.createElement('div');
                 placeholder.className = 'drag-placeholder';
-                placeholder.style.width = draggedElement.offsetWidth + 'px';
-                placeholder.style.height = draggedElement.offsetHeight + 'px';
+                placeholder.style.width = '2px';
+                placeholder.style.height = (draggedElement.offsetHeight - 4) + 'px'; // slightly shorter
+                placeholder.style.verticalAlign = 'middle';
                 placeholder.style.display = 'inline-block';
-                placeholder.style.margin = '2px';
-                placeholder.style.border = '2px dashed var(--theme-primary)';
-                placeholder.style.borderRadius = '4px';
-                placeholder.style.opacity = '0.5';
-                placeholder.style.backgroundColor = 'rgba(30, 136, 229, 0.1)';
-                
+                placeholder.style.margin = '0 4px';
+                placeholder.style.backgroundColor = 'var(--theme-primary)';
+                placeholder.style.borderRadius = '1px';
+                placeholder.style.opacity = '0.8';
+                placeholder.style.boxShadow = '0 0 4px var(--theme-glow)';
+                placeholder.style.pointerEvents = 'none';
+
                 // Replace original with placeholder
                 draggedElement.parentNode.insertBefore(placeholder, draggedElement);
                 draggedElement.style.display = 'none';
             }
-            
+
             if (!isDragging) return;
-            
+
             // Update clone position to follow cursor
             if (draggedClone) {
                 draggedClone.style.left = (e.clientX - draggedElement.offsetWidth / 2) + 'px';
                 draggedClone.style.top = (e.clientY - draggedElement.offsetHeight / 2) + 'px';
             }
-            
+
             // Find the element we're hovering over (excluding the clone and placeholder)
             const elementBelow = document.elementFromPoint(e.clientX, e.clientY);
             const visualizer = container;
-            
+
             // Get all chips except the dragged one, placeholder, and add button
             const allChips = Array.from(visualizer.querySelectorAll('.arg-chip:not(.add-arg-btn)'))
                 .filter(chip => chip !== draggedElement && !chip.classList.contains('drag-placeholder'));
-            
+
             let insertPosition = null;
             let insertBefore = null;
-            
+
             // Check if we're over a specific chip
             const targetChip = elementBelow?.closest('.arg-chip:not(.add-arg-btn):not(.dragging-clone)');
-            
+
             if (targetChip && targetChip !== draggedElement && !targetChip.classList.contains('drag-placeholder')) {
                 const rect = targetChip.getBoundingClientRect();
                 const midpoint = rect.left + rect.width / 2;
-                
+
                 if (e.clientX < midpoint) {
                     // Insert before this chip
                     insertBefore = targetChip;
@@ -1033,55 +1035,76 @@ class PropertiesManager {
             } else if (elementBelow?.closest('#arguments-visualizer')) {
                 // If we're in the visualizer but not over a chip, determine position based on mouse location
                 const visualizerRect = visualizer.getBoundingClientRect();
-                
+
                 if (allChips.length === 0) {
                     // No other chips, place before add button
                     insertBefore = visualizer.querySelector('.add-arg-btn');
                 } else {
-                    // Find the best position based on mouse X coordinate
-                    let bestPosition = null;
-                    let minDistance = Infinity;
-                    
-                    // Check position before first chip
-                    const firstChip = allChips[0];
-                    if (firstChip) {
-                        const firstRect = firstChip.getBoundingClientRect();
-                        const distanceToFirst = Math.abs(e.clientX - firstRect.left);
-                        if (distanceToFirst < minDistance) {
-                            minDistance = distanceToFirst;
-                            bestPosition = firstChip;
-                        }
-                    }
-                    
-                    // Check positions between chips and after last chip
-                    for (let i = 0; i < allChips.length; i++) {
-                        const chip = allChips[i];
+                    // Group chips into rows based on vertical position
+                    // This prevents jumping between rows when cursor is near the vertical gap
+                    const rows = [];
+                    const ROW_TOLERANCE = 15; // pixels tolerance for determining same row
+
+                    for (const chip of allChips) {
                         const rect = chip.getBoundingClientRect();
-                        
-                        // Check position after this chip
-                        const nextChip = allChips[i + 1];
-                        const nextRect = nextChip ? nextChip.getBoundingClientRect() : null;
-                        
-                        let targetX;
-                        if (nextRect) {
-                            // Position between this chip and next chip
-                            targetX = (rect.right + nextRect.left) / 2;
-                        } else {
-                            // Position after last chip
-                            targetX = rect.right + 20; // Add some padding
+                        const chipMidY = rect.top + rect.height / 2;
+
+                        let foundRow = false;
+                        for (const row of rows) {
+                            if (Math.abs(row.midY - chipMidY) < ROW_TOLERANCE) {
+                                row.chips.push({ node: chip, rect: rect, midX: rect.left + rect.width / 2 });
+                                foundRow = true;
+                                break;
+                            }
                         }
-                        
-                        const distance = Math.abs(e.clientX - targetX);
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            bestPosition = nextChip; // Insert before next chip (or null for end)
+
+                        if (!foundRow) {
+                            rows.push({
+                                midY: chipMidY,
+                                chips: [{ node: chip, rect: rect, midX: rect.left + rect.width / 2 }]
+                            });
                         }
                     }
-                    
-                    insertBefore = bestPosition;
+
+                    // Find the row closest to cursor vertical position
+                    let closestRow = null;
+                    let minRowDist = Infinity;
+
+                    for (const row of rows) {
+                        const dist = Math.abs(e.clientY - row.midY);
+                        if (dist < minRowDist) {
+                            minRowDist = dist;
+                            closestRow = row;
+                        }
+                    }
+
+                    if (closestRow) {
+                        // In the closest row, find the best horizontal insertion point
+                        let closestChipInRow = null;
+                        let minChipDist = Infinity;
+
+                        for (const item of closestRow.chips) {
+                            const dist = Math.abs(e.clientX - item.midX);
+                            if (dist < minChipDist) {
+                                minChipDist = dist;
+                                closestChipInRow = item;
+                            }
+                        }
+
+                        if (closestChipInRow) {
+                            // Decide whether to insert before or after based on horizontal position relative to the chip
+                            if (e.clientX < closestChipInRow.midX) {
+                                insertBefore = closestChipInRow.node;
+                            } else {
+                                insertBefore = closestChipInRow.node.nextElementSibling;
+                            }
+                        }
+                    } else {
+                        insertBefore = null;
+                    }
                 }
             }
-            
+
             // Only move placeholder if position changed
             if (insertBefore !== placeholder.nextElementSibling) {
                 if (insertBefore) {
@@ -1100,17 +1123,17 @@ class PropertiesManager {
 
         const handleMouseUp = (e) => {
             if (!draggedElement) return;
-            
+
             if (isDragging) {
                 // Ensure placeholder exists and is in the DOM
                 if (placeholder && placeholder.parentNode) {
                     // Get the exact position where placeholder is
                     const placeholderParent = placeholder.parentNode;
                     const placeholderNextSibling = placeholder.nextElementSibling;
-                    
+
                     // Remove placeholder first
                     placeholderParent.removeChild(placeholder);
-                    
+
                     // Insert dragged element at the exact same position
                     if (placeholderNextSibling) {
                         placeholderParent.insertBefore(draggedElement, placeholderNextSibling);
@@ -1118,18 +1141,18 @@ class PropertiesManager {
                         placeholderParent.appendChild(draggedElement);
                     }
                 }
-                
+
                 // Show original element
                 draggedElement.style.display = '';
-                
+
                 // Remove clone
                 if (draggedClone && draggedClone.parentNode) {
                     draggedClone.parentNode.removeChild(draggedClone);
                 }
-                
+
                 // Final update of arguments order
                 this.updateArgumentsFromChipOrder();
-                
+
                 // Reset any transforms
                 setTimeout(() => {
                     if (draggedElement) {
@@ -1141,13 +1164,13 @@ class PropertiesManager {
                 // If not dragging, just show the element
                 draggedElement.style.display = '';
             }
-            
+
             // Clean up
             draggedElement = null;
             isDragging = false;
             draggedClone = null;
             placeholder = null;
-            
+
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         };
@@ -1230,7 +1253,7 @@ class PropertiesManager {
         }
 
         const modelPath = atob(propertyGroup.dataset.modelPath);
-        
+
         // Save current preset changes to working list
         await this.saveCurrentPresetToTemp(activeWindow, modelPath);
 
@@ -1250,13 +1273,13 @@ class PropertiesManager {
             console.log('Final presets to save:', activeWindow.workingPresets);
 
             // Save all presets in one call
-            await invoke('update_model_presets', { 
-                modelPath: modelPath, 
-                presets: activeWindow.workingPresets 
+            await invoke('update_model_presets', {
+                modelPath: modelPath,
+                presets: activeWindow.workingPresets
             });
 
             console.log(`Saved ${activeWindow.workingPresets.length} presets total`);
-            
+
             // Update custom arguments indicators
             await this.desktop.updateCustomArgsIndicators();
 
@@ -1276,7 +1299,7 @@ class PropertiesManager {
             if (activeWindow.workingPresets) {
                 activeWindow.workingPresets = null;
             }
-            
+
             this.desktop.closeWindow(activeWindow.id);
         }
     }
@@ -1365,7 +1388,7 @@ class PropertiesManager {
         try {
             // Decode the base64-encoded model path
             const modelPath = atob(encodedModelPath);
-            
+
             // Use Tauri command to open the folder
             const invoke = this.getInvoke();
             if (!invoke) {
@@ -1401,7 +1424,7 @@ class PropertiesManager {
         settingsConfig.forEach(s => {
             // Map the main argument
             argToSetting[s.argument] = s;
-            
+
             // Map all aliases
             if (s.aliases && Array.isArray(s.aliases)) {
                 s.aliases.forEach(alias => {
@@ -1495,7 +1518,7 @@ class PropertiesManager {
         const settingsList = document.querySelector('.settings-sidebar');
         if (settingsList) {
             settingsList.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            
+
             // Focus the search input
             const searchInput = settingsList.querySelector('.settings-search-input');
             if (searchInput) {
@@ -1508,7 +1531,7 @@ class PropertiesManager {
 
     toggleSettingsCategory(categoryElement) {
         const wasCollapsed = categoryElement.classList.contains('collapsed');
-        
+
         // Collapse all other categories (accordion behavior)
         const allCategories = categoryElement.parentElement.querySelectorAll('.settings-category');
         allCategories.forEach(cat => {
@@ -1516,7 +1539,7 @@ class PropertiesManager {
                 cat.classList.add('collapsed');
             }
         });
-        
+
         // Toggle the clicked category
         if (wasCollapsed) {
             categoryElement.classList.remove('collapsed');
@@ -1579,7 +1602,7 @@ class PropertiesManager {
         const existingCategories = settingsList.querySelectorAll('.settings-category');
         existingCategories.forEach(cat => {
             if (!cat.classList.contains('collapsed')) {
-                const categoryName = cat.dataset.category || 
+                const categoryName = cat.dataset.category ||
                     cat.querySelector('.settings-category-header')?.textContent?.trim()?.split('(')[0]?.trim();
                 if (categoryName) {
                     expandedCategories.add(categoryName);
@@ -1594,13 +1617,13 @@ class PropertiesManager {
         const textarea = activeWindow.querySelector('[data-field="custom_args"]');
         const settingsConfig = await this.desktop.loadSettingsConfig();
         const settingsListHTML = await this.generateSettingsListHTML(textarea.value, settingsConfig);
-        
+
         settingsList.innerHTML = settingsListHTML;
 
         // Restore the expanded state of categories
         const newCategories = settingsList.querySelectorAll('.settings-category');
         newCategories.forEach(cat => {
-            const categoryName = cat.dataset.category || 
+            const categoryName = cat.dataset.category ||
                 cat.querySelector('.settings-category-header')?.textContent?.trim()?.split('(')[0]?.trim();
             if (categoryName && expandedCategories.has(categoryName)) {
                 cat.classList.remove('collapsed');
@@ -1696,7 +1719,7 @@ class PropertiesManager {
             console.error('Error toggling setting:', error);
         }
     }
-  
+
     async openSettingPopover(chipElement, settingId) {
         // Close existing popover
         this.closePopover();
@@ -1792,18 +1815,18 @@ class PropertiesManager {
                             popoverContent.innerHTML = selectHTML;
                             // Add event listener to the new select
                             const select = popoverContent.querySelector('select');
-                            
+
                             // Disable close handler when this select is focused
                             select.addEventListener('focus', () => {
                                 closeHandlerActive = false;
                             });
-                            
+
                             select.addEventListener('blur', () => {
                                 setTimeout(() => {
                                     closeHandlerActive = true;
                                 }, 200);
                             });
-                            
+
                             select.addEventListener('change', async (e) => {
                                 await this.updateSettingValue(setting.id, e.target.value);
                                 // Close popover after selecting from dropdown
@@ -1853,27 +1876,27 @@ class PropertiesManager {
         }
 
         // Add event listeners for inputs
-                 const inputs = popover.querySelectorAll('input, select');
-                 
-                 inputs.forEach(input => {
-                     // Use 'input' event for input elements and 'change' event for select elements
-                     const eventType = input.tagName.toLowerCase() === 'select' ? 'change' : 'input';
-                     
-                     input.addEventListener(eventType, async (e) => {
-                         // Update value display
-                         if (input.type === 'range') {
-                             const display = popover.querySelector('.value-display');
-                             if (display) display.textContent = input.value;
-                         }
-         
-                         await this.updateSettingValue(setting.id, input.value || input.checked);
-                         
-                         // Close popover after selecting from dropdown
-                         if (input.tagName.toLowerCase() === 'select') {
-                             this.closePopover();
-                         }
-                     });
-                 });
+        const inputs = popover.querySelectorAll('input, select');
+
+        inputs.forEach(input => {
+            // Use 'input' event for input elements and 'change' event for select elements
+            const eventType = input.tagName.toLowerCase() === 'select' ? 'change' : 'input';
+
+            input.addEventListener(eventType, async (e) => {
+                // Update value display
+                if (input.type === 'range') {
+                    const display = popover.querySelector('.value-display');
+                    if (display) display.textContent = input.value;
+                }
+
+                await this.updateSettingValue(setting.id, input.value || input.checked);
+
+                // Close popover after selecting from dropdown
+                if (input.tagName.toLowerCase() === 'select') {
+                    this.closePopover();
+                }
+            });
+        });
 
         // Add Enter key handler for all input elements (not select or range) - separate loop to ensure it's added after other handlers
         const textInputs = popover.querySelectorAll('input:not([type="range"])');
@@ -1883,10 +1906,10 @@ class PropertiesManager {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    
+
                     // Update the value first
                     await this.updateSettingValue(setting.id, input.value);
-                    
+
                     // Then close the popover
                     setTimeout(() => {
                         this.closePopover();
@@ -1923,7 +1946,7 @@ class PropertiesManager {
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    
+
                     // Update the value first
                     const newValue = e.target.textContent;
                     const rangeInput = popover.querySelector('input[type="range"]');
@@ -1931,7 +1954,7 @@ class PropertiesManager {
                         rangeInput.value = newValue;
                         await this.updateSettingValue(setting.id, newValue);
                     }
-                    
+
                     // Then close the popover
                     setTimeout(() => {
                         this.closePopover();
@@ -1955,36 +1978,36 @@ class PropertiesManager {
         }
 
         // Prevent close handler from interfering with popover interactions
-                popover.addEventListener('click', (e) => {
-                    // Stop all clicks inside the popover from bubbling up to document
-                    e.stopPropagation();
-                });
-                
-                // Close handler - close when clicking outside the popover
-                                 setTimeout(() => {
-                                     const closeHandler = (e) => {
-                                         // Check if the click was outside the popover and the original chip
-                                         const clickedInsidePopover = popover.contains(e.target);
-                                         const clickedInsideChip = chipElement.contains(e.target);
-                                         
-                                         if (!clickedInsidePopover && !clickedInsideChip) {
-                                             this.closePopover();
-                                             document.removeEventListener('click', closeHandler);
-                                             document.removeEventListener('keydown', keyHandler);
-                                         }
-                                     };
-                                     
-                                     const keyHandler = (e) => {
-                                         if (e.key === 'Escape') {
-                                             this.closePopover();
-                                             document.removeEventListener('click', closeHandler);
-                                             document.removeEventListener('keydown', keyHandler);
-                                         }
-                                     };
-                                     
-                                     document.addEventListener('click', closeHandler);
-                                     document.addEventListener('keydown', keyHandler);
-                                 }, 50); // Very short delay since we're using stopPropagation
+        popover.addEventListener('click', (e) => {
+            // Stop all clicks inside the popover from bubbling up to document
+            e.stopPropagation();
+        });
+
+        // Close handler - close when clicking outside the popover
+        setTimeout(() => {
+            const closeHandler = (e) => {
+                // Check if the click was outside the popover and the original chip
+                const clickedInsidePopover = popover.contains(e.target);
+                const clickedInsideChip = chipElement.contains(e.target);
+
+                if (!clickedInsidePopover && !clickedInsideChip) {
+                    this.closePopover();
+                    document.removeEventListener('click', closeHandler);
+                    document.removeEventListener('keydown', keyHandler);
+                }
+            };
+
+            const keyHandler = (e) => {
+                if (e.key === 'Escape') {
+                    this.closePopover();
+                    document.removeEventListener('click', closeHandler);
+                    document.removeEventListener('keydown', keyHandler);
+                }
+            };
+
+            document.addEventListener('click', closeHandler);
+            document.addEventListener('keydown', keyHandler);
+        }, 50); // Very short delay since we're using stopPropagation
     }
 
     closePopover() {
@@ -2017,7 +2040,7 @@ class PropertiesManager {
             // Re-setup drag and drop
             this.initDragAndDrop(visualizer);
         }
-        
+
         // Refresh the settings list to update the "in use" status
         await this.refreshSettingsList();
     }
@@ -2030,7 +2053,7 @@ class PropertiesManager {
         if (!textarea) return;
 
         const argsString = textarea.value.trim();
-        
+
         if (!argsString) {
             console.warn('No arguments to copy');
             return;
@@ -2039,7 +2062,7 @@ class PropertiesManager {
         try {
             await navigator.clipboard.writeText(argsString);
             console.log('Arguments copied to clipboard:', argsString);
-            
+
             // Show a notification
             if (this.desktop.showNotification) {
                 this.desktop.showNotification('Arguments copied to clipboard', 'success');
@@ -2063,10 +2086,10 @@ class PropertiesManager {
             const text = await navigator.clipboard.readText();
             if (text && text.trim()) {
                 textarea.value = text.trim();
-                
+
                 // Update visualizer
                 await this.regenerateVisualizer(activeWindow, text.trim());
-                
+
                 // Show a notification
                 if (this.desktop.showNotification) {
                     this.desktop.showNotification('Arguments pasted from clipboard', 'success');
@@ -2148,30 +2171,30 @@ class PropertiesManager {
         });
 
         // Close when clicking outside
-                setTimeout(() => {
-                    const closeHandler = (e) => {
-                        // Check if the click was outside the popover and the original chip
-                        const clickedInsidePopover = popover.contains(e.target);
-                        const clickedInsideChip = chipElement.contains(e.target);
-                        
-                        if (!clickedInsidePopover && !clickedInsideChip) {
-                            this.closePopover();
-                            document.removeEventListener('click', closeHandler);
-                            document.removeEventListener('keydown', keyHandler);
-                        }
-                    };
-                    
-                    const keyHandler = (e) => {
-                        if (e.key === 'Escape') {
-                            this.closePopover();
-                            document.removeEventListener('click', closeHandler);
-                            document.removeEventListener('keydown', keyHandler);
-                        }
-                    };
-                    
-                    document.addEventListener('click', closeHandler);
-                    document.addEventListener('keydown', keyHandler);
-                }, 0);
+        setTimeout(() => {
+            const closeHandler = (e) => {
+                // Check if the click was outside the popover and the original chip
+                const clickedInsidePopover = popover.contains(e.target);
+                const clickedInsideChip = chipElement.contains(e.target);
+
+                if (!clickedInsidePopover && !clickedInsideChip) {
+                    this.closePopover();
+                    document.removeEventListener('click', closeHandler);
+                    document.removeEventListener('keydown', keyHandler);
+                }
+            };
+
+            const keyHandler = (e) => {
+                if (e.key === 'Escape') {
+                    this.closePopover();
+                    document.removeEventListener('click', closeHandler);
+                    document.removeEventListener('keydown', keyHandler);
+                }
+            };
+
+            document.addEventListener('click', closeHandler);
+            document.addEventListener('keydown', keyHandler);
+        }, 0);
     }
 
     async updateUnknownArg(encodedOldArg, newArg) {
@@ -2181,17 +2204,17 @@ class PropertiesManager {
 
             const textarea = activeWindow.querySelector('[data-field="custom_args"]');
             const oldArg = decodeURIComponent(encodedOldArg);
-            
+
             // Replace the old argument with the new one
             let currentArgs = textarea.value.trim();
             const args = this.desktop.parseArguments(currentArgs);
-            
+
             // Find and replace the old argument
             const newArgs = [];
             let i = 0;
             while (i < args.length) {
                 const arg = args[i];
-                
+
                 // Check if this matches our old argument (could be single arg or arg + value)
                 if (arg === oldArg) {
                     // Single argument match
@@ -2216,10 +2239,10 @@ class PropertiesManager {
                     i++;
                 }
             }
-            
+
             const newArgsString = newArgs.join(' ');
             textarea.value = newArgsString;
-            
+
             // Regenerate visualizer
             await this.regenerateVisualizer(activeWindow, newArgsString);
 
@@ -2235,17 +2258,17 @@ class PropertiesManager {
 
             const textarea = activeWindow.querySelector('[data-field="custom_args"]');
             const argToRemove = decodeURIComponent(encodedArg);
-            
+
             // Remove the argument
             let currentArgs = textarea.value.trim();
             const args = this.desktop.parseArguments(currentArgs);
-            
+
             // Filter out the argument to remove
             const newArgs = [];
             let i = 0;
             while (i < args.length) {
                 const arg = args[i];
-                
+
                 // Check if this matches our argument to remove
                 if (arg === argToRemove) {
                     // Skip this argument
@@ -2265,10 +2288,10 @@ class PropertiesManager {
                     i++;
                 }
             }
-            
+
             const newArgsString = newArgs.join(' ');
             textarea.value = newArgsString;
-            
+
             // Regenerate visualizer
             await this.regenerateVisualizer(activeWindow, newArgsString);
 
@@ -2285,18 +2308,18 @@ class PropertiesManager {
 
             const textarea = activeWindow.querySelector('[data-field="custom_args"]');
             const visualizer = activeWindow.querySelector('#arguments-visualizer');
-            
+
             // Get all argument chips in their current order (excluding the add button)
             const chips = Array.from(visualizer.querySelectorAll('.arg-chip:not(.add-arg-btn)'));
-            
+
             // Build new arguments string from chip order
             const newArgs = chips.map(chip => {
                 return chip.dataset.rawArg || '';
             }).filter(arg => arg.trim() !== '').join(' ');
-            
+
             // Update textarea
             textarea.value = newArgs;
-            
+
             console.log('Reordered arguments:', newArgs);
 
         } catch (error) {
