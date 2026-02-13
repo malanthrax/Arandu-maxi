@@ -6,7 +6,7 @@
 
 **Version:** 0.5.5-beta  
 **Tech Stack:** Rust (Tauri backend) + Vanilla JavaScript (frontend)  
-**Platforms:** Windows (Linux/Mac planned)
+**Platforms:** Windows only
 
 ---
 
@@ -425,8 +425,7 @@ cargo tauri build
 ## Todo (from README)
 
 - [ ] Cleanup code and organize it better
-- [ ] Add option to group files by model / quantization / architecture  
-- [ ] Make compatible with Linux and Mac
+- [ ] New features (coming soon)
 
 ## Contact
 
