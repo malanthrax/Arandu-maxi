@@ -174,7 +174,8 @@ body.has-maximized-window #dock-trigger {
 	border: 1px solid rgba(255, 255, 255, 0.1); /* Subtle light border */
 	border-radius: 20px;
 	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-	z-index: 9998;
+	z-index: 100001;
+	pointer-events: auto;
 	user-select: none;
 	transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
 }
@@ -216,6 +217,8 @@ body.has-maximized-window .dock.visible {
 	position: relative;
 	flex-shrink: 0;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	pointer-events: auto;
+	z-index: 100002;
 }
 
 .dock-item.permanent {
@@ -266,7 +269,18 @@ body.has-maximized-window .dock.visible {
 
 .dock-item .material-icons,
 .taskbar-item .material-icons {
+	font-family: 'Material Icons', sans-serif;
 	font-size: 20px;
+	line-height: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	max-width: 20px;
+	max-height: 20px;
+	overflow: hidden;
+	white-space: nowrap;
 }
 
 /* Dock Item Progress Bar */
