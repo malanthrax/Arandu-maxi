@@ -3515,10 +3515,14 @@ class DesktopManager {
             iconElement.setAttribute('data-quantization', model.quantization);
             iconElement.setAttribute('data-date', model.date);
 
+            // Extract bit level from quantization for color coding
+            const quantColorClass = this.getQuantizationColorClass(model.quantization);
+
             iconElement.innerHTML = `
                 <div class="icon-image">
                     <img src="./assets/gguf.png" class="model-icon">
                     <div class="architecture-label">${model.architecture.substring(0, 7)}</div>
+                    <div class="quantization-bar ${quantColorClass}"></div>
                 </div>
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
             `;
@@ -3749,6 +3753,33 @@ class DesktopManager {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // Get CSS class for quantization color bar based on bit level
+    getQuantizationColorClass(quantization) {
+        if (!quantization || quantization === 'Unknown') {
+            return 'quant-unknown';
+        }
+        
+        // Extract bit level from quantization string (e.g., "Q4_K_M" -> 4, "F16" -> 16)
+        const bitMatch = quantization.match(/(\d+)/);
+        const bitLevel = bitMatch ? parseInt(bitMatch[0], 10) : 0;
+        
+        // Map bit levels to color classes
+        const colorMap = {
+            1: 'quant-1bit',
+            2: 'quant-2bit', 
+            3: 'quant-3bit',
+            4: 'quant-4bit',
+            5: 'quant-5bit',
+            6: 'quant-6bit',
+            7: 'quant-7bit',
+            8: 'quant-8bit',
+            16: 'quant-16bit',
+            32: 'quant-32bit'
+        };
+        
+        return colorMap[bitLevel] || 'quant-unknown';
     }
 
     showNotification(message, type = 'info') {

@@ -874,7 +874,7 @@ body.has-maximized-window .dock.visible {
 
 .architecture-label {
 	position: absolute;
-	bottom: 2px;
+	bottom: 6px;
 	left: 2px;
 	right: 2px;
 	font-size: 8px;
@@ -888,6 +888,7 @@ body.has-maximized-window .dock.visible {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	z-index: 4;
 }
 
 .icon-label {
@@ -906,6 +907,30 @@ body.has-maximized-window .dock.visible {
 	word-break: break-all;
 	hyphens: auto;
 }
+
+/* Quantization Color Bar */
+.quantization-bar {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 4px;
+	border-radius: 0 0 8px 8px;
+	z-index: 3;
+}
+
+/* Quantization bit-level colors */
+.quant-1bit { background: #DC2626; }   /* Deep Red */
+.quant-2bit { background: #EA580C; }   /* Orange-Red */
+.quant-3bit { background: #F97316; }   /* Orange */
+.quant-4bit { background: #F59E0B; }   /* Yellow-Orange */
+.quant-5bit { background: #EAB308; }   /* Yellow */
+.quant-6bit { background: #84CC16; }   /* Lime */
+.quant-7bit { background: #22C55E; }   /* Green */
+.quant-8bit { background: #14B8A6; }   /* Teal */
+.quant-16bit { background: #3B82F6; }  /* Blue */
+.quant-32bit { background: #8B5CF6; }  /* Purple */
+.quant-unknown { background: #6B7280; } /* Gray */
 
 /* Context Menu */
 .context-menu {
