@@ -18,7 +18,7 @@ use process::*;
 use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, InitialScanResult, HFLinkResult, HFFileInfo};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -1025,6 +1025,445 @@ async fn delete_model(
     Ok(())
 }
 
+// Update Checker Commands
+
+#[tauri::command]
+async fn initial_scan_models(
+    state: tauri::State<'_, AppState>,
+) -> Result<InitialScanResult, String> {
+    use std::time::SystemTime;
+    use std::fs;
+    use std::path::Path;
+    
+    let mut result = InitialScanResult {
+        success: true,
+        models_processed: 0,
+        models_linked: 0,
+        errors: Vec::new(),
+    };
+    
+    // Get all model directories
+    let all_directories = {
+        let config = state.config.lock().await;
+        let mut dirs = vec![config.models_directory.clone()];
+        dirs.extend(config.additional_models_directories.clone());
+        dirs
+    };
+    
+    // Process each directory
+    for directory in all_directories {
+        if directory.is_empty() || !Path::new(&directory).is_dir() {
+            continue;
+        }
+        
+        // Scan for GGUF files
+        let pattern = format!("{}/**/*.gguf", directory);
+        let entries = match glob::glob(&pattern) {
+            Ok(entries) => entries,
+            Err(e) => {
+                result.errors.push(format!("Failed to scan directory {}: {}", directory, e));
+                continue;
+            }
+        };
+        
+        for entry in entries {
+            let path = match entry {
+                Ok(path) => path,
+                Err(e) => {
+                    result.errors.push(format!("Path error: {}", e));
+                    continue;
+                }
+            };
+            
+            let path_str = path.to_string_lossy().to_string();
+            
+            // Get file metadata
+            let metadata = match fs::metadata(&path) {
+                Ok(meta) => meta,
+                Err(e) => {
+                    result.errors.push(format!("Metadata error for {}: {}", path_str, e));
+                    continue;
+                }
+            };
+            
+            let modified_time = metadata.modified()
+                .ok()
+                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64);
+            
+            let file_size = metadata.len() as i64;
+            
+            // Try to extract HF model ID from path (Arandu download structure)
+            let hf_model_id = extract_hf_model_id_from_path(&path_str, &directory);
+            
+            // Update model config
+            {
+                let mut model_configs = state.model_configs.lock().await;
+                let config = model_configs.entry(path_str.clone())
+                    .or_insert_with(|| ModelConfig::new(path_str.clone()));
+                
+                config.local_file_modified = modified_time;
+                config.file_size_bytes = Some(file_size);
+                
+                if let Some(hf_id) = hf_model_id {
+                    config.hf_model_id = Some(hf_id);
+                    config.hf_link_source = Some("download".to_string());
+                    result.models_linked += 1;
+                }
+            }
+            
+            result.models_processed += 1;
+        }
+    }
+    
+    // Save settings
+    if let Err(e) = save_settings(&state).await {
+        result.errors.push(format!("Failed to save settings: {}", e));
+    }
+    
+    Ok(result)
+}
+
+// Helper function to extract HF model ID from Arandu download path structure
+fn extract_hf_model_id_from_path(path: &str, base_dir: &str) -> Option<String> {
+    use std::path::Path;
+    
+    let path_obj = Path::new(path);
+    let base_obj = Path::new(base_dir);
+    
+    // Get relative path from base directory
+    let rel_path = path_obj.strip_prefix(base_obj).ok()?;
+    let components: Vec<_> = rel_path.components().collect();
+    
+    // Arandu structure: base_dir/author/model_name/filename.gguf
+    if components.len() >= 3 {
+        let author = components[0].as_os_str().to_str()?;
+        let model_name = components[1].as_os_str().to_str()?;
+        Some(format!("{}/{}", author, model_name))
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+async fn check_model_update(
+    model_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateCheckResult, String> {
+    use reqwest;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Get model config
+    let (hf_model_id, local_modified, local_size) = {
+        let model_configs = state.model_configs.lock().await;
+        let config = model_configs.get(&model_path)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
+        
+        if config.hf_model_id.is_none() {
+            return Ok(UpdateCheckResult {
+                success: false,
+                update_available: false,
+                message: "Model not linked to HuggingFace".to_string(),
+                local_modified: config.local_file_modified,
+                hf_modified: None,
+                last_checked: None,
+            });
+        }
+        
+        (config.hf_model_id.unwrap(), config.local_file_modified, config.file_size_bytes)
+    };
+    
+    // Query HF API for model files
+    let url = format!("https://huggingface.co/api/models/{}/tree/main", hf_model_id);
+    
+    let client = reqwest::Client::new();
+    let response = match client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Ok(UpdateCheckResult {
+                success: false,
+                update_available: false,
+                message: format!("Failed to query HF API: {}", e),
+                local_modified,
+                hf_modified: None,
+                last_checked: None,
+            });
+        }
+    };
+    
+    if !response.status().is_success() {
+        return Ok(UpdateCheckResult {
+            success: false,
+            update_available: false,
+            message: format!("HF API returned error: {}", response.status()),
+            local_modified,
+            hf_modified: None,
+            last_checked: None,
+        });
+    }
+    
+    let data: serde_json::Value = match response.json().await {
+        Ok(data) => data,
+        Err(e) => {
+            return Ok(UpdateCheckResult {
+                success: false,
+                update_available: false,
+                message: format!("Failed to parse HF response: {}", e),
+                local_modified,
+                hf_modified: None,
+                last_checked: None,
+            });
+        }
+    };
+    
+    // Find matching file in HF repo
+    let path_obj = std::path::Path::new(&model_path);
+    let file_name = path_obj.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    
+    let hf_file = data.as_array()
+        .and_then(|files| {
+            files.iter().find(|f| {
+                f.get("path")
+                    .and_then(|p| p.as_str())
+                    .map(|p| p.ends_with(file_name))
+                    .unwrap_or(false)
+            })
+        });
+    
+    let (hf_modified, hf_size, message, update_available) = match hf_file {
+        Some(file) => {
+            let last_commit = file.get("lastCommit")
+                .and_then(|c| c.get("date"))
+                .and_then(|d| d.as_str());
+            
+            let hf_modified = last_commit
+                .and_then(|date| parse_hf_date(date));
+            
+            let hf_size = file.get("size")
+                .and_then(|s| s.as_i64());
+            
+            let update_available = match (local_modified, hf_modified) {
+                (Some(local), Some(hf)) => hf > local,
+                _ => false,
+            };
+            
+            let message = if update_available {
+                "Update available on HuggingFace".to_string()
+            } else {
+                "Model is up to date".to_string()
+            };
+            
+            (hf_modified, hf_size, message, update_available)
+        }
+        None => {
+            (None, None, "File not found on HuggingFace".to_string(), false)
+        }
+    };
+    
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    // Update model config
+    {
+        let mut model_configs = state.model_configs.lock().await;
+        let config = model_configs.entry(model_path.clone())
+            .or_insert_with(|| ModelConfig::new(model_path.clone()));
+        
+        config.last_hf_check = Some(now);
+        config.hf_file_modified = hf_modified;
+        config.hf_file_size = hf_size;
+        config.update_available = update_available;
+    }
+    
+    // Save settings
+    let _ = save_settings(&state).await;
+    
+    Ok(UpdateCheckResult {
+        success: true,
+        update_available,
+        message,
+        local_modified,
+        hf_modified,
+        last_checked: Some(now),
+    })
+}
+
+// Helper function to parse HF date format
+fn parse_hf_date(date_str: &str) -> Option<i64> {
+    // HF dates are typically in ISO 8601 format: "2024-01-15T10:30:00Z"
+    chrono::DateTime::parse_from_rfc3339(date_str)
+        .ok()
+        .map(|dt| dt.timestamp())
+}
+
+#[tauri::command]
+async fn get_hf_model_files(
+    hf_model_id: String,
+) -> Result<HFLinkResult, String> {
+    use reqwest;
+    
+    let url = format!("https://huggingface.co/api/models/{}/tree/main", hf_model_id);
+    
+    let client = reqwest::Client::new();
+    let response = match client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Ok(HFLinkResult {
+                success: false,
+                message: format!("Failed to query HF API: {}", e),
+                files: Vec::new(),
+            });
+        }
+    };
+    
+    if !response.status().is_success() {
+        return Ok(HFLinkResult {
+            success: false,
+            message: format!("HF API returned error: {}", response.status()),
+            files: Vec::new(),
+        });
+    }
+    
+    let data: serde_json::Value = match response.json().await {
+        Ok(data) => data,
+        Err(e) => {
+            return Ok(HFLinkResult {
+                success: false,
+                message: format!("Failed to parse HF response: {}", e),
+                files: Vec::new(),
+            });
+        }
+    };
+    
+    let files: Vec<HFFileInfo> = data.as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    let path = f.get("path")?.as_str()?;
+                    if !path.ends_with(".gguf") {
+                        return None;
+                    }
+                    
+                    let size = f.get("size")?.as_i64()?;
+                    let last_commit = f.get("lastCommit")?.get("date")?.as_str()?;
+                    let last_modified = parse_hf_date(last_commit)?;
+                    
+                    Some(HFFileInfo {
+                        filename: path.to_string(),
+                        size,
+                        last_modified,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    
+    Ok(HFLinkResult {
+        success: !files.is_empty(),
+        message: if files.is_empty() {
+            "No GGUF files found in repository".to_string()
+        } else {
+            format!("Found {} GGUF files", files.len())
+        },
+        files,
+    })
+}
+
+#[tauri::command]
+async fn link_model_to_hf(
+    model_path: String,
+    hf_model_id: String,
+    hf_filename: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateCheckResult, String> {
+    use reqwest;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    // Validate HF model exists
+    let url = format!("https://huggingface.co/api/models/{}/tree/main", hf_model_id);
+    
+    let client = reqwest::Client::new();
+    let response = match client.get(&url).send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            return Ok(UpdateCheckResult {
+                success: false,
+                update_available: false,
+                message: format!("Failed to query HF API: {}", e),
+                local_modified: None,
+                hf_modified: None,
+                last_checked: None,
+            });
+        }
+    };
+    
+    if !response.status().is_success() {
+        return Ok(UpdateCheckResult {
+            success: false,
+            update_available: false,
+            message: format!("HF model not found: {}", response.status()),
+            local_modified: None,
+            hf_modified: None,
+            last_checked: None,
+        });
+    }
+    
+    // Get local file metadata
+    let (local_modified, file_size) = {
+        use std::fs;
+        use std::path::Path;
+        
+        match fs::metadata(&model_path) {
+            Ok(meta) => {
+                let modified = meta.modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64);
+                (modified, Some(meta.len() as i64))
+            }
+            Err(_) => (None, None),
+        }
+    };
+    
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    
+    // Update model config
+    {
+        let mut model_configs = state.model_configs.lock().await;
+        let config = model_configs.entry(model_path.clone())
+            .or_insert_with(|| ModelConfig::new(model_path.clone()));
+        
+        config.hf_model_id = Some(hf_model_id);
+        config.hf_link_source = Some("manual".to_string());
+        config.local_file_modified = local_modified;
+        config.file_size_bytes = file_size;
+        config.last_hf_check = Some(now);
+    }
+
+    // Save settings
+    if let Err(e) = save_settings(&state).await {
+        return Ok(UpdateCheckResult {
+            success: false,
+            update_available: false,
+            message: format!("Failed to save settings: {}", e),
+            local_modified,
+            hf_modified: None,
+            last_checked: Some(now),
+        });
+    }
+    
+    // Now check for updates
+    check_model_update(model_path, state).await
+}
+
 #[tauri::command]
 async fn get_session_state(
     state: tauri::State<'_, AppState>,
@@ -1701,7 +2140,11 @@ pub fn run() {
             get_system_stats,
             scan_mmproj_files_command,
             hide_window,
-            show_window
+            show_window,
+            initial_scan_models,
+            check_model_update,
+            get_hf_model_files,
+            link_model_to_hf
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

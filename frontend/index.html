@@ -252,6 +252,13 @@
                     <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Change the interface colors. Left is
                         for UI, right for background.</small>
                 </div>
+                <div class="property-group">
+                    <h4><span class="material-icons">update</span> Model Updates</h4>
+                    <button class="settings-window-save" onclick="desktop.rescanAllModels()" style="margin-bottom: 8px;">
+                        <span class="material-icons">refresh</span> Rescan All Models for HF Links
+                    </button>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Scan all models to find HuggingFace associations. This helps detect available updates.</small>
+                </div>
                 <button class="settings-window-save" id="save-config"><span class="material-icons">save</span> Save
                     Settings & Scan Models</button>
             </div>

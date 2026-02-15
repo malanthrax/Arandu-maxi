@@ -932,6 +932,48 @@ body.has-maximized-window .dock.visible {
 .quant-32bit { background: #8B5CF6; }  /* Purple */
 .quant-unknown { background: #6B7280; } /* Gray */
 
+/* Update Checker Indicator */
+.update-indicator {
+	position: absolute;
+	top: -4px;
+	left: 50%;
+	transform: translateX(-50%);
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: 2px solid white;
+	z-index: 10;
+	cursor: pointer;
+	transition: transform 0.2s ease;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.update-indicator:hover {
+	transform: translateX(-50%) scale(1.2);
+}
+
+.update-indicator.green { 
+	background: #22C55E;   /* Not checked yet - clickable */
+}
+
+.update-indicator.red { 
+	background: #DC2626;     /* Update available */
+}
+
+.update-indicator.gray { 
+	background: #6B7280;     /* Checked, no update */
+}
+
+.update-indicator.blue { 
+	background: #3B82F6;     /* Checking... */
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+	50% { opacity: 0.7; transform: translateX(-50%) scale(1.1); }
+}
+
 /* Context Menu */
 .context-menu {
 	position: fixed;

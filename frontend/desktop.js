@@ -28,14 +28,20 @@ class DesktopManager {
 
         // Wait for DOM to be fully loaded before showing content
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                this.initializeSession();
+            document.addEventListener('DOMContentLoaded', async () => {
+                await this.initializeSession();
                 this.setupEventListeners();
+                // Perform initial scan for update checking
+                setTimeout(() => this.performInitialScan(), 2000);
             });
         } else {
             this.setupEventListeners();
             // DOM is already loaded
-            setTimeout(() => this.initializeSession(), 100);
+            setTimeout(async () => {
+                await this.initializeSession();
+                // Perform initial scan for update checking
+                setTimeout(() => this.performInitialScan(), 2000);
+            }, 100);
         }
 
         // Auto-save session state periodically
@@ -3618,12 +3624,15 @@ class DesktopManager {
         }
     }
 
-    refreshDesktopIcons(models, useAnimation = true) {
+    async refreshDesktopIcons(models, useAnimation = true) {
         const desktopIcons = document.getElementById('desktop-icons');
         if (!desktopIcons) return;
 
         // Clear existing icons
         desktopIcons.innerHTML = '';
+
+        // Fetch model configs to get update status
+        const modelConfigs = await this.fetchModelConfigs();
 
         // Create new icons from models data
         models.forEach((model, index) => {
@@ -3639,11 +3648,30 @@ class DesktopManager {
             // Extract bit level from quantization for color coding
             const quantColorClass = this.getQuantizationColorClass(model.quantization);
 
+            // Get update indicator status from config
+            const config = modelConfigs[model.path] || {};
+            let indicatorClass = 'green';
+            let indicatorTitle = 'Click to check for updates on HuggingFace';
+            
+            if (config.hf_model_id) {
+                if (config.update_available) {
+                    indicatorClass = 'red';
+                    indicatorTitle = 'Update available on HuggingFace!';
+                } else if (config.last_hf_check) {
+                    indicatorClass = 'gray';
+                    indicatorTitle = `Up to date. Last checked: ${new Date(config.last_hf_check * 1000).toLocaleString()}`;
+                }
+            }
+
             iconElement.innerHTML = `
                 <div class="icon-image">
                     <img src="./assets/gguf.png" class="model-icon">
                     <div class="architecture-label">${model.architecture.substring(0, 7)}</div>
                     <div class="quantization-bar ${quantColorClass}"></div>
+                    <div class="update-indicator ${indicatorClass}" 
+                         title="${indicatorTitle}"
+                         onclick="event.stopPropagation(); desktop.checkModelUpdate('${model.path}')">
+                    </div>
                 </div>
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
             `;
@@ -3901,6 +3929,19 @@ class DesktopManager {
         };
         
         return colorMap[bitLevel] || 'quant-unknown';
+    }
+
+    // Fetch all model configs for update checking
+    async fetchModelConfigs() {
+        try {
+            // This will be populated from the backend through scan_models_command
+            // For now, we'll rely on the individual model config fetches
+            // In a real implementation, we might want a batch endpoint
+            return {};
+        } catch (error) {
+            console.error('Error fetching model configs:', error);
+            return {};
+        }
     }
 
     showNotification(message, type = 'info') {
@@ -4422,11 +4463,237 @@ class DesktopManager {
                     vramContainer.title = 'VRAM: Not available';
                     // If no GPU, set VRAM bar to 0%
                     if (vramFill) {
-                        vramFill.style.width = '0%';
-                        vramFill.style.background = getBarColor(0);
-                    }
+                vramFill.style.width = '0%';
+                vramFill.style.background = getBarColor(0);
+            }
+        }
+    }
+
+    // Update Checker Methods
+    
+    async performInitialScan() {
+        const hasPerformedScan = localStorage.getItem('arandu-initial-scan-done');
+        if (!hasPerformedScan) {
+            this.showNotification('Scanning models for update information...', 'info');
+            try {
+                const result = await invoke('initial_scan_models');
+                if (result.success) {
+                    this.showNotification(`Scanned ${result.models_processed} models, linked ${result.models_linked} to HuggingFace`, 'success');
+                    localStorage.setItem('arandu-initial-scan-done', 'true');
+                    await this.refreshDesktop();
+                } else {
+                    this.showNotification('Initial scan completed with errors', 'warning');
+                }
+            } catch (error) {
+                console.error('Error during initial scan:', error);
+                this.showNotification('Failed to perform initial scan', 'error');
+            }
+        }
+    }
+
+    async checkModelUpdate(modelPath) {
+        try {
+            const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
+            if (icon) {
+                const indicator = icon.querySelector('.update-indicator');
+                if (indicator) {
+                    indicator.className = 'update-indicator blue';
                 }
             }
+
+            const result = await invoke('check_model_update', { modelPath });
+            
+            if (result.success) {
+                this.updateUpdateIndicator(modelPath, result);
+                if (result.update_available) {
+                    this.showNotification('Update available for this model!', 'success');
+                } else {
+                    this.showNotification(result.message, 'info');
+                }
+            } else {
+                if (result.message.includes('not linked')) {
+                    this.showLinkModelDialog(modelPath);
+                } else {
+                    this.showNotification(result.message, 'error');
+                    this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
+                }
+            }
+        } catch (error) {
+            console.error('Error checking model update:', error);
+            this.showNotification('Failed to check for updates', 'error');
+            this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
+        }
+    }
+
+    updateUpdateIndicator(modelPath, result) {
+        const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
+        if (!icon) return;
+
+        const indicator = icon.querySelector('.update-indicator');
+        if (!indicator) return;
+
+        if (result.update_available) {
+            indicator.className = 'update-indicator red';
+            indicator.title = `Update available! Local: ${result.local_modified ? new Date(result.local_modified * 1000).toLocaleDateString() : 'Unknown'}`;
+        } else if (result.last_checked) {
+            indicator.className = 'update-indicator gray';
+            indicator.title = `Up to date. Last checked: ${new Date(result.last_checked * 1000).toLocaleString()}`;
+        } else {
+            indicator.className = 'update-indicator green';
+            indicator.title = 'Click to check for updates on HuggingFace';
+        }
+    }
+
+    showLinkModelDialog(modelPath) {
+        const modal = document.createElement('div');
+        modal.className = 'modal-dialog-overlay';
+        modal.innerHTML = `
+            <div class="modal-dialog" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>Link Model to HuggingFace</h3>
+                    <button class="close-btn" onclick="this.closest('.modal-dialog-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>This model is not linked to a HuggingFace repository.</p>
+                    <p>To check for updates, find the model on HuggingFace and paste the URL below.</p>
+                    <div style="margin: 20px 0;">
+                        <input type="text" id="hf-url-input" class="property-input" 
+                            placeholder="https://huggingface.co/author/model-name"
+                            style="width: 100%;">
+                    </div>
+                    <button class="settings-window-save" onclick="desktop.openHuggingFaceSearch('${modelPath}')">
+                        <span class="material-icons">search</span> Search on HuggingFace
+                    </button>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal-dialog-overlay').remove()">Cancel</button>
+                    <button class="settings-window-save" onclick="desktop.linkModelToHF('${modelPath}')">Link Model</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    openHuggingFaceSearch(modelPath) {
+        const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
+        const modelName = icon ? icon.dataset.name.replace('.gguf', '') : '';
+        const searchQuery = encodeURIComponent(modelName);
+        const url = `https://huggingface.co/models?search=${searchQuery}&filter=gguf`;
+        window.open(url, '_blank');
+    }
+
+    async linkModelToHF(modelPath) {
+        const urlInput = document.getElementById('hf-url-input');
+        if (!urlInput) return;
+
+        const url = urlInput.value.trim();
+        if (!url) {
+            this.showNotification('Please enter a HuggingFace URL', 'error');
+            return;
+        }
+
+        let hfModelId = url;
+        if (url.includes('huggingface.co/')) {
+            const match = url.match(/huggingface\.co\/([^\/]+\/[^\/]+)/);
+            if (match) {
+                hfModelId = match[1];
+            }
+        }
+
+        hfModelId = hfModelId.split('/').slice(0, 2).join('/');
+
+        try {
+            const filesResult = await invoke('get_hf_model_files', { hfModelId });
+            
+            if (!filesResult.success || filesResult.files.length === 0) {
+                this.showNotification('No GGUF files found in that repository', 'error');
+                return;
+            }
+
+            this.showFileSelectionDialog(modelPath, hfModelId, filesResult.files);
+        } catch (error) {
+            console.error('Error fetching HF files:', error);
+            this.showNotification('Failed to fetch files from HuggingFace', 'error');
+        }
+    }
+
+    showFileSelectionDialog(modelPath, hfModelId, files) {
+        const existingModal = document.querySelector('.modal-dialog-overlay');
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-dialog-overlay';
+        
+        const fileOptions = files.map(f => 
+            `<option value="${f.filename}">${f.filename} (${(f.size / 1024 / 1024).toFixed(1)} MB)</option>`
+        ).join('');
+
+        modal.innerHTML = `
+            <div class="modal-dialog" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3>Select Matching File</h3>
+                    <button class="close-btn" onclick="this.closest('.modal-dialog-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Select the file that matches your local model:</p>
+                    <select id="hf-file-select" class="property-input" style="width: 100%; margin: 10px 0;">
+                        ${fileOptions}
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="this.closest('.modal-dialog-overlay').remove()">Cancel</button>
+                    <button class="settings-window-save" onclick="desktop.confirmLinkModel('${modelPath}', '${hfModelId}')">Link & Check</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    async confirmLinkModel(modelPath, hfModelId) {
+        const fileSelect = document.getElementById('hf-file-select');
+        if (!fileSelect) return;
+
+        const hfFilename = fileSelect.value;
+
+        try {
+            const result = await invoke('link_model_to_hf', { 
+                modelPath, 
+                hfModelId, 
+                hfFilename 
+            });
+
+            const modal = document.querySelector('.modal-dialog-overlay');
+            if (modal) modal.remove();
+
+            if (result.success) {
+                this.updateUpdateIndicator(modelPath, result);
+                if (result.update_available) {
+                    this.showNotification('Model linked! Update available.', 'success');
+                } else {
+                    this.showNotification('Model linked! Up to date.', 'success');
+                }
+            } else {
+                this.showNotification(result.message, 'error');
+            }
+        } catch (error) {
+            console.error('Error linking model:', error);
+            this.showNotification('Failed to link model', 'error');
+        }
+    }
+
+    async rescanAllModels() {
+        this.showNotification('Rescanning all models...', 'info');
+        try {
+            const result = await invoke('initial_scan_models');
+            if (result.success) {
+                this.showNotification(`Rescanned ${result.models_processed} models, linked ${result.models_linked}`, 'success');
+                await this.refreshDesktop();
+            } else {
+                this.showNotification('Rescan completed with errors', 'warning');
+            }
+        } catch (error) {
+            console.error('Error during rescan:', error);
+            this.showNotification('Failed to rescan models', 'error');
         }
     }
 }

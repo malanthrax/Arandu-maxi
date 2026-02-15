@@ -61,6 +61,24 @@ pub struct ModelConfig {
     pub presets: Vec<ModelPreset>,
     #[serde(default)]
     pub default_preset_id: Option<String>,
+    
+    // HF Update tracking fields
+    #[serde(default)]
+    pub hf_model_id: Option<String>,           // "author/model" format
+    #[serde(default)]
+    pub hf_link_source: Option<String>,        // "download", "guess", "manual"
+    #[serde(default)]
+    pub local_file_modified: Option<i64>,      // Unix timestamp
+    #[serde(default)]
+    pub file_size_bytes: Option<i64>,          // For additional comparison
+    #[serde(default)]
+    pub last_hf_check: Option<i64>,            // When we last queried HF
+    #[serde(default)]
+    pub hf_file_modified: Option<i64>,         // HF file timestamp
+    #[serde(default)]
+    pub hf_file_size: Option<i64>,             // HF file size
+    #[serde(default)]
+    pub update_available: bool,                // Computed flag
 }
 
 impl ModelConfig {
@@ -72,6 +90,14 @@ impl ModelConfig {
             model_path,
             presets: Vec::new(),
             default_preset_id: None,
+            hf_model_id: None,
+            hf_link_source: None,
+            local_file_modified: None,
+            file_size_bytes: None,
+            last_hf_check: None,
+            hf_file_modified: None,
+            hf_file_size: None,
+            update_available: false,
         }
     }
 }
@@ -251,4 +277,37 @@ pub struct GgufFileInfo {
 pub struct DownloadStartResult {
     pub download_id: String,
     pub message: String,
+}
+
+// Update checker structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckResult {
+    pub success: bool,
+    pub update_available: bool,
+    pub message: String,
+    pub local_modified: Option<i64>,
+    pub hf_modified: Option<i64>,
+    pub last_checked: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitialScanResult {
+    pub success: bool,
+    pub models_processed: usize,
+    pub models_linked: usize,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HFLinkResult {
+    pub success: bool,
+    pub message: String,
+    pub files: Vec<HFFileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HFFileInfo {
+    pub filename: String,
+    pub size: i64,
+    pub last_modified: i64,
 }
