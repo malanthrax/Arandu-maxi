@@ -13,6 +13,7 @@ mod downloader;
 mod llamacpp_manager;
 mod system_monitor;
 mod gguf_parser;
+mod update_checker;
 
 use config::*;
 use process::*;
