@@ -1,5 +1,61 @@
 /* Desktop, Taskbar, and Start Menu Styles */
 
+/* Update indicator styles */
+.update-indicator {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 10;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 2px solid var(--theme-surface);
+    background: var(--theme-surface);
+}
+
+.update-indicator:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+.update-indicator.checking {
+    background: #f59e0b;
+    color: white;
+    animation: spin 1s linear infinite;
+}
+
+.update-indicator.up-to-date {
+    background: #22c55e;
+    color: white;
+}
+
+.update-indicator.update-available {
+    background: #ef4444;
+    color: white;
+}
+
+.update-indicator.not-linked {
+    background: #6b7280;
+    color: white;
+}
+
+.update-indicator.error {
+    background: #1f2937;
+    color: #ef4444;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .desktop {
 	width: 100vw;
 	height: 100vh;
