@@ -12,6 +12,7 @@ mod huggingface;
 mod downloader;
 mod llamacpp_manager;
 mod system_monitor;
+mod gguf_parser;
 
 use config::*;
 use process::*;
