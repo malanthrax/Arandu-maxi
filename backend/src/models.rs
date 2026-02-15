@@ -91,6 +91,33 @@ pub struct ModelInfo {
 pub struct GgufMetadata {
     pub architecture: String,
     pub name: String,
+    pub quantization: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfMetadata {
+    pub model_id: String,             // "author/model-name"
+    pub filename: String,             // "model-Q4_K_M.gguf"
+    pub commit_date: Option<String>,  // ISO 8601 from HF API
+    pub linked_at: String,            // ISO 8601 when link was created
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckResult {
+    pub status: UpdateStatus,
+    pub local_date: Option<String>,
+    pub remote_date: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum UpdateStatus {
+    UpToDate,
+    UpdateAvailable,
+    Unknown,
+    NotLinked,
+    Error(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
