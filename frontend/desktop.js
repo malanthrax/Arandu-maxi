@@ -648,6 +648,8 @@ class DesktopManager {
                         await this.launchModelWithPresetExternal(this.selectedIcon, presetId);
                     } else if (action === 'properties' && this.selectedIcon) {
                         this.showProperties(this.selectedIcon);
+                    } else if (action === 'check-update' && this.selectedIcon) {
+                        await this.checkModelUpdate(this.selectedIcon.dataset.path, this.selectedIcon);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
                     } else if (action.startsWith('sort-')) {
@@ -1001,6 +1003,12 @@ class DesktopManager {
                 </div>
                 ${presetsHTMLExternal}
                 <div class="context-menu-separator"></div>
+                <div class="context-menu-item" data-action="check-update">
+                    <div class="menu-item-content">
+                        <span class="material-icons">update</span>
+                        <span>Check for Updates</span>
+                    </div>
+                </div>
                 <div class="context-menu-item" data-action="properties">
                     <div class="menu-item-content">
                         <span class="material-icons">settings</span>
@@ -3649,6 +3657,27 @@ class DesktopManager {
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
             `;
 
+            // Add update indicator
+            const updateIndicator = document.createElement('div');
+            updateIndicator.className = 'update-indicator not-linked';
+            updateIndicator.innerHTML = '?';
+            updateIndicator.title = 'Click to check for updates';
+            
+            // Add click handler to indicator
+            updateIndicator.addEventListener('click', async (e) => {
+                e.stopPropagation(); // Prevent icon selection
+                
+                if (updateIndicator.classList.contains('not-linked')) {
+                    const linked = await this.showLinkToHFDialog(model.path);
+                    if (linked) {
+                        await this.checkModelUpdate(model.path, iconElement);
+                    }
+                } else {
+                    await this.checkModelUpdate(model.path, iconElement);
+                }
+            });
+            
+            iconElement.appendChild(updateIndicator);
             desktopIcons.appendChild(iconElement);
         });
 
