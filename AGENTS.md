@@ -91,7 +91,8 @@ frontend/
 **GlobalConfig Structure:**
 ```rust
 struct GlobalConfig {
-    models_directory: String,        // Where .gguf files are stored
+    models_directory: String,        // Primary directory for .gguf files
+    additional_models_directories: Vec<String>, // Up to 2 extra directories
     executable_folder: String,       // Where llama-server is installed
     active_executable_folder: Option<String>, // Currently active backend
     active_executable_version: Option<String>, // Version of active backend
@@ -102,9 +103,16 @@ struct GlobalConfig {
 ```
 
 **Default Paths:**
-- Models: `~/.Arandu/models`
+- Primary Models: `~/.Arandu/models`
+- Additional Models: User-defined (up to 2)
 - Executables: `~/.Arandu/llama.cpp`
-- Downloads: Same as models_directory
+- Downloads: Always go to primary `models_directory`
+
+**Multiple Directories:**
+- Models are scanned from all directories and merged
+- Duplicate files (same path) automatically deduplicated
+- File operations (delete, check exists) work across all directories
+- Backward compatible - existing configs continue to work
 
 ---
 
@@ -441,6 +449,11 @@ cargo tauri build
 ## Recent Changes
 
 ### 2025-02-14
+- **feat:** Add support for multiple model directories
+  - Primary directory + up to 2 additional directories
+  - Automatic deduplication across all directories
+  - Downloads still go to primary directory only
+  - Full backward compatibility with existing configs
 - **feat:** Add quantization color bars to GGUF icons (10 color levels by bit-depth)
 - **fix:** Dock button clickability issues (z-index fix)
 - **fix:** Icon font sizing to prevent oversized text rendering
