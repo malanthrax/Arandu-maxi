@@ -175,6 +175,29 @@ pub struct ProcessHandle {
 - Extracts metadata: architecture, name, quantization from filename patterns
 - File naming convention: `<name>-<quant>.gguf` or `<name>-<arch>-<quant>.gguf`
 
+**Quantization Color Bars:**
+Visual indicators on desktop icons showing quantization bit-level:
+
+| Bit Level | Color | Hex | Example Quantizations |
+|-----------|-------|-----|----------------------|
+| 1-bit | Deep Red | `#DC2626` | IQ1_S, IQ1_M |
+| 2-bit | Orange-Red | `#EA580C` | IQ2_XS, Q2_0, Q2_K |
+| 3-bit | Orange | `#F97316` | IQ3_XS, Q3_0, Q3_K |
+| 4-bit | Yellow-Orange | `#F59E0B` | Q4_K_M, Q4_0, IQ4_XS |
+| 5-bit | Yellow | `#EAB308` | IQ5_K |
+| 6-bit | Lime | `#84CC16` | IQ6_K, Q6_0, Q6_K |
+| 7-bit | Green | `#22C55E` | IQ7_K |
+| 8-bit | Teal | `#14B8A6` | Q8_0, Q8_K, IQ8_K, MXFP8 |
+| 16-bit | Blue | `#3B82F6` | F16, BF16 |
+| 32-bit | Purple | `#8B5CF6` | F32 |
+| Unknown | Gray | `#6B7280` | - |
+
+**Implementation:**
+- Location: Bottom of icon-image div
+- Height: 4px, border-radius: 0 0 8px 8px
+- Extracted from `data-quantization` attribute
+- Same bit-level = same color (e.g., Q4_K_M and Q4_0 both yellow-orange)
+
 **Model Settings:**
 ```rust
 struct ModelConfig {
@@ -415,10 +438,31 @@ cargo tauri build
 
 ---
 
+## Recent Changes
+
+### 2025-02-14
+- **feat:** Add quantization color bars to GGUF icons (10 color levels by bit-depth)
+- **fix:** Dock button clickability issues (z-index fix)
+- **fix:** Icon font sizing to prevent oversized text rendering
+- **docs:** Update README and AGENTS.md with accurate feature list
+
+### 2025-02-12  
+- **fix:** CSS z-index and pointer-events for dock items
+- **docs:** Add AGENTS.md developer documentation
+- **docs:** Clarify Windows-only platform support
+
+---
+
 ## Skills Applied
 
-- **vercel-react-best-practices:** For frontend performance patterns (though this uses vanilla JS, patterns still apply)
-- **plan:** For creating implementation plans for new features
+- **superpowers:** Agentic development workflow framework
+  - `brainstorming` - Design refinement before implementation
+  - `writing-plans` - Detailed implementation planning
+  - `test-driven-development` - RED-GREEN-REFACTOR cycle
+  - `using-git-worktrees` - Isolated feature development
+  - `requesting-code-review` - Code quality verification
+- **vercel-react-best-practices:** Frontend performance patterns
+- **plan:** Implementation planning
 
 ---
 
