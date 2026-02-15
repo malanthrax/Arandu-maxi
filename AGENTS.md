@@ -44,6 +44,8 @@ cargo tauri build
 | `llamacpp_manager.rs` | GitHub releases | `fetch_llamacpp_releases()`, release caching |
 | `process.rs` | Process management | `launch_model_internal()`, `launch_model_external()`, `ProcessHandle` |
 | `system_monitor.rs` | Hardware monitoring | `SystemMonitor`, RAM/VRAM tracking |
+| `gguf_parser.rs` | GGUF metadata parsing | `parse_gguf_metadata()`, `get_file_modification_date()` |
+| `update_checker.rs` | HF update checking | `check_huggingface_updates()`, `link_model_to_hf()`, `extract_hf_model_id_from_path()` |
 
 **Key Dependencies:**
 ```toml
@@ -53,6 +55,7 @@ reqwest = { version = "0.13.2", features = ["json", "stream"] }
 sysinfo = { version = "0.38.1", features = ["serde"] }
 nvml-wrapper = "0.11.0"  # NVIDIA GPU monitoring
 zip = "7.4.0"            # Backend extraction
+gguf-rs-lib = "0.2"      # GGUF metadata parsing
 ```
 
 ### Frontend (`frontend/`)
@@ -448,10 +451,22 @@ cargo tauri build
 
 ## Recent Changes
 
+### 2025-02-15 - GGUF Update Checker
+- **feat:** Add GGUF Update Checker feature
+  - Parse GGUF metadata (architecture, name, quantization) from file headers
+  - Three-tier HF tracking: explicit metadata, path extraction, manual linking
+  - Visual update indicators: ✓ (green/up-to-date), ✗ (red/update available), ? (gray/not linked)
+  - Click indicator to check for updates on HuggingFace
+  - Right-click context menu option "Check for Updates"
+  - Link dialog for manual HF model association
+  - Compare local file modification date with HF commit date
+  - Cache update check results for performance
+  - New backend modules: `gguf_parser.rs`, `update_checker.rs`
+  - New Tauri commands: `get_model_metadata`, `check_model_update`, `link_model_to_hf`
+
 ### 2025-02-15 - Working Baseline
-- **checkpoint:** `0df8e33` - **CURRENT WORKING BASELINE**
+- **checkpoint:** `0df8e33` - Working baseline before GGUF update checker
   - Stable version with multiple model directories and quantization bars
-  - Last known working checkpoint before loading screen regression
 
 ### 2025-02-14
 - **feat:** Add support for multiple model directories
@@ -473,12 +488,37 @@ cargo tauri build
 
 ## Known Issues
 
-### Critical
-- **Commit `d7ecc6a`** (GGUF update checker) - **DO NOT USE**
-  - Application hangs on loading screen
-  - Root cause: Frontend initialization issue with Tauri API timing
-  - Status: Rolled back to `0df8e33`
-  - Workaround: Use checkpoint `0df8e33` or earlier
+### Resolved
+- ~~**Commit `d7ecc6a`** (GGUF update checker)~~ - **FIXED**
+  - ~~Application hangs on loading screen~~
+  - **Solution:** Rebuilt feature on stable checkpoint `0df8e33` with proper testing
+  - **Status:** Working implementation merged
+
+## Features
+
+### GGUF Update Checker
+Monitors local GGUF models for updates on HuggingFace.
+
+**How it works:**
+1. **Auto-detection:** If model is in `models/author/model-name/file.gguf` structure, automatically extracts HF model ID
+2. **Manual linking:** Click ? indicator → Enter "author/model-name" → Link to HF
+3. **Update check:** Compares local file modification date with HF commit date
+
+**Visual indicators:**
+- **?** (gray): Not linked to HF - click to link
+- **✓** (green): Up to date
+- **✗** (red): Update available on HF
+- **!** (black/red): Error occurred - click to retry
+- **⟳** (spinning): Checking in progress
+
+**Backend modules:**
+- `gguf_parser.rs` - Parse GGUF binary format metadata
+- `update_checker.rs` - HF API integration and comparison logic
+
+**Tauri commands:**
+- `get_model_metadata(path)` → GgufMetadata
+- `check_model_update(path)` → UpdateCheckResult
+- `link_model_to_hf(path, model_id, filename)` → HfMetadata
 
 ---
 
