@@ -448,6 +448,11 @@ cargo tauri build
 
 ## Recent Changes
 
+### 2025-02-15 - Working Baseline
+- **checkpoint:** `0df8e33` - **CURRENT WORKING BASELINE**
+  - Stable version with multiple model directories and quantization bars
+  - Last known working checkpoint before loading screen regression
+
 ### 2025-02-14
 - **feat:** Add support for multiple model directories
   - Primary directory + up to 2 additional directories
@@ -463,6 +468,17 @@ cargo tauri build
 - **fix:** CSS z-index and pointer-events for dock items
 - **docs:** Add AGENTS.md developer documentation
 - **docs:** Clarify Windows-only platform support
+
+---
+
+## Known Issues
+
+### Critical
+- **Commit `d7ecc6a`** (GGUF update checker) - **DO NOT USE**
+  - Application hangs on loading screen
+  - Root cause: Frontend initialization issue with Tauri API timing
+  - Status: Rolled back to `0df8e33`
+  - Workaround: Use checkpoint `0df8e33` or earlier
 
 ---
 
