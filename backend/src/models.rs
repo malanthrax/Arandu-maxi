@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
     pub models_directory: String,
+    #[serde(default)]
+    pub additional_models_directories: Vec<String>,
     pub executable_folder: String,
     #[serde(default)]
     pub active_executable_folder: Option<String>,
@@ -30,6 +32,7 @@ impl Default for GlobalConfig {
         let base_dir = dirs::home_dir().unwrap_or_default().join(".Arandu");
         Self {
             models_directory: base_dir.join("models").to_str().unwrap_or_default().to_string(),
+            additional_models_directories: Vec::new(),
             executable_folder: base_dir.join("llama.cpp").to_str().unwrap_or_default().to_string(),
             active_executable_folder: None,
             active_executable_version: None,

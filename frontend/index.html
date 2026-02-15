@@ -208,15 +208,26 @@
         <div class="window-content" style="display: flex; gap: 20px; padding: 15px; position: relative;">
             <div class="settings-left" style="flex: 1; min-width: 0; padding-bottom: 50px;">
                 <div class="property-group">
-                    <h4><span class="material-icons">folder</span> Model Directory</h4>
+                    <h4><span class="material-icons">folder</span> Model Directories</h4>
                     <div class="property-row">
                         <input type="text" class="property-input" id="models-directory"
                             placeholder="Path to models folder (e.g., C:\AI\models)">
                         <button class="browse-btn" onclick="desktop.browseFolder('models-directory')"
                             title="Browse for folder"><span class="material-icons">folder_open</span></button>
                     </div>
-                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Directory where your .gguf model files
-                        are stored</small>
+                    <div id="additional-models-container"></div>
+                    <div class="property-row" style="margin-top: 8px;">
+                        <button class="browse-btn" id="add-models-folder-btn" onclick="desktop.addModelsFolder()"
+                            title="Add another models folder">
+                            <span class="material-icons">add</span>
+                        </button>
+                        <small style="color: var(--ubuntu-text-muted); font-size: 11px; flex: 1; margin-left: 8px;">
+                            Add up to 2 additional model directories
+                        </small>
+                    </div>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px; margin-top: 8px; display: block;">
+                        Directories where your .gguf model files are stored
+                    </small>
                 </div>
                 <div class="property-group">
                     <h4><span class="material-icons">rocket_launch</span> Llama Server Path</h4>

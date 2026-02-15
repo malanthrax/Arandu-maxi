@@ -236,21 +236,31 @@ async fn get_config(state: tauri::State<'_, AppState>) -> Result<GlobalConfig, S
 #[tauri::command]
 async fn save_config(
     models_directory: String,
+    additional_models_directories: Vec<String>,
     executable_folder: String,
     theme_color: String,
     background_color: String,
     theme_is_synced: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    println!("Saving config: models_dir={}, exec_folder={}, theme={}, background={}, synced={}", models_directory, executable_folder, theme_color, background_color, theme_is_synced);
+    println!("Saving config: models_dir={}, additional_dirs={:?}, exec_folder={}, theme={}, background={}, synced={}", 
+        models_directory, additional_models_directories, executable_folder, theme_color, background_color, theme_is_synced);
     
     // Preserve existing active executable folder
     let (existing_active_path, existing_active_version) = {
         let cfg = state.config.lock().await;
         (cfg.active_executable_folder.clone(), cfg.active_executable_version.clone())
     };
+    
+    // Filter out empty strings from additional directories
+    let additional_dirs: Vec<String> = additional_models_directories
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    
     let config = GlobalConfig {
         models_directory: models_directory.clone(),
+        additional_models_directories: additional_dirs.clone(),
         executable_folder,
         active_executable_folder: existing_active_path,
         active_executable_version: existing_active_version,
@@ -274,15 +284,21 @@ async fn save_config(
         }));
     }
     
-    // Cleanup leftover download files in the new models directory
-    if let Err(e) = huggingface::cleanup_leftover_downloads(&models_directory).await {
-        eprintln!("Warning: Failed to cleanup leftover downloads: {}", e);
+    // Build list of all directories to scan and cleanup
+    let mut all_directories = vec![models_directory.clone()];
+    all_directories.extend(additional_dirs);
+    
+    // Cleanup leftover download files in all models directories
+    for dir in &all_directories {
+        if let Err(e) = huggingface::cleanup_leftover_downloads(dir).await {
+            eprintln!("Warning: Failed to cleanup leftover downloads in {}: {}", dir, e);
+        }
     }
     
-    // Scan models with new directory
-    match scan_models(&models_directory).await {
+    // Scan models from all directories
+    match scan_models(&all_directories).await {
         Ok(models) => {
-            println!("Successfully scanned {} models", models.len());
+            println!("Successfully scanned {} models from {} directories", models.len(), all_directories.len());
             Ok(serde_json::json!({
                 "success": true,
                 "models": models
@@ -303,7 +319,12 @@ async fn scan_models_command(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let config = state.config.lock().await;
-    let models = scan_models(&config.models_directory).await
+    
+    // Build list of all directories to scan
+    let mut all_directories = vec![config.models_directory.clone()];
+    all_directories.extend(config.additional_models_directories.clone());
+    
+    let models = scan_models(&all_directories).await
         .map_err(|e| format!("Failed to scan models: {}", e))?;
     
     Ok(serde_json::json!({
@@ -317,7 +338,12 @@ async fn scan_mmproj_files_command(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let config = state.config.lock().await;
-    let files = scan_mmproj_files(&config.models_directory).await
+    
+    // Build list of all directories to scan
+    let mut all_directories = vec![config.models_directory.clone()];
+    all_directories.extend(config.additional_models_directories.clone());
+    
+    let files = scan_mmproj_files(&all_directories).await
         .map_err(|e| format!("Failed to scan mmproj files: {}", e))?;
     
     Ok(serde_json::json!({
@@ -685,11 +711,13 @@ async fn delete_model_file(
     use std::fs;
     
     // Security checks - scope the config lock
-    let (models_dir, model_file) = {
+    let (allowed_dirs, model_file) = {
         let config = state.config.lock().await;
-        let models_dir = PathBuf::from(&config.models_directory);
+        let mut all_dirs = vec![config.models_directory.clone()];
+        all_dirs.extend(config.additional_models_directories.clone());
+        let allowed_dirs: Vec<PathBuf> = all_dirs.into_iter().map(PathBuf::from).collect();
         let model_file = PathBuf::from(&model_path);
-        (models_dir, model_file)
+        (allowed_dirs, model_file)
     }; // Config lock is dropped here
     
     // Check if file exists before deletion
@@ -700,11 +728,12 @@ async fn delete_model_file(
         }));
     }
     
-    // Ensure the file is within the models directory
-    if !model_file.starts_with(&models_dir) {
+    // Ensure the file is within one of the allowed models directories
+    let is_in_allowed_dir = allowed_dirs.iter().any(|dir| model_file.starts_with(dir));
+    if !is_in_allowed_dir {
         return Ok(serde_json::json!({
             "success": false,
-            "error": "Cannot delete files outside of models directory"
+            "error": "Cannot delete files outside of models directories"
         }));
     }
     
@@ -967,12 +996,15 @@ async fn delete_model(
     
     // Security checks
     let config = state.config.lock().await;
-    let models_dir = PathBuf::from(&config.models_directory);
+    let mut all_dirs = vec![config.models_directory.clone()];
+    all_dirs.extend(config.additional_models_directories.clone());
+    let allowed_dirs: Vec<PathBuf> = all_dirs.into_iter().map(PathBuf::from).collect();
     let model_file = PathBuf::from(&model_path);
     
-    // Ensure the file is within the models directory
-    if !model_file.starts_with(&models_dir) {
-        return Err("Cannot delete files outside of models directory".to_string());
+    // Ensure the file is within one of the allowed models directories
+    let is_in_allowed_dir = allowed_dirs.iter().any(|dir| model_file.starts_with(dir));
+    if !is_in_allowed_dir {
+        return Err("Cannot delete files outside of models directories".to_string());
     }
     
     // Ensure it's a .gguf file
@@ -981,18 +1013,14 @@ async fn delete_model(
     }
     
     // Delete the file
-    fs::remove_file(&model_path)
-        .map_err(|e| format!("Failed to delete file: {}", e))?;
+    fs::remove_file(&model_path).map_err(|e| format!("Failed to delete file: {}", e))?;
     
     // Remove from model configs
-    {
-        let mut model_configs = state.model_configs.lock().await;
-        model_configs.remove(&model_path);
-    }
+    let mut model_configs = state.model_configs.lock().await;
+    model_configs.remove(&model_path);
     
     // Save settings
-    save_settings(&state).await
-        .map_err(|e| format!("Failed to save settings: {}", e))?;
+    save_settings(&state).await.map_err(|e| format!("Failed to save settings: {}", e))?;
     
     Ok(())
 }
@@ -1069,19 +1097,35 @@ async fn check_file_exists(
     use std::path::Path;
     
     let config = state.config.lock().await;
-    if config.models_directory.is_empty() {
+    
+    // Build list of all directories to check
+    let mut all_directories = vec![config.models_directory.clone()];
+    all_directories.extend(config.additional_models_directories.clone());
+    
+    // Remove empty directories
+    all_directories.retain(|dir| !dir.is_empty());
+    
+    if all_directories.is_empty() {
         return Ok(false);
     }
     
     // Create the expected file path structure (author/model/filename)
     let author = model_id.split('/').next().unwrap_or("unknown");
     let model_name = model_id.split('/').nth(1).unwrap_or(&model_id);
-    let file_path = Path::new(&config.models_directory)
-        .join(author)
-        .join(model_name)
-        .join(&filename);
     
-    Ok(file_path.exists())
+    // Check if file exists in any of the directories
+    for dir in &all_directories {
+        let file_path = Path::new(dir)
+            .join(author)
+            .join(model_name)
+            .join(&filename);
+        
+        if file_path.exists() {
+            return Ok(true);
+        }
+    }
+    
+    Ok(false)
 }
 
 #[tauri::command]
@@ -1435,9 +1479,19 @@ async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> 
         let models_dir = &config.models_directory;
         let exec_dir = &config.executable_folder;
 
+        // Create primary models directory
         if !models_dir.is_empty() {
             if let Err(e) = std::fs::create_dir_all(models_dir) {
                 eprintln!("Failed to create models directory: {}", e);
+            }
+        }
+
+        // Create additional models directories
+        for additional_dir in &config.additional_models_directories {
+            if !additional_dir.is_empty() {
+                if let Err(e) = std::fs::create_dir_all(additional_dir) {
+                    eprintln!("Failed to create additional models directory '{}': {}", additional_dir, e);
+                }
             }
         }
 
@@ -1456,9 +1510,14 @@ async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> 
     // Cleanup leftover download files from previous sessions
     {
         let config = state.config.lock().await;
-        if !config.models_directory.is_empty() {
-            if let Err(e) = huggingface::cleanup_leftover_downloads(&config.models_directory).await {
-                eprintln!("Warning: Failed to cleanup leftover downloads: {}", e);
+        let mut all_directories = vec![config.models_directory.clone()];
+        all_directories.extend(config.additional_models_directories.clone());
+        
+        for dir in &all_directories {
+            if !dir.is_empty() {
+                if let Err(e) = huggingface::cleanup_leftover_downloads(dir).await {
+                    eprintln!("Warning: Failed to cleanup leftover downloads in '{}': {}", dir, e);
+                }
             }
         }
     }

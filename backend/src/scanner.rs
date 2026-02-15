@@ -5,47 +5,57 @@ use glob::glob;
 use regex::Regex;
 use crate::models::*;
 
-pub async fn scan_models(directory: &str) -> Result<Vec<ModelInfo>, Box<dyn std::error::Error>> {
-    if directory.is_empty() || !Path::new(directory).is_dir() {
-        return Ok(Vec::new());
-    }
+pub async fn scan_models(directories: &[String]) -> Result<Vec<ModelInfo>, Box<dyn std::error::Error>> {
+    let mut all_models = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
     
-    let pattern = format!("{}/**/*.gguf", directory);
-    let files: Result<Vec<_>, _> = glob(&pattern)?.collect();
-    let files = files?;
-    
-    let mut model_groups = std::collections::HashMap::new();
-    
-    // Group files by base name (handle split files)
-    for path in files {
-        let path_str = path.to_string_lossy().to_string();
-        let file_name = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-        
-        // Check if this is a split file (e.g., model-00001-of-00005.gguf)
-        let re = Regex::new(r"(.+?)-\d{5}-of-\d{5}\.gguf$")?;
-        if let Some(captures) = re.captures(&file_name) {
-            let base_name = captures.get(1).unwrap().as_str().to_string();
-            model_groups.entry(base_name).or_insert_with(Vec::new).push(path_str);
-        } else {
-            model_groups.entry(path_str.clone()).or_insert_with(Vec::new).push(path_str);
+    for directory in directories {
+        if directory.is_empty() || !Path::new(directory).is_dir() {
+            continue;
         }
-    }
-    
-    let mut models = Vec::new();
-    
-    for (base_name, file_list) in model_groups {
-        if let Ok(model_info) = process_model_group(&base_name, &file_list).await {
-            models.push(model_info);
+        
+        let pattern = format!("{}/**/*.gguf", directory);
+        let files: Result<Vec<_>, _> = glob(&pattern)?.collect();
+        let files = files?;
+        
+        let mut model_groups = std::collections::HashMap::new();
+        
+        // Group files by base name (handle split files)
+        for path in files {
+            let path_str = path.to_string_lossy().to_string();
+            
+            // Skip if we've already seen this exact path
+            if seen_paths.contains(&path_str) {
+                continue;
+            }
+            seen_paths.insert(path_str.clone());
+            
+            let file_name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            
+            // Check if this is a split file (e.g., model-00001-of-00005.gguf)
+            let re = Regex::new(r"(.+?)-\d{5}-of-\d{5}\.gguf$")?;
+            if let Some(captures) = re.captures(&file_name) {
+                let base_name = captures.get(1).unwrap().as_str().to_string();
+                model_groups.entry(base_name).or_insert_with(Vec::new).push(path_str);
+            } else {
+                model_groups.entry(path_str.clone()).or_insert_with(Vec::new).push(path_str);
+            }
+        }
+        
+        for (base_name, file_list) in model_groups {
+            if let Ok(model_info) = process_model_group(&base_name, &file_list).await {
+                all_models.push(model_info);
+            }
         }
     }
     
     // Sort by name
-    models.sort_by(|a, b| a.name.cmp(&b.name));
+    all_models.sort_by(|a, b| a.name.cmp(&b.name));
     
-    Ok(models)
+    Ok(all_models)
 }
 
 async fn process_model_group(base_name: &str, file_list: &[String]) -> Result<ModelInfo, Box<dyn std::error::Error>> {
@@ -267,25 +277,37 @@ pub fn get_quantization_from_filename(filename: &str) -> String {
     "Unknown".to_string()
 }
 
-pub async fn scan_mmproj_files(directory: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    if directory.is_empty() || !Path::new(directory).is_dir() {
-        return Ok(Vec::new());
-    }
+pub async fn scan_mmproj_files(directories: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut all_files = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
     
-    let base_path = Path::new(directory);
-    let pattern = format!("{}/**/*.gguf", directory);
-    let entries = glob(&pattern)?;
-    
-    let mut files = Vec::new();
-    for entry in entries {
-        if let Ok(path) = entry {
-            // Check if this GGUF file has CLIP architecture
-            if let Ok(metadata) = extract_gguf_metadata(&path) {
-                if metadata.architecture.to_lowercase() == "clip" {
-                    if let Ok(rel_path) = path.strip_prefix(base_path) {
-                        files.push(rel_path.to_string_lossy().to_string());
-                    } else {
-                        files.push(path.to_string_lossy().to_string());
+    for directory in directories {
+        if directory.is_empty() || !Path::new(directory).is_dir() {
+            continue;
+        }
+        
+        let base_path = Path::new(directory);
+        let pattern = format!("{}/**/*.gguf", directory);
+        let entries = glob(&pattern)?;
+        
+        for entry in entries {
+            if let Ok(path) = entry {
+                let path_str = path.to_string_lossy().to_string();
+                
+                // Skip if we've already seen this exact path
+                if seen_paths.contains(&path_str) {
+                    continue;
+                }
+                seen_paths.insert(path_str.clone());
+                
+                // Check if this GGUF file has CLIP architecture
+                if let Ok(metadata) = extract_gguf_metadata(&path) {
+                    if metadata.architecture.to_lowercase() == "clip" {
+                        if let Ok(rel_path) = path.strip_prefix(base_path) {
+                            all_files.push(rel_path.to_string_lossy().to_string());
+                        } else {
+                            all_files.push(path_str);
+                        }
                     }
                 }
             }
@@ -293,7 +315,7 @@ pub async fn scan_mmproj_files(directory: &str) -> Result<Vec<String>, Box<dyn s
     }
     
     // Sort alphabetically
-    files.sort();
+    all_files.sort();
     
-    Ok(files)
+    Ok(all_files)
 }

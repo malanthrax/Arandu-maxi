@@ -273,6 +273,39 @@ class DesktopManager {
             themeSyncButton.classList.toggle('active', themeIsSynced);
         }
 
+        // Populate additional models directories
+        const container = document.getElementById('additional-models-container');
+        if (container && config.additional_models_directories) {
+            // Clear existing additional folders
+            container.innerHTML = '';
+
+            // Add saved additional folders
+            config.additional_models_directories.forEach((dir, index) => {
+                const folderDiv = document.createElement('div');
+                folderDiv.className = 'additional-models-folder';
+                folderDiv.style.cssText = 'display: flex; gap: 8px; margin-top: 8px; align-items: center;';
+
+                folderDiv.innerHTML = `
+                    <input type="text" class="property-input" id="additional-models-${index}"
+                        placeholder="Additional models folder path"
+                        style="flex: 1;"
+                        value="${dir}">
+                    <button class="browse-btn" onclick="desktop.browseFolder('additional-models-${index}')"
+                        title="Browse for folder">
+                        <span class="material-icons">folder_open</span>
+                    </button>
+                    <button class="browse-btn" onclick="desktop.removeModelsFolder(${index})"
+                        title="Remove folder" style="background: #e74c3c;">
+                        <span class="material-icons">close</span>
+                    </button>
+                `;
+
+                container.appendChild(folderDiv);
+            });
+        }
+
+        this.updateAddFolderButtonState();
+
         this.applyTheme(config.theme_color || 'dark-gray', config.background_color || 'dark-gray');
         document.body.dataset.theme = config.theme_color || 'dark-gray';
         document.body.dataset.background = config.background_color || 'dark-gray';
@@ -3452,9 +3485,84 @@ class DesktopManager {
                 // User cancelled the dialog
                 this.showNotification('Folder selection cancelled', 'info');
             }
+
+            this.updateAddFolderButtonState();
         } catch (error) {
             console.error('Error browsing folder:', error);
             this.showNotification('Failed to open folder browser', 'error');
+        }
+    }
+
+    addModelsFolder() {
+        const container = document.getElementById('additional-models-container');
+        const existingFolders = container.querySelectorAll('.additional-models-folder').length;
+
+        if (existingFolders >= 2) {
+            this.showNotification('Maximum 2 additional folders allowed', 'error');
+            return;
+        }
+
+        const index = existingFolders;
+        const folderId = `additional-models-${index}`;
+
+        const folderDiv = document.createElement('div');
+        folderDiv.className = 'additional-models-folder';
+        folderDiv.style.cssText = 'display: flex; gap: 8px; margin-top: 8px; align-items: center;';
+
+        folderDiv.innerHTML = `
+            <input type="text" class="property-input" id="${folderId}"
+                placeholder="Additional models folder path"
+                style="flex: 1;">
+            <button class="browse-btn" onclick="desktop.browseFolder('${folderId}')"
+                title="Browse for folder">
+                <span class="material-icons">folder_open</span>
+            </button>
+            <button class="browse-btn" onclick="desktop.removeModelsFolder(${index})"
+                title="Remove folder" style="background: #e74c3c;">
+                <span class="material-icons">close</span>
+            </button>
+        `;
+
+        container.appendChild(folderDiv);
+        this.updateAddFolderButtonState();
+    }
+
+    removeModelsFolder(index) {
+        const container = document.getElementById('additional-models-container');
+        const folders = container.querySelectorAll('.additional-models-folder');
+
+        if (index < folders.length) {
+            folders[index].remove();
+
+            // Reindex remaining folders
+            const remainingFolders = container.querySelectorAll('.additional-models-folder');
+            remainingFolders.forEach((folder, newIndex) => {
+                const input = folder.querySelector('input');
+                const browseBtn = folder.querySelectorAll('button')[0];
+                const removeBtn = folder.querySelectorAll('button')[1];
+
+                input.id = `additional-models-${newIndex}`;
+                browseBtn.setAttribute('onclick', `desktop.browseFolder('additional-models-${newIndex}')`);
+                removeBtn.setAttribute('onclick', `desktop.removeModelsFolder(${newIndex})`);
+            });
+        }
+
+        this.updateAddFolderButtonState();
+    }
+
+    updateAddFolderButtonState() {
+        const container = document.getElementById('additional-models-container');
+        const addBtn = document.getElementById('add-models-folder-btn');
+        const existingFolders = container.querySelectorAll('.additional-models-folder').length;
+
+        if (addBtn) {
+            if (existingFolders >= 2) {
+                addBtn.style.opacity = '0.5';
+                addBtn.style.pointerEvents = 'none';
+            } else {
+                addBtn.style.opacity = '1';
+                addBtn.style.pointerEvents = 'auto';
+            }
         }
     }
 
@@ -3466,9 +3574,22 @@ class DesktopManager {
         const themeSyncButton = document.getElementById('theme-sync-button');
         const themeIsSynced = themeSyncButton ? themeSyncButton.classList.contains('active') : true;
 
+        // Collect additional models directories
+        const additionalDirs = [];
+        const container = document.getElementById('additional-models-container');
+        if (container) {
+            const inputs = container.querySelectorAll('.additional-models-folder input');
+            inputs.forEach(input => {
+                if (input.value.trim()) {
+                    additionalDirs.push(input.value.trim());
+                }
+            });
+        }
+
         try {
             const result = await invoke('save_config', {
                 modelsDirectory: modelsDir,
+                additionalModelsDirectories: additionalDirs,
                 executableFolder: execFolder,
                 themeColor: themeColor,
                 backgroundColor: backgroundColor,
