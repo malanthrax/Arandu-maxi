@@ -20,7 +20,7 @@ use process::*;
 use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, GgufMetadata, UpdateCheckResult, HfMetadata};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -1148,6 +1148,69 @@ async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_model_metadata(
+    model_path: String,
+) -> Result<GgufMetadata, String> {
+    gguf_parser::parse_gguf_metadata(&model_path)
+}
+
+#[tauri::command]
+async fn check_model_update(
+    model_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateCheckResult, String> {
+    // Get model config to check for HF metadata
+    let hf_metadata = {
+        let configs = state.model_configs.lock().await;
+        configs.get(&model_path).and_then(|config| config.hf_metadata.clone())
+    };
+    
+    // Get file modification date
+    let modification_date = gguf_parser::get_file_modification_date(&model_path)
+        .map_err(|e| format!("Failed to get file date: {}", e))?;
+    
+    // Check HF for updates
+    let result = update_checker::check_huggingface_updates(
+        &model_path,
+        hf_metadata.as_ref(),
+        modification_date,
+    ).await;
+    
+    Ok(result)
+}
+
+#[tauri::command]
+async fn link_model_to_hf(
+    model_path: String,
+    hf_model_id: String,
+    hf_filename: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<HfMetadata, String> {
+    // Create HF metadata
+    let metadata = update_checker::link_model_to_hf(
+        &model_path,
+        &hf_model_id,
+        &hf_filename,
+    )?;
+    
+    // Store in model config
+    {
+        let mut configs = state.model_configs.lock().await;
+        let config = configs.entry(model_path.clone()).or_insert_with(|| {
+            ModelConfig::new(model_path.clone())
+        });
+        config.hf_metadata = Some(metadata.clone());
+    }
+    
+    // Save settings to persist
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("Warning: Failed to save settings after linking: {}", e);
+    }
+    
+    Ok(metadata)
+}
+
+#[tauri::command]
 async fn remove_window_state(
     window_id: String,
     state: tauri::State<'_, AppState>,
@@ -1703,7 +1766,10 @@ pub fn run() {
             get_system_stats,
             scan_mmproj_files_command,
             hide_window,
-            show_window
+            show_window,
+            get_model_metadata,
+            check_model_update,
+            link_model_to_hf
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

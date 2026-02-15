@@ -61,6 +61,8 @@ pub struct ModelConfig {
     pub presets: Vec<ModelPreset>,
     #[serde(default)]
     pub default_preset_id: Option<String>,
+    #[serde(default)]
+    pub hf_metadata: Option<HfMetadata>, // NEW: Tier 1 HF tracking
 }
 
 impl ModelConfig {
@@ -72,6 +74,7 @@ impl ModelConfig {
             model_path,
             presets: Vec::new(),
             default_preset_id: None,
+            hf_metadata: None, // NEW
         }
     }
 }
