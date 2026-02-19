@@ -535,6 +535,24 @@ Monitors local GGUF models for updates on HuggingFace.
 
 ---
 
+## Implementation Plans
+
+Detailed implementation plans for upcoming features are stored in:
+
+**`docs/plans/`** - Contains comprehensive step-by-step implementation guides
+
+### Current Plans:
+- **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)**
+  - Tabbed interface for Search | Paste Link
+  - URL parsing and validation
+  - Selective GGUF file downloads
+  - Custom destination paths
+  - Sequential downloads with resume support
+
+When starting new feature work, check this folder for ready-to-implement plans.
+
+---
+
 ## Todo (from README)
 
 - [ ] Cleanup code and organize it better
