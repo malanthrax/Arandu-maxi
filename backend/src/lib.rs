@@ -71,6 +71,7 @@ pub struct AppState {
     pub session_state: Arc<Mutex<SessionState>>,
     pub download_manager: Arc<Mutex<DownloadManager>>,
     pub tracker_manager: Arc<Mutex<Option<TrackerManager>>>,
+    pub openai_proxy: Arc<Mutex<Option<openai_proxy::ProxyServer>>>,
 }
 
 // Implement Clone manually to avoid derive issues with Child
@@ -84,6 +85,7 @@ impl Clone for AppState {
             session_state: self.session_state.clone(),
             download_manager: self.download_manager.clone(),
             tracker_manager: self.tracker_manager.clone(),
+            openai_proxy: self.openai_proxy.clone(),
         }
     }
 }
@@ -98,6 +100,7 @@ impl AppState {
             session_state: Arc::new(Mutex::new(SessionState::default())),
             download_manager: Arc::new(Mutex::new(DownloadManager::new())),
             tracker_manager: Arc::new(Mutex::new(None)),
+            openai_proxy: Arc::new(Mutex::new(None)),
         }
     }
     
@@ -283,6 +286,10 @@ async fn save_config(
         theme_color,
         background_color,
         theme_is_synced,
+        openai_proxy_enabled: false,
+        openai_proxy_port: 8081,
+        network_server_host: "127.0.0.1".to_string(),
+        network_server_port: 8080,
     };
     
     // Update global config

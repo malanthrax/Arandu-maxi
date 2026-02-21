@@ -17,6 +17,14 @@ pub struct GlobalConfig {
     pub background_color: String,
     #[serde(default = "default_theme_is_synced")]
     pub theme_is_synced: bool,
+    #[serde(default)]
+    pub openai_proxy_enabled: bool,
+    #[serde(default)]
+    pub openai_proxy_port: u16,
+    #[serde(default)]
+    pub network_server_host: String,
+    #[serde(default)]
+    pub network_server_port: u16,
 }
 
 fn default_background_color() -> String {
@@ -39,6 +47,10 @@ impl Default for GlobalConfig {
             theme_color: "dark-gray".to_string(),
             background_color: "dark-gray".to_string(),
             theme_is_synced: true,
+            openai_proxy_enabled: false,
+            openai_proxy_port: 8081,
+            network_server_host: "127.0.0.1".to_string(),
+            network_server_port: 8080,
         }
     }
 }
@@ -331,4 +343,68 @@ pub struct HFFileInfo {
     pub filename: String,
     pub size: i64,
     pub last_modified: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackerModel {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    pub description: String,
+    pub source: String,
+    pub category: String,
+    pub is_chinese: bool,
+    pub is_gguf: bool,
+    pub quantizations: Vec<String>,
+    pub backends: Vec<String>,
+    pub estimated_size_gb: f64,
+    pub vram_requirement_gb: Option<f64>,
+    pub context_length: Option<u32>,
+    pub downloads: u64,
+    pub likes: u64,
+    pub last_updated: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackerConfig {
+    pub vram_limit_gb: f64,
+    pub scrape_interval_hours: u32,
+    pub last_scrape: Option<String>,
+    pub enabled_sources: Vec<String>,
+    pub include_chinese: bool,
+}
+
+impl Default for TrackerConfig {
+    fn default() -> Self {
+        Self {
+            vram_limit_gb: 24.0,
+            scrape_interval_hours: 6,
+            last_scrape: None,
+            enabled_sources: vec!["huggingface".to_string()],
+            include_chinese: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackerStats {
+    pub total_models: u32,
+    pub chinese_models: u32,
+    pub gguf_models: u32,
+    pub categories: HashMap<String, u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeeklyReport {
+    pub id: String,
+    pub generated_at: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub total_models: u32,
+    pub new_models: u32,
+    pub chinese_models: u32,
+    pub gguf_models: u32,
+    pub categories: HashMap<String, u32>,
+    pub top_downloads: Vec<TrackerModel>,
 }

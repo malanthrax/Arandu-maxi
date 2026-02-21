@@ -16,6 +16,7 @@ use crate::openai_types::{
 };
 
 /// OpenAI-compatible API proxy server
+#[derive(Debug)]
 pub struct ProxyServer {
     llama_server_url: String,
     proxy_port: u16,
