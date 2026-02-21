@@ -40,6 +40,7 @@ cargo tauri build
 | `config.rs` | Config persistence | `load_settings()`, `save_settings()` |
 | `scanner.rs` | Model file discovery | `scan_models()`, `scan_mmproj_files()` |
 | `huggingface.rs` | HF API integration | `search_huggingface_models()`, `fetch_model_files()` |
+| `huggingface_downloader.rs` | HF Direct Link Download | `parse_model_id()`, `fetch_model_info()`, `fetch_model_files()` |
 | `downloader.rs` | Download management | `DownloadManager`, pause/resume/extract |
 | `llamacpp_manager.rs` | GitHub releases | `fetch_llamacpp_releases()`, release caching |
 | `process.rs` | Process management | `launch_model_internal()`, `launch_model_external()`, `ProcessHandle` |
@@ -410,6 +411,19 @@ Arandu/
 
 ## Common Issues
 
+**⚠️ CRITICAL: Working Directory Mismatch:**
+- **Problem:** Agent may work in wrong directory (e.g., C: drive instead of H: drive)
+- **Impact:** Changes don't appear in user's actual project, builds succeed but don't update user's executable
+- **Detection:** Check `pwd` command output vs expected project path
+- **Solution:** 
+  - ALWAYS verify working directory before making changes
+  - Use absolute paths when copying files between locations
+  - Confirm with user: "Current directory is X, should be Y?"
+- **Prevention:** 
+  - Add directory verification step at start of every session
+  - Ask user to confirm project location before major changes
+  - Use explicit path parameters in all file operations
+
 **GitHub API Rate Limiting:**
 - 60 requests/hour unauthenticated
 - 10-minute cache in `llamacpp_manager.rs`
@@ -450,6 +464,21 @@ cargo tauri build
 ---
 
 ## Recent Changes
+
+### 2025-02-18 - Phase 2: HuggingFace Direct Link Download ✅ COMPLETE
+- **feat:** HuggingFace Direct Link Download feature fully implemented and tested
+  - **Tabbed interface:** Search Models | Paste Link tabs in HuggingFace window
+  - **Paste Link functionality:** Paste any HuggingFace model URL to download GGUF files
+  - **URL parsing:** Supports multiple URL formats (full URLs, model IDs, blob/resolve URLs)
+  - **Model info display:** Shows name, description, license, downloads, likes, tags
+  - **File selection:** Checklist with quantization badges (Q4_K_M, Q8_0, etc.)
+  - **Sequential downloads:** Downloads files one at a time with progress tracking
+  - **Custom destinations:** Browse and select download location
+  - **Flux/SD support:** Now finds all GGUF models including image generation (Flux, Stable Diffusion)
+  - **Search fix:** Removed "conversational" filter from HF API search to include all GGUF model types
+  - **New backend module:** `huggingface_downloader.rs` with URL parsing and HF API integration
+  - **New Tauri commands:** `parse_hf_url`, `fetch_hf_model_info`, `fetch_hf_model_files`, `get_default_download_path`, `download_hf_file`
+  - **Frontend updates:** `huggingface-app.js` and `huggingface.css` with tab UI and paste link interface
 
 ### 2025-02-15 - GGUF Update Checker
 - **feat:** Add GGUF Update Checker feature
@@ -535,18 +564,39 @@ Monitors local GGUF models for updates on HuggingFace.
 
 ---
 
+## Current Status - Phase 2 COMPLETE ✅
+
+**Phase 2: HuggingFace Direct Link Download** has been successfully implemented and tested.
+
+**Working Features:**
+- ✅ Tabbed HF interface (Search Models | Paste Link)
+- ✅ URL parsing for all HF URL formats
+- ✅ Model info fetching (description, license, stats)
+- ✅ GGUF file listing with quantization badges
+- ✅ Sequential file downloads with progress
+- ✅ Custom destination folder selection
+- ✅ Support for ALL GGUF models (text, image, video generation)
+- ✅ Search now finds Flux, Stable Diffusion, and other image generation models
+
+**Files Modified:**
+- `backend/src/huggingface_downloader.rs` (NEW - 371 lines)
+- `backend/src/huggingface.rs` (removed "conversational" filter)
+- `backend/src/lib.rs` (added 5 new Tauri commands)
+- `frontend/modules/huggingface-app.js` (tab UI + paste link logic)
+- `frontend/css/huggingface.css` (tab styles + paste link UI)
+
+**Build Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+
+---
+
 ## Implementation Plans
 
 Detailed implementation plans for upcoming features are stored in:
 
 **`docs/plans/`** - Contains comprehensive step-by-step implementation guides
 
-### Current Plans:
-- **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)**
-  - Tabbed interface for Search | Paste Link
-  - URL parsing and validation
-  - Selective GGUF file downloads
-  - Custom destination paths
+### Completed Plans:
+- ✅ **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)** - IMPLEMENTED
   - Sequential downloads with resume support
 
 When starting new feature work, check this folder for ready-to-implement plans.

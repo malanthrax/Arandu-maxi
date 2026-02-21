@@ -179,48 +179,151 @@ class HuggingFaceApp {
         }
 
         const content = `
-            <div class="huggingface-search-container">
-                <div class="search-section">
-                    <div class="search-header">
-                    <div class="search-controls" style="position: relative;">
-                        <div style="position: relative; flex: 1; display: flex; align-items: center;">
-                            <input type="text" id="hf-search-input" class="search-input" placeholder="Search for models (e.g., llama, mistral, qwen, codellama)" autocomplete="off" style="flex: 1;">
-                            <button class="search-clear" id="hf-search-clear" title="Clear Search" style="position: absolute; right: 8px;">
-                                <span class="material-icons">close</span>
-                            </button>
-                        </div>
-                        <div class="limit-controls">
-                            <label for="hf-limit">Show:</label>
-                            <select id="hf-limit" class="limit-select">
-                                <option value="50">50</option>
-                                <option value="100" selected>100</option>
-                                <option value="250">250</option>
-                                <option value="500">500</option>
-                            </select>
-                        </div>
-                        <div class="sorting-controls">
-                            <label for="hf-sort-by">Sort by:</label>
-                            <select id="hf-sort-by" class="sort-select">
-                                <option value="relevance">Relevance</option>
-                                <option value="downloads">Most Downloads</option>
-                                <option value="likes">Most Likes</option>
-                                <option value="updated">Recently Updated</option>
-                            </select>
-                        </div>
-                        <div class="search-history-dropdown" id="hf-search-history-dropdown">
-                            <ul class="search-history-list" id="hf-search-history-list">
-                                <!-- History items will be populated here -->
-                            </ul>
-                            <div class="search-history-header">
-                                <span class="search-history-title">Recent Searches</span>
-                                <button class="search-history-clear" id="hf-search-history-clear-all">Clear All</button>
+            <div class="huggingface-container">
+                <!-- Tab Navigation -->
+                <div class="tab-header">
+                    <button class="tab-btn active" data-tab="search">
+                        <span class="material-icons">search</span>
+                        Search Models
+                    </button>
+                    <button class="tab-btn" data-tab="paste-link">
+                        <span class="material-icons">content_paste</span>
+                        Paste Link
+                    </button>
+                </div>
+                
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <!-- Search Tab -->
+                    <div class="tab-panel active" id="tab-search">
+                        <div class="huggingface-search-container">
+                            <div class="search-section">
+                                <div class="search-header">
+                                    <div class="search-controls" style="position: relative;">
+                                        <div style="position: relative; flex: 1; display: flex; align-items: center;">
+                                            <input type="text" id="hf-search-input" class="search-input" placeholder="Search for models (e.g., llama, mistral, qwen, codellama)" autocomplete="off" style="flex: 1;">
+                                            <button class="search-clear" id="hf-search-clear" title="Clear Search" style="position: absolute; right: 8px;">
+                                                <span class="material-icons">close</span>
+                                            </button>
+                                        </div>
+                                        <div class="limit-controls">
+                                            <label for="hf-limit">Show:</label>
+                                            <select id="hf-limit" class="limit-select">
+                                                <option value="50">50</option>
+                                                <option value="100" selected>100</option>
+                                                <option value="250">250</option>
+                                                <option value="500">500</option>
+                                            </select>
+                                        </div>
+                                        <div class="sorting-controls">
+                                            <label for="hf-sort-by">Sort by:</label>
+                                            <select id="hf-sort-by" class="sort-select">
+                                                <option value="relevance">Relevance</option>
+                                                <option value="downloads">Most Downloads</option>
+                                                <option value="likes">Most Likes</option>
+                                                <option value="updated">Recently Updated</option>
+                                            </select>
+                                        </div>
+                                        <div class="search-history-dropdown" id="hf-search-history-dropdown">
+                                            <ul class="search-history-list" id="hf-search-history-list">
+                                                <!-- History items will be populated here -->
+                                            </ul>
+                                            <div class="search-history-header">
+                                                <span class="search-history-title">Recent Searches</span>
+                                                <button class="search-history-clear" id="hf-search-history-clear-all">Clear All</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="search-results" id="hf-search-results">
+                                    ${this.generatePlaceholderHTML()}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                
-                <div class="search-results" id="hf-search-results">
-                    ${this.generatePlaceholderHTML()}
+                    
+                    <!-- Paste Link Tab -->
+                    <div class="tab-panel" id="tab-paste-link">
+                        <div class="paste-link-container">
+                            <!-- Step 1: URL Input -->
+                            <div class="url-input-section">
+                                <h3>Step 1: Enter Model URL</h3>
+                                <div class="url-input-wrapper">
+                                    <input type="text" id="hf-url-input" class="url-input" placeholder="https://huggingface.co/author/model" autocomplete="off">
+                                    <button class="paste-btn" id="hf-paste-btn" title="Paste from clipboard">
+                                        <span class="material-icons">content_paste</span>
+                                    </button>
+                                </div>
+                                <button class="validate-btn" id="hf-validate-btn">
+                                    <span class="material-icons">search</span>
+                                    Validate & Fetch
+                                </button>
+                            </div>
+                            
+                            <!-- Step 2: Model Info -->
+                            <div class="model-info-section" id="hf-model-info" style="display: none;">
+                                <!-- Model info will be populated here -->
+                            </div>
+                            
+                            <!-- Step 3: File Selection -->
+                            <div class="file-selection-section" id="hf-files-section" style="display: none;">
+                                <h3>Step 3: Select GGUF Files to Download</h3>
+                                <div class="file-list-header">
+                                    <button class="select-all-btn" id="hf-select-all">Select All</button>
+                                    <button class="select-none-btn" id="hf-select-none">Deselect All</button>
+                                </div>
+                                <div class="file-list" id="hf-files-list">
+                                    <!-- Files will be populated here -->
+                                </div>
+                                <div class="total-size-display" id="hf-total-size">
+                                    Selected: 0 files (0 GB)
+                                </div>
+                            </div>
+                            
+                            <!-- Step 4: Destination -->
+                            <div class="destination-section" id="hf-destination-section" style="display: none;">
+                                <h3>Step 4: Choose Destination</h3>
+                                <div class="destination-input-wrapper">
+                                    <input type="text" id="hf-destination-path" class="destination-path" readonly>
+                                    <button class="browse-btn" id="hf-browse-btn">
+                                        <span class="material-icons">folder_open</span>
+                                        Browse
+                                    </button>
+                                </div>
+                                <div class="disk-space-info" id="hf-disk-space">
+                                    Available space will be shown here
+                                </div>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="paste-link-actions" id="hf-actions" style="display: none;">
+                                <button class="cancel-btn" id="hf-cancel-btn">Cancel</button>
+                                <button class="download-btn" id="hf-download-btn">
+                                    <span class="material-icons">download</span>
+                                    Download Selected
+                                </button>
+                            </div>
+                            
+                            <!-- Download Progress -->
+                            <div class="download-progress-section" id="hf-download-progress" style="display: none;">
+                                <h3>Downloading...</h3>
+                                <div class="current-file" id="hf-current-file"></div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar" id="hf-progress-bar">
+                                        <div class="progress-fill" id="hf-progress-fill"></div>
+                                    </div>
+                                    <div class="progress-text" id="hf-progress-text">0%</div>
+                                </div>
+                                <div class="download-stats" id="hf-download-stats"></div>
+                                <div class="download-actions">
+                                    <button class="pause-btn" id="hf-pause-btn">Pause</button>
+                                    <button class="cancel-btn" id="hf-cancel-download-btn">Cancel</button>
+                                </div>
+                                <div class="queue-list" id="hf-queue-list"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -363,6 +466,528 @@ class HuggingFaceApp {
 
         // Focus search input
         setTimeout(() => searchInput.focus(), 100);
+
+        // Setup paste link tab listeners
+        this.setupPasteLinkListeners();
+        this.setupTabSwitching();
+    }
+
+    setupTabSwitching() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const tabBtns = window.querySelectorAll('.tab-btn');
+        tabBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tabName = e.currentTarget.dataset.tab;
+                this.switchTab(tabName);
+            });
+        });
+    }
+
+    switchTab(tabName) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        // Update button states
+        window.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+
+        // Update panel visibility
+        window.querySelectorAll('.tab-panel').forEach(panel => {
+            panel.classList.toggle('active', panel.id === `tab-${tabName}`);
+        });
+    }
+
+    setupPasteLinkListeners() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        // URL input
+        const urlInput = window.querySelector('#hf-url-input');
+        const validateBtn = window.querySelector('#hf-validate-btn');
+        const pasteBtn = window.querySelector('#hf-paste-btn');
+
+        // Paste from clipboard
+        pasteBtn?.addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                urlInput.value = text;
+                this.validateUrl(text);
+            } catch (err) {
+                console.error('Failed to read clipboard:', err);
+                this.showNotification('Failed to read clipboard', 'error');
+            }
+        });
+
+        // Validate on button click
+        validateBtn?.addEventListener('click', () => {
+            this.handleUrlValidation();
+        });
+
+        // Validate on Enter key
+        urlInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.handleUrlValidation();
+            }
+        });
+
+        // Real-time validation feedback
+        urlInput?.addEventListener('input', (e) => {
+            this.validateUrl(e.target.value);
+        });
+
+        // Browse button for destination
+        const browseBtn = window.querySelector('#hf-browse-btn');
+        browseBtn?.addEventListener('click', () => {
+            this.browseDestinationFolder();
+        });
+
+        // Download button
+        const downloadBtn = window.querySelector('#hf-download-btn');
+        downloadBtn?.addEventListener('click', () => {
+            this.startPasteLinkDownload();
+        });
+
+        // Cancel button
+        const cancelBtn = window.querySelector('#hf-cancel-btn');
+        cancelBtn?.addEventListener('click', () => {
+            this.resetPasteLinkTab();
+        });
+    }
+
+    validateUrl(url) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return false;
+
+        const input = window.querySelector('#hf-url-input');
+        if (!url) {
+            input?.classList.remove('valid', 'error');
+            return false;
+        }
+
+        // Regex patterns for validation
+        const patterns = [
+            /^https?:\/\/huggingface\.co\/[^\/]+\/[^\/]+/,
+            /^huggingface\.co\/[^\/]+\/[^\/]+/,
+            /^[^\/]+\/[^\/]+$/
+        ];
+
+        const isValid = patterns.some(pattern => pattern.test(url));
+
+        if (isValid) {
+            input?.classList.add('valid');
+            input?.classList.remove('error');
+        } else {
+            input?.classList.add('error');
+            input?.classList.remove('valid');
+        }
+
+        return isValid;
+    }
+
+    async handleUrlValidation() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const urlInput = window.querySelector('#hf-url-input');
+        const url = urlInput?.value?.trim();
+
+        if (!url) {
+            this.showNotification('Please enter a HuggingFace model URL', 'error');
+            return;
+        }
+
+        if (!this.validateUrl(url)) {
+            this.showNotification('Invalid URL format. Use: https://huggingface.co/author/model', 'error');
+            return;
+        }
+
+        // Show loading state
+        const validateBtn = window.querySelector('#hf-validate-btn');
+        if (validateBtn) {
+            validateBtn.disabled = true;
+            validateBtn.innerHTML = '<span class="material-icons spinning">refresh</span> Loading...';
+        }
+
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) {
+                throw new Error('Tauri API not available');
+            }
+
+            // Parse URL to get model ID
+            const modelId = await invoke('parse_hf_url', { url });
+
+            // Fetch model info and files
+            const [modelInfo, files] = await Promise.all([
+                invoke('fetch_hf_model_info', { modelId }),
+                invoke('fetch_hf_model_files', { modelId })
+            ]);
+
+            // Display results
+            this.displayModelInfo(modelInfo);
+            this.displayFilesList(files);
+
+            // Set default destination
+            await this.setDefaultDestination(modelId);
+
+            // Show file selection and destination sections
+            window.querySelector('#hf-files-section').style.display = 'block';
+            window.querySelector('#hf-destination-section').style.display = 'block';
+            window.querySelector('#hf-actions').style.display = 'flex';
+
+        } catch (error) {
+            console.error('Failed to fetch model:', error);
+            this.showNotification(`Failed to fetch model: ${error}`, 'error');
+        } finally {
+            // Reset button
+            if (validateBtn) {
+                validateBtn.disabled = false;
+                validateBtn.innerHTML = '<span class="material-icons">search</span> Validate & Fetch';
+            }
+        }
+    }
+
+    displayModelInfo(modelInfo) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const container = window.querySelector('#hf-model-info');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="model-info-card">
+                <div class="model-info-header">
+                    <h3>${this.escapeHtml(modelInfo.name || modelInfo.id)}</h3>
+                    <span class="model-id">${this.escapeHtml(modelInfo.id)}</span>
+                </div>
+                ${modelInfo.description ? `
+                    <p class="model-description">${this.escapeHtml(modelInfo.description)}</p>
+                ` : ''}
+                <div class="model-metadata">
+                    ${modelInfo.license ? `
+                        <span class="model-license">
+                            <span class="material-icons">description</span>
+                            License: ${this.escapeHtml(modelInfo.license)}
+                        </span>
+                    ` : ''}
+                    ${modelInfo.tags?.length ? `
+                        <span class="model-tags">
+                            <span class="material-icons">label</span>
+                            ${modelInfo.tags.slice(0, 5).map(t => this.escapeHtml(t)).join(', ')}
+                        </span>
+                    ` : ''}
+                </div>
+                <div class="model-stats">
+                    ${modelInfo.downloads ? `
+                        <span class="stat-item">
+                            <span class="material-icons">download</span>
+                            ${this.formatNumber(modelInfo.downloads)} downloads
+                        </span>
+                    ` : ''}
+                    ${modelInfo.likes ? `
+                        <span class="stat-item">
+                            <span class="material-icons">favorite</span>
+                            ${this.formatNumber(modelInfo.likes)} likes
+                        </span>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+
+        container.style.display = 'block';
+    }
+
+    displayFilesList(files) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const container = window.querySelector('#hf-files-list');
+        if (!container) return;
+
+        if (!files || files.length === 0) {
+            container.innerHTML = `
+                <div class="info-message">
+                    <span class="material-icons">info</span>
+                    No GGUF files found in this repository.
+                </div>
+            `;
+            return;
+        }
+
+        const filesHtml = files.map((file, index) => `
+            <div class="file-item" data-filename="${this.escapeHtml(file.filename)}" data-size="${file.size}">
+                <input type="checkbox" class="file-checkbox" id="file-${index}" 
+                       data-filename="${this.escapeHtml(file.filename)}"
+                       data-size="${file.size}">
+                <label for="file-${index}" class="file-label">
+                    <span class="file-name">${this.escapeHtml(file.filename)}</span>
+                    <span class="file-size">${file.size_formatted}</span>
+                    ${file.quantization ? `<span class="file-badge">${this.escapeHtml(file.quantization)}</span>` : ''}
+                </label>
+            </div>
+        `).join('');
+
+        container.innerHTML = filesHtml;
+
+        // Setup file selection listeners
+        this.setupFileSelectionListeners();
+    }
+
+    setupFileSelectionListeners() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const container = window.querySelector('#hf-files-list');
+        if (!container) return;
+
+        // Individual file checkboxes
+        container.querySelectorAll('.file-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                this.updateTotalSize();
+            });
+        });
+
+        // Select all
+        window.querySelector('#hf-select-all')?.addEventListener('click', () => {
+            container.querySelectorAll('.file-checkbox').forEach(cb => {
+                cb.checked = true;
+            });
+            this.updateTotalSize();
+        });
+
+        // Deselect all
+        window.querySelector('#hf-select-none')?.addEventListener('click', () => {
+            container.querySelectorAll('.file-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            this.updateTotalSize();
+        });
+    }
+
+    updateTotalSize() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const checkboxes = window.querySelectorAll('.file-checkbox:checked');
+        let totalSize = 0;
+        let count = 0;
+
+        checkboxes.forEach(cb => {
+            totalSize += parseInt(cb.dataset.size) || 0;
+            count++;
+        });
+
+        const display = window.querySelector('#hf-total-size');
+        if (display) {
+            display.textContent = `Selected: ${count} file${count !== 1 ? 's' : ''} (${this.formatBytes(totalSize)})`;
+        }
+    }
+
+    async setDefaultDestination(modelId) {
+        const invoke = this.getInvoke();
+        if (!invoke) return;
+
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        try {
+            const defaultPath = await invoke('get_default_download_path', { modelId });
+            const pathInput = window.querySelector('#hf-destination-path');
+            if (pathInput) {
+                pathInput.value = defaultPath;
+            }
+        } catch (error) {
+            console.error('Failed to get default path:', error);
+        }
+    }
+
+    async browseDestinationFolder() {
+        const invoke = this.getInvoke();
+        if (!invoke) return;
+
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        try {
+            const selected = await invoke('browse_folder', { inputId: 'hf-destination-path' });
+            if (selected) {
+                const pathInput = window.querySelector('#hf-destination-path');
+                if (pathInput) {
+                    pathInput.value = selected;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to browse folder:', error);
+        }
+    }
+
+    async startPasteLinkDownload() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const checkboxes = window.querySelectorAll('.file-checkbox:checked');
+        const selectedFiles = Array.from(checkboxes).map(cb => cb.dataset.filename);
+
+        if (selectedFiles.length === 0) {
+            this.showNotification('Please select at least one file to download', 'error');
+            return;
+        }
+
+        const destination = window.querySelector('#hf-destination-path')?.value;
+        if (!destination) {
+            this.showNotification('Please select a destination folder', 'error');
+            return;
+        }
+
+        const urlInput = window.querySelector('#hf-url-input');
+        const url = urlInput?.value;
+
+        const invoke = this.getInvoke();
+        if (!invoke) {
+            this.showNotification('Tauri API not available', 'error');
+            return;
+        }
+
+        try {
+            const modelId = await invoke('parse_hf_url', { url });
+
+            // Show download progress UI
+            window.querySelector('#hf-files-section').style.display = 'none';
+            window.querySelector('#hf-destination-section').style.display = 'none';
+            window.querySelector('#hf-actions').style.display = 'none';
+            window.querySelector('#hf-model-info').style.display = 'none';
+            window.querySelector('#hf-download-progress').style.display = 'block';
+
+            // Download files one at a time
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const filename = selectedFiles[i];
+                this.updateDownloadProgress(filename, i + 1, selectedFiles.length);
+
+                try {
+                    await invoke('download_hf_file', {
+                        modelId,
+                        filename,
+                        destination: `${destination}/${filename}`
+                    });
+
+                    this.markFileComplete(filename);
+                } catch (error) {
+                    console.error(`Failed to download ${filename}:`, error);
+                    this.showNotification(`Failed to download ${filename}: ${error}`, 'error');
+                }
+            }
+
+            this.showDownloadComplete();
+
+        } catch (error) {
+            console.error('Download error:', error);
+            this.showNotification(`Download failed: ${error}`, 'error');
+        }
+    }
+
+    updateDownloadProgress(filename, current, total) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const currentFileEl = window.querySelector('#hf-current-file');
+        if (currentFileEl) {
+            currentFileEl.textContent = `File ${current} of ${total}: ${filename}`;
+        }
+    }
+
+    markFileComplete(filename) {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const queueList = window.querySelector('#hf-queue-list');
+        if (queueList) {
+            const item = document.createElement('div');
+            item.className = 'queue-item completed';
+            item.innerHTML = `
+                <span class="material-icons">check_circle</span>
+                <span class="queue-filename">${this.escapeHtml(filename)}</span>
+                <span class="queue-status">Completed</span>
+            `;
+            queueList.appendChild(item);
+        }
+    }
+
+    showDownloadComplete() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        const progressSection = window.querySelector('#hf-download-progress');
+        if (progressSection) {
+            progressSection.innerHTML = `
+                <div class="success-message">
+                    <span class="material-icons">check_circle</span>
+                    <h3>Download Complete!</h3>
+                    <p>All files have been downloaded successfully.</p>
+                    <button class="action-btn" id="hf-download-more-btn">Download More</button>
+                </div>
+            `;
+
+            window.querySelector('#hf-download-more-btn')?.addEventListener('click', () => {
+                this.resetPasteLinkTab();
+            });
+        }
+
+        this.showNotification('Download complete!', 'success');
+    }
+
+    resetPasteLinkTab() {
+        const window = this.desktop.windows.get(this.windowId);
+        if (!window) return;
+
+        // Reset all fields
+        window.querySelector('#hf-url-input').value = '';
+        window.querySelector('#hf-url-input').classList.remove('valid', 'error');
+        window.querySelector('#hf-model-info').style.display = 'none';
+        window.querySelector('#hf-model-info').innerHTML = '';
+        window.querySelector('#hf-files-section').style.display = 'none';
+        window.querySelector('#hf-files-list').innerHTML = '';
+        window.querySelector('#hf-destination-section').style.display = 'none';
+        window.querySelector('#hf-destination-path').value = '';
+        window.querySelector('#hf-actions').style.display = 'none';
+        window.querySelector('#hf-download-progress').style.display = 'none';
+        window.querySelector('#hf-total-size').textContent = 'Selected: 0 files (0 GB)';
+
+        // Reset download progress section
+        window.querySelector('#hf-download-progress').innerHTML = `
+            <h3>Downloading...</h3>
+            <div class="current-file" id="hf-current-file"></div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="hf-progress-bar">
+                    <div class="progress-fill" id="hf-progress-fill"></div>
+                </div>
+                <div class="progress-text" id="hf-progress-text">0%</div>
+            </div>
+            <div class="download-stats" id="hf-download-stats"></div>
+            <div class="download-actions">
+                <button class="pause-btn" id="hf-pause-btn">Pause</button>
+                <button class="cancel-btn" id="hf-cancel-download-btn">Cancel</button>
+            </div>
+            <div class="queue-list" id="hf-queue-list"></div>
+        `;
+    }
+
+    showNotification(message, type = 'info') {
+        if (this.desktop && this.desktop.showNotification) {
+            this.desktop.showNotification(message, type);
+        } else {
+            console.log(`[${type}] ${message}`);
+        }
+    }
+
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
     updateHfSearchHistoryDropdown(filterTerm = null) {
@@ -488,14 +1113,36 @@ class HuggingFaceApp {
         try {
             const invoke = this.getInvoke();
             if (!invoke) {
-                throw new Error('Tauri API not available');
+                throw new Error('Tauri API not available - invoke is null');
             }
+
+            console.log('Searching with query:', query);
+            console.log('Limit:', limitSelect.value);
+            console.log('Sort by:', sortBySelect.value);
 
             const result = await invoke('search_huggingface', {
                 query: query,
                 limit: parseInt(limitSelect.value),
                 sortBy: sortBySelect.value
             });
+
+            console.log('Raw result:', result);
+            console.log('Result type:', typeof result);
+            console.log('Has models property:', 'models' in result);
+            console.log('Models is array:', Array.isArray(result.models));
+            console.log('Models count:', result.models?.length);
+            console.log('Models data:', result.models);
+
+            if (!result.models || !Array.isArray(result.models)) {
+                throw new Error('Invalid response format from backend');
+            }
+            
+            if (result.models.length === 0) {
+                console.warn('Empty models array returned');
+            } else {
+                console.log('First model ID:', result.models[0]?.id);
+                console.log('All model IDs:', result.models.map(m => m.id));
+            }
 
             this.displayHuggingFaceResults(result.models, query);
 
@@ -521,8 +1168,19 @@ class HuggingFaceApp {
 
         const resultsContainer = window.querySelector('#hf-search-results');
 
+        // DEBUG: Show raw data
+        const debugInfo = `
+            <div class="debug-info" style="background: #ffeb3b; color: #000; padding: 10px; margin: 10px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                <strong>DEBUG INFO:</strong><br>
+                Query: "${query}"<br>
+                Models received: ${models?.length || 0}<br>
+                Models is array: ${Array.isArray(models)}<br>
+                ${models && models.length > 0 ? `First model ID: ${models[0].id}<br>All IDs: ${models.map(m => m.id).join(', ')}` : 'No models data'}
+            </div>
+        `;
+
         if (!models || models.length === 0) {
-            resultsContainer.innerHTML = `
+            resultsContainer.innerHTML = debugInfo + `
                 <div class="search-no-results">
                     <div class="no-results-icon">No Results</div>
                     <h4>No Models Found</h4>
@@ -534,7 +1192,7 @@ class HuggingFaceApp {
         }
 
         // Create the two-panel layout with simplified list
-        const resultsHTML = `
+        const resultsHTML = debugInfo + `
             <div class="search-results-header">
                 <h4>Found ${models.length} llama.cpp compatible text generation models for "${query}"</h4>
             </div>

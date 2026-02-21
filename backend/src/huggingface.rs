@@ -103,9 +103,9 @@ pub async fn search_models(
 ) -> Result<SearchResult, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     
-    // Build search URL with parameters - add full parameter to get complete model information
+    // Build search URL with parameters - filter for GGUF models (includes both conversational and text-to-image)
      let url = format!(
-        "https://huggingface.co/api/models?search={}&filter=gguf,conversational&sort={}&limit={}",
+        "https://huggingface.co/api/models?search={}&filter=gguf&sort={}&limit={}",
         urlencoding::encode(&query),
          match sort_by.as_str() {
              "downloads" => "downloads",
@@ -117,6 +117,7 @@ pub async fn search_models(
      );
     
     println!("Searching with URL: {}", url);
+    println!("Query: {}, Sort: {}, Limit: {}", query, sort_by, limit);
     
     let response = client
         .get(&url)
@@ -132,15 +133,23 @@ pub async fn search_models(
     let models_array = models_data.as_array()
         .ok_or("Invalid response format: expected array")?;
     
+    let api_model_count = models_array.len();
+    eprintln!("DEBUG: API returned {} models", api_model_count);
+    
     let mut models = Vec::new();
     
-    for model_data in models_array {
+    for (idx, model_data) in models_array.iter().enumerate() {
         if let Some(model) = parse_model_basic(model_data) {
+            eprintln!("DEBUG: Parsed model {}: {} (author: {})", idx, model.id, model.author);
             models.push(model);
+        } else {
+            eprintln!("DEBUG: Failed to parse model at index {}", idx);
         }
     }
     
     let total = models.len();
+    
+    eprintln!("DEBUG: Successfully parsed {} out of {} API models", total, api_model_count);
     
     Ok(SearchResult {
         success: true,
