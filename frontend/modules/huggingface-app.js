@@ -1082,12 +1082,67 @@ class HuggingFaceApp {
         }
     }
 
-    formatFileSize(bytes) {
+formatFileSize(bytes) {
         return this.desktop.formatFileSize(bytes);
     }
 
     formatNumber(num) {
         return this.desktop.formatNumber(num);
+    }
+
+    formatRelativeDate(timestamp) {
+        if (!timestamp) return 'unknown';
+
+        const date = new Date(timestamp * 1000);
+        const now = new Date();
+        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 1) return 'today';
+        if (diffDays === 1) return 'yesterday';
+        if (diffDays < 7) return `${diffDays} days ago`;
+        if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+        if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+        return `${Math.floor(diffDays / 365)} years ago`;
+    }
+
+    generateDateComparisonBadge(model) {
+        if (!this.comparisonContext) {
+            return '';
+        }
+
+        const localDate = this.comparisonContext.localDate;
+        const remoteDate = model.lastModified;
+
+        if (!remoteDate) {
+            return `
+                <div class="date-comparison-badge blue">
+                    <span class="material-icons">help</span>
+                    <span>Date unknown</span>
+                </div>
+            `;
+        }
+
+        const localObj = new Date(localDate * 1000);
+        const remoteObj = new Date(remoteDate);
+
+        if (remoteObj > localObj) {
+            const daysDiff = Math.floor((remoteObj - localObj) / (1000 * 60 * 60 * 24));
+            return `
+                <div class="date-comparison-badge red">
+                    <span class="material-icons">arrow_upward</span>
+                    <span class="badge-title">NEWER</span>
+                    <span>Updated: ${this.formatRelativeDate(remoteDate)} (${daysDiff} days newer)</span>
+                    <span class="your-model-date">Your model: ${this.formatRelativeDate(localDate)}</span>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="date-comparison-badge green">
+                <span class="material-icons">check_circle</span>
+                <span>Up to date</span>
+            </div>
+        `;
     }
 
     async performHuggingFaceSearch() {
@@ -1208,8 +1263,9 @@ class HuggingFaceApp {
             <div class="search-results-content">
                 <div class="models-sidebar">
                     <div class="models-list">
-                        ${models.map((model, index) => {
+${models.map((model, index) => {
             const updatedText = model.lastModified ? this.formatTimeAgo(model.lastModified) : 'Unknown';
+            const compareBadge = this.generateDateComparisonBadge(model);
 
             return `
                                 <div class="model-list-item ${index === 0 ? 'selected' : ''}" data-model-index="${index}" onclick="huggingFaceApp.selectModel(${index})">
@@ -1220,6 +1276,7 @@ class HuggingFaceApp {
                                         <span class="stat-likes" title="${this.formatNumber(model.likes)} likes">❤ ${this.formatNumber(model.likes)}</span>
                                         <span class="stat-updated" title="Last updated: ${model.lastModified || 'Unknown'}">${updatedText}</span>
                                     </div>
+                                    ${compareBadge}
                                 </div>
                             `;
         }).join('')}
