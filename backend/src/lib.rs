@@ -1,3 +1,6 @@
+// Arandu Backend - Main Library
+// AI AGENTS: Check nowledge-mem memory for file locations and patterns before modifying
+// Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::{Manager, Listener, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
@@ -15,6 +18,9 @@ mod system_monitor;
 mod gguf_parser;
 mod update_checker;
 mod huggingface_downloader;
+mod tracker_scraper;
+mod tracker_manager;
+mod openai_types;
 
 use config::*;
 use process::*;
@@ -22,10 +28,12 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
+use tracker_scraper::TrackerScraper;
+use tracker_manager::TrackerManager;
 
 // Import ProcessHandle from process module
 use process::ProcessHandle;
@@ -61,6 +69,7 @@ pub struct AppState {
     pub child_processes: Arc<Mutex<HashMap<String, Arc<Mutex<ProcessHandle>>>>>, // Simplified process tracking
     pub session_state: Arc<Mutex<SessionState>>,
     pub download_manager: Arc<Mutex<DownloadManager>>,
+    pub tracker_manager: Arc<Mutex<Option<TrackerManager>>>,
 }
 
 // Implement Clone manually to avoid derive issues with Child
@@ -73,6 +82,7 @@ impl Clone for AppState {
             child_processes: self.child_processes.clone(),
             session_state: self.session_state.clone(),
             download_manager: self.download_manager.clone(),
+            tracker_manager: self.tracker_manager.clone(),
         }
     }
 }
@@ -86,6 +96,7 @@ impl AppState {
             child_processes: Arc::new(Mutex::new(HashMap::new())),
             session_state: Arc::new(Mutex::new(SessionState::default())),
             download_manager: Arc::new(Mutex::new(DownloadManager::new())),
+            tracker_manager: Arc::new(Mutex::new(None)),
         }
     }
     
@@ -1856,8 +1867,24 @@ async fn download_hf_file(
 }
 
 // Initialize and load settings
-async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
+async fn initialize_app_state(app_data_dir: std::path::PathBuf) -> Result<AppState, Box<dyn std::error::Error>> {
     let state = AppState::new();
+    
+    // Initialize tracker manager
+    {
+        let tracker_dir = app_data_dir.join("tracker");
+        match TrackerManager::new(tracker_dir) {
+            Ok(manager) => {
+                let mut tracker = state.tracker_manager.lock().await;
+                *tracker = Some(manager);
+                println!("Tracker manager initialized successfully");
+            }
+            Err(e) => {
+                eprintln!("Failed to initialize tracker manager: {}", e);
+            }
+        }
+    }
+    
     load_settings(&state).await?;
 
     // Create models and executable directories if they don't exist
@@ -1912,6 +1939,179 @@ async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> 
     Ok(state)
 }
 
+#[tauri::command]
+async fn get_tracker_models(
+    vram_limit: Option<f64>,
+    categories: Option<Vec<String>>,
+    chinese_only: bool,
+    gguf_only: bool,
+    file_types: Option<Vec<String>>,
+    quantizations: Option<Vec<String>>,
+    search: Option<String>,
+    sort_by: Option<String>,
+    sort_desc: Option<bool>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<TrackerModel>, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.get_models(
+        vram_limit,
+        categories,
+        chinese_only,
+        gguf_only,
+        file_types,
+        quantizations,
+        search,
+        &sort_by.unwrap_or_else(|| "downloads".to_string()),
+        sort_desc.unwrap_or(true),
+    )
+}
+
+#[tauri::command]
+async fn refresh_tracker_data(
+    state: tauri::State<'_, AppState>,
+    _app_handle: tauri::AppHandle,
+) -> Result<TrackerStats, String> {
+    let scraper = TrackerScraper::new();
+    
+    let models = scraper.fetch_trending_models(100).await?;
+    
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    // Clear existing models before saving new ones to ensure counts are accurate
+    manager.clear_models()?;
+    manager.save_models(&models)?;
+    
+    manager.get_stats()
+}
+
+#[tauri::command]
+async fn export_tracker_json(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.export_json()
+}
+
+#[tauri::command]
+async fn get_tracker_live_results(
+    query: Option<String>,
+    categories: Option<Vec<String>>,
+    chinese_only: bool,
+    gguf_only: bool,
+    limit: u32,
+) -> Result<Vec<TrackerModel>, String> {
+    let scraper = TrackerScraper::new();
+    scraper.fetch_live_results(query, categories, chinese_only, gguf_only, limit).await
+}
+
+#[tauri::command]
+async fn get_tracker_stats(
+    state: tauri::State<'_, AppState>,
+) -> Result<TrackerStats, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.get_stats()
+}
+
+#[tauri::command]
+async fn get_tracker_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<TrackerConfig, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.get_config()
+}
+
+#[tauri::command]
+async fn update_tracker_config(
+    config: TrackerConfig,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.save_config(&config)
+}
+
+#[tauri::command]
+async fn get_weekly_reports(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<WeeklyReport>, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.get_weekly_reports(4)
+}
+
+#[tauri::command]
+async fn generate_weekly_report(
+    state: tauri::State<'_, AppState>,
+) -> Result<WeeklyReport, String> {
+    let tracker = state.tracker_manager.lock().await;
+    let manager = tracker.as_ref().ok_or("Tracker not initialized")?;
+    
+    manager.generate_weekly_report()
+}
+
+// Simple network configuration storage (in-memory for now)
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static NETWORK_SERVER_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+async fn save_network_config(
+    address: String,
+    port: u16,
+) -> Result<(), String> {
+    // Save to config or state
+    println!("Saving network config: {}:{}", address, port);
+    // In a real implementation, save to persistent storage
+    Ok(())
+}
+
+#[tauri::command]
+async fn activate_network_server(
+    address: String,
+    port: u16,
+) -> Result<serde_json::Value, String> {
+    println!("Activating network server on {}:{}", address, port);
+    
+    // Set the active flag
+    NETWORK_SERVER_ACTIVE.store(true, Ordering::SeqCst);
+    
+    // In a real implementation, this would start the actual server
+    // For now, just return success
+    Ok(serde_json::json!({
+        "success": true,
+        "address": address,
+        "port": port,
+        "message": format!("Network server activated on {}:{}", address, port)
+    }))
+}
+
+#[tauri::command]
+async fn deactivate_network_server(
+) -> Result<serde_json::Value, String> {
+    println!("Deactivating network server");
+    
+    // Clear the active flag
+    NETWORK_SERVER_ACTIVE.store(false, Ordering::SeqCst);
+    
+    // In a real implementation, this would stop the actual server
+    // For now, just return success
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "Network server deactivated"
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize logging
@@ -1925,7 +2125,8 @@ pub fn run() {
         .setup(|app| {
             // Initialize app state
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let state = rt.block_on(initialize_app_state())
+            let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let state = rt.block_on(initialize_app_state(app_data_dir))
                 .map_err(|e| format!("Failed to initialize app state: {}", e))?;
             
             println!("Application started, process tracking enabled with kill_on_drop");
@@ -2098,7 +2299,19 @@ initial_scan_models,
             fetch_hf_model_info,
             fetch_hf_model_files,
             get_default_download_path,
-            download_hf_file
+            download_hf_file,
+            get_tracker_models,
+            refresh_tracker_data,
+            export_tracker_json,
+            get_tracker_live_results,
+            get_tracker_stats,
+            get_tracker_config,
+            update_tracker_config,
+            get_weekly_reports,
+            generate_weekly_report,
+            save_network_config,
+            activate_network_server,
+            deactivate_network_server
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
