@@ -4705,22 +4705,29 @@ async handleCheckUpdate(modelPath) {
             localQuantization: model?.quantization || ''
         };
 
-        const result = await invoke('check_model_update', { modelPath });
+const result = await invoke('check_model_update', { modelPath });
 
-        if (result.success) {
-            this.updateUpdateIndicator(modelPath, result);
-            if (result.update_available) {
-                this.showNotification('Update available! Check HF search window.', 'success');
-            } else {
-                this.showNotification(result.message || 'Up to date', 'info');
+        const isUpdateAvailable = result.status === 'update_available';
+        const isNotLinked = result.status === 'not_linked';
+        const isError = result.status === 'error';
+
+        this.updateUpdateIndicator(modelPath, result);
+
+        if (isUpdateAvailable) {
+            this.showNotification('Update available! Check HF search window.', 'success');
+        } else if (isNotLinked) {
+            this.showLinkModelDialog(modelPath);
+            if (icon) {
+                const indicator = icon.querySelector('.update-indicator');
+                if (indicator) {
+                    indicator.className = 'update-indicator gray';
+                }
             }
+            return;
+        } else if (isError) {
+            this.showNotification(result.message || 'Error checking for updates', 'error');
         } else {
-            if (result.message.includes('not linked')) {
-                this.showLinkModelDialog(modelPath);
-            } else {
-                this.showNotification(result.message, 'error');
-                this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
-            }
+            this.showNotification(result.message || 'Up to date', 'info');
         }
 
         const hfApp = huggingFaceApp;
@@ -4748,22 +4755,25 @@ async handleCheckUpdate(modelPath) {
         }
     }
 
-    updateUpdateIndicator(modelPath, result) {
+updateUpdateIndicator(modelPath, result) {
         const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
         if (!icon) return;
 
         const indicator = icon.querySelector('.update-indicator');
         if (!indicator) return;
 
-        if (result.update_available) {
+        if (result.status === 'update_available') {
             indicator.className = 'update-indicator red';
-            indicator.title = `Update available! Local: ${result.local_modified ? new Date(result.local_modified * 1000).toLocaleDateString() : 'Unknown'}`;
-        } else if (result.last_checked) {
+            indicator.title = `Update available! Local: ${result.local_date || 'Unknown'}`;
+        } else if (result.status === 'not_linked') {
             indicator.className = 'update-indicator gray';
-            indicator.title = `Up to date. Last checked: ${new Date(result.last_checked * 1000).toLocaleString()}`;
+            indicator.title = result.message || 'Click to link to HuggingFace';
+        } else if (result.status === 'error') {
+            indicator.className = 'update-indicator red';
+            indicator.title = result.message || 'Error checking for updates';
         } else {
             indicator.className = 'update-indicator green';
-            indicator.title = 'Click to check for updates on HuggingFace';
+            indicator.title = result.message || 'Up to date - Click to check for updates';
         }
     }
 

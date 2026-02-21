@@ -22,7 +22,7 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, InitialScanResult, HFLinkResult, HFFileInfo};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -1149,154 +1149,6 @@ fn extract_hf_model_id_from_path(path: &str, base_dir: &str) -> Option<String> {
     }
 }
 
-#[tauri::command]
-async fn check_model_update(
-    model_path: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<UpdateCheckResult, String> {
-    use reqwest;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    
-    // Get model config
-    let (hf_model_id, local_modified, local_size) = {
-        let model_configs = state.model_configs.lock().await;
-        let config = model_configs.get(&model_path)
-            .cloned()
-            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
-        
-        if config.hf_model_id.is_none() {
-            return Ok(UpdateCheckResult {
-                success: false,
-                update_available: false,
-                message: "Model not linked to HuggingFace".to_string(),
-                local_modified: config.local_file_modified,
-                hf_modified: None,
-                last_checked: None,
-            });
-        }
-        
-        (config.hf_model_id.unwrap(), config.local_file_modified, config.file_size_bytes)
-    };
-    
-    // Query HF API for model files
-    let url = format!("https://huggingface.co/api/models/{}/tree/main", hf_model_id);
-    
-    let client = reqwest::Client::new();
-    let response = match client.get(&url).send().await {
-        Ok(resp) => resp,
-        Err(e) => {
-            return Ok(UpdateCheckResult {
-                success: false,
-                update_available: false,
-                message: format!("Failed to query HF API: {}", e),
-                local_modified,
-                hf_modified: None,
-                last_checked: None,
-            });
-        }
-    };
-    
-    if !response.status().is_success() {
-        return Ok(UpdateCheckResult {
-            success: false,
-            update_available: false,
-            message: format!("HF API returned error: {}", response.status()),
-            local_modified,
-            hf_modified: None,
-            last_checked: None,
-        });
-    }
-    
-    let data: serde_json::Value = match response.json().await {
-        Ok(data) => data,
-        Err(e) => {
-            return Ok(UpdateCheckResult {
-                success: false,
-                update_available: false,
-                message: format!("Failed to parse HF response: {}", e),
-                local_modified,
-                hf_modified: None,
-                last_checked: None,
-            });
-        }
-    };
-    
-    // Find matching file in HF repo
-    let path_obj = std::path::Path::new(&model_path);
-    let file_name = path_obj.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    
-    let hf_file = data.as_array()
-        .and_then(|files| {
-            files.iter().find(|f| {
-                f.get("path")
-                    .and_then(|p| p.as_str())
-                    .map(|p| p.ends_with(file_name))
-                    .unwrap_or(false)
-            })
-        });
-    
-    let (hf_modified, hf_size, message, update_available) = match hf_file {
-        Some(file) => {
-            let last_commit = file.get("lastCommit")
-                .and_then(|c| c.get("date"))
-                .and_then(|d| d.as_str());
-            
-            let hf_modified = last_commit
-                .and_then(|date| parse_hf_date(date));
-            
-            let hf_size = file.get("size")
-                .and_then(|s| s.as_i64());
-            
-            let update_available = match (local_modified, hf_modified) {
-                (Some(local), Some(hf)) => hf > local,
-                _ => false,
-            };
-            
-            let message = if update_available {
-                "Update available on HuggingFace".to_string()
-            } else {
-                "Model is up to date".to_string()
-            };
-            
-            (hf_modified, hf_size, message, update_available)
-        }
-        None => {
-            (None, None, "File not found on HuggingFace".to_string(), false)
-        }
-    };
-    
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    
-    // Update model config
-    {
-        let mut model_configs = state.model_configs.lock().await;
-        let config = model_configs.entry(model_path.clone())
-            .or_insert_with(|| ModelConfig::new(model_path.clone()));
-        
-        config.last_hf_check = Some(now);
-        config.hf_file_modified = hf_modified;
-        config.hf_file_size = hf_size;
-        config.update_available = update_available;
-    }
-    
-    // Save settings
-    let _ = save_settings(&state).await;
-    
-    Ok(UpdateCheckResult {
-        success: true,
-        update_available,
-        message,
-        local_modified,
-        hf_modified,
-        last_checked: Some(now),
-    })
-}
-
 // Helper function to parse HF date format
 fn parse_hf_date(date_str: &str) -> Option<i64> {
     // HF dates are typically in ISO 8601 format: "2024-01-15T10:30:00Z"
@@ -1376,96 +1228,6 @@ async fn get_hf_model_files(
         },
         files,
     })
-}
-
-#[tauri::command]
-async fn link_model_to_hf(
-    model_path: String,
-    hf_model_id: String,
-    hf_filename: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<UpdateCheckResult, String> {
-    use reqwest;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    
-    // Validate HF model exists
-    let url = format!("https://huggingface.co/api/models/{}/tree/main", hf_model_id);
-    
-    let client = reqwest::Client::new();
-    let response = match client.get(&url).send().await {
-        Ok(resp) => resp,
-        Err(e) => {
-            return Ok(UpdateCheckResult {
-                success: false,
-                update_available: false,
-                message: format!("Failed to query HF API: {}", e),
-                local_modified: None,
-                hf_modified: None,
-                last_checked: None,
-            });
-        }
-    };
-    
-    if !response.status().is_success() {
-        return Ok(UpdateCheckResult {
-            success: false,
-            update_available: false,
-            message: format!("HF model not found: {}", response.status()),
-            local_modified: None,
-            hf_modified: None,
-            last_checked: None,
-        });
-    }
-    
-    // Get local file metadata
-    let (local_modified, file_size) = {
-        use std::fs;
-        use std::path::Path;
-        
-        match fs::metadata(&model_path) {
-            Ok(meta) => {
-                let modified = meta.modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64);
-                (modified, Some(meta.len() as i64))
-            }
-            Err(_) => (None, None),
-        }
-    };
-    
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-    
-    // Update model config
-    {
-        let mut model_configs = state.model_configs.lock().await;
-        let config = model_configs.entry(model_path.clone())
-            .or_insert_with(|| ModelConfig::new(model_path.clone()));
-        
-        config.hf_model_id = Some(hf_model_id);
-        config.hf_link_source = Some("manual".to_string());
-        config.local_file_modified = local_modified;
-        config.file_size_bytes = file_size;
-        config.last_hf_check = Some(now);
-    }
-
-    // Save settings
-    if let Err(e) = save_settings(&state).await {
-        return Ok(UpdateCheckResult {
-            success: false,
-            update_available: false,
-            message: format!("Failed to save settings: {}", e),
-            local_modified,
-            hf_modified: None,
-            last_checked: Some(now),
-        });
-    }
-    
-    // Now check for updates
-    check_model_update(model_path, state).await
 }
 
 #[tauri::command]
@@ -1600,11 +1362,61 @@ async fn check_model_update(
     model_path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<UpdateCheckResult, String> {
-    // Get model config to check for HF metadata
+    use std::time::SystemTime;
+    
+    // Get model config to check for HF metadata and migrate if needed
     let hf_metadata = {
-        let configs = state.model_configs.lock().await;
-        configs.get(&model_path).and_then(|config| config.hf_metadata.clone())
+        let mut configs = state.model_configs.lock().await;
+        let config = configs.get_mut(&model_path);
+        
+        if let Some(config) = config {
+            if let Some(ref metadata) = config.hf_metadata {
+                metadata.clone()
+            } else if let Some(ref hf_id) = config.hf_model_id {
+                // Migrate legacy HF link to new metadata format
+                let filename = std::path::Path::new(&model_path)
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .unwrap_or("unknown.gguf")
+                    .to_string();
+                
+                let metadata = HfMetadata {
+                    model_id: hf_id.clone(),
+                    filename,
+                    commit_date: None,
+                    linked_at: format!(
+                        "{}",
+                        SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    ),
+                };
+                
+                config.hf_metadata = Some(metadata.clone());
+                metadata
+            } else {
+                // No HF link at all
+                return Ok(UpdateCheckResult {
+                    status: UpdateStatus::NotLinked,
+                    local_date: None,
+                    remote_date: None,
+                    message: "Model not linked to HuggingFace. Click to link.".to_string(),
+                });
+            }
+        } else {
+            // Config doesn't exist
+            return Ok(UpdateCheckResult {
+                status: UpdateStatus::NotLinked,
+                local_date: None,
+                remote_date: None,
+                message: "Model not linked to HuggingFace. Click to link.".to_string(),
+            });
+        }
     };
+    
+    // Save settings to persist any migration
+    let _ = save_settings(&state).await;
     
     // Get file modification date
     let modification_date = gguf_parser::get_file_modification_date(&model_path)
@@ -1613,7 +1425,7 @@ async fn check_model_update(
     // Check HF for updates
     let result = update_checker::check_huggingface_updates(
         &model_path,
-        hf_metadata.as_ref(),
+        Some(&hf_metadata),
         modification_date,
     ).await;
     
@@ -2277,21 +2089,16 @@ pub fn run() {
             scan_mmproj_files_command,
             hide_window,
             show_window,
-<<<<<<< HEAD
-            initial_scan_models,
+initial_scan_models,
             check_model_update,
             get_hf_model_files,
-            link_model_to_hf
-=======
-            get_model_metadata,
-            check_model_update,
             link_model_to_hf,
+            get_model_metadata,
             parse_hf_url,
             fetch_hf_model_info,
             fetch_hf_model_files,
             get_default_download_path,
             download_hf_file
->>>>>>> phase2-hf-direct-link
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
