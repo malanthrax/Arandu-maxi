@@ -4626,15 +4626,17 @@ class DesktopManager {
                     vramContainer.title = `VRAM: ${stats.gpu_memory_used_gb.toFixed(2)}GB / ${stats.gpu_memory_total_gb.toFixed(2)}GB (${vramPercent.toFixed(1)}%)`;
                 } else {
                     vramContainer.title = 'VRAM: Not available';
-                    // If no GPU, set VRAM bar to 0%
+// If no GPU, set VRAM bar to 0%
                     if (vramFill) {
-                vramFill.style.width = '0%';
-                vramFill.style.background = getBarColor(0);
+                        vramFill.style.width = '0%';
+vramFill.style.background = getBarColor(0);
+                    }
+                }
             }
         }
     }
 
-    // Update Checker Methods
+// Update Checker Methods
     
     async performInitialScan() {
         const hasPerformedScan = localStorage.getItem('arandu-initial-scan-done');
