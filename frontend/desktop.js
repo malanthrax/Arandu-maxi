@@ -655,8 +655,8 @@ class DesktopManager {
                         await this.launchModelWithPresetExternal(this.selectedIcon, presetId);
                     } else if (action === 'properties' && this.selectedIcon) {
                         this.showProperties(this.selectedIcon);
-                    } else if (action === 'check-update' && this.selectedIcon) {
-                        await this.checkModelUpdate(this.selectedIcon.dataset.path, this.selectedIcon);
+} else if (action === 'check-update' && this.selectedIcon) {
+                        await this.handleCheckUpdate(this.selectedIcon.dataset.path);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
                     } else if (action.startsWith('sort-')) {
@@ -3678,9 +3678,9 @@ class DesktopManager {
                     <img src="./assets/gguf.png" class="model-icon">
                     <div class="architecture-label">${model.architecture.substring(0, 7)}</div>
                     <div class="quantization-bar ${quantColorClass}"></div>
-                    <div class="update-indicator ${indicatorClass}" 
+<div class="update-indicator ${indicatorClass}" 
                          title="${indicatorTitle}"
-                         onclick="event.stopPropagation(); desktop.checkModelUpdate('${model.path}')">
+                         onclick="event.stopPropagation(); desktop.handleCheckUpdate('${model.path}')">
                     </div>
                 </div>
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
@@ -3696,13 +3696,13 @@ class DesktopManager {
             updateIndicator.addEventListener('click', async (e) => {
                 e.stopPropagation(); // Prevent icon selection
                 
-                if (updateIndicator.classList.contains('not-linked')) {
+if (updateIndicator.classList.contains('not-linked')) {
                     const linked = await this.showLinkToHFDialog(model.path);
                     if (linked) {
-                        await this.checkModelUpdate(model.path, iconElement);
+                        await this.handleCheckUpdate(model.path);
                     }
                 } else {
-                    await this.checkModelUpdate(model.path, iconElement);
+                    await this.handleCheckUpdate(model.path);
                 }
             });
             
@@ -4658,37 +4658,93 @@ vramFill.style.background = getBarColor(0);
         }
     }
 
-    async checkModelUpdate(modelPath) {
-        try {
-            const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
-            if (icon) {
-                const indicator = icon.querySelector('.update-indicator');
-                if (indicator) {
-                    indicator.className = 'update-indicator blue';
-                }
-            }
+async handleCheckUpdate(modelPath) {
+        const model = this.models[modelPath];
+        const invoke = window.__TAURI__.core.invoke;
 
-            const result = await invoke('check_model_update', { modelPath });
-            
-            if (result.success) {
-                this.updateUpdateIndicator(modelPath, result);
-                if (result.update_available) {
-                    this.showNotification('Update available for this model!', 'success');
-                } else {
-                    this.showNotification(result.message, 'info');
-                }
-            } else {
-                if (result.message.includes('not linked')) {
-                    this.showLinkModelDialog(modelPath);
-                } else {
-                    this.showNotification(result.message, 'error');
-                    this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
-                }
+        const icon = document.querySelector(`.desktop-icon[data-path="${modelPath}"]`);
+        if (icon) {
+            const indicator = icon.querySelector('.update-indicator');
+            if (indicator) {
+                indicator.className = 'update-indicator blue';
             }
-        } catch (error) {
-            console.error('Error checking model update:', error);
-            this.showNotification('Failed to check for updates', 'error');
-            this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
+        }
+
+        let localDate;
+        if (model?.hf_metadata?.local_modified) {
+            localDate = model.hf_metadata.local_modified;
+        } else if (model?.creation_date) {
+            localDate = model.creation_date;
+        } else {
+            try {
+                localDate = await invoke('get_file_modification_date', { path: modelPath });
+            } catch (error) {
+                console.error('Failed to get modification date:', error);
+                localDate = Math.floor(Date.now() / 1000);
+            }
+        }
+
+        let searchQuery = '';
+        if (model?.hf_metadata?.model_id) {
+            searchQuery = model.hf_metadata.model_id;
+        } else {
+            const parts = modelPath.split(/[\\/]/);
+            if (parts.length >= 3) {
+                const author = parts[parts.length - 3];
+                const modelName = parts[parts.length - 2];
+                searchQuery = `${author}/${modelName}`;
+            } else {
+                searchQuery = model?.name || '';
+            }
+        }
+
+        this.updateComparisonData = {
+            modelId: searchQuery,
+            localDate: localDate,
+            localPath: modelPath,
+            localQuantization: model?.quantization || ''
+        };
+
+        const result = await invoke('check_model_update', { modelPath });
+
+        if (result.success) {
+            this.updateUpdateIndicator(modelPath, result);
+            if (result.update_available) {
+                this.showNotification('Update available! Check HF search window.', 'success');
+            } else {
+                this.showNotification(result.message || 'Up to date', 'info');
+            }
+        } else {
+            if (result.message.includes('not linked')) {
+                this.showLinkModelDialog(modelPath);
+            } else {
+                this.showNotification(result.message, 'error');
+                this.updateUpdateIndicator(modelPath, { update_available: false, last_checked: null });
+            }
+        }
+
+        const hfApp = this.desktop.modules.get('huggingface');
+        if (hfApp && searchQuery) {
+            try {
+                hfApp.setComparisonContext(this.updateComparisonData);
+                await hfApp.openHuggingFaceSearch();
+
+                setTimeout(() => {
+                    const hfWindow = document.querySelector('.window[data-window-id="huggingface-search-window"]');
+                    if (hfWindow) {
+                        const searchInput = hfWindow.querySelector('#hf-search-input');
+                        if (searchInput) {
+                            searchInput.value = searchQuery;
+                            hfApp.performHuggingFaceSearch();
+                        }
+                    }
+                }, 300);
+            } catch (error) {
+                console.error('Failed to open HF search:', error);
+                this.showNotification('Failed to open HuggingFace search', 'error');
+            }
+        } else if (!hfApp) {
+            console.error('HuggingFace app not initialized');
         }
     }
 
