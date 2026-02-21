@@ -654,8 +654,8 @@ class DesktopManager {
                         const presetId = e.target.closest('[data-preset-id]')?.dataset.presetId;
                         await this.launchModelWithPresetExternal(this.selectedIcon, presetId);
                     } else if (action === 'properties' && this.selectedIcon) {
-                        this.showProperties(this.selectedIcon);
-} else if (action === 'check-update' && this.selectedIcon) {
+this.showProperties(this.selectedIcon);
+                    } else if (action === 'check-update' && this.selectedIcon) {
                         await this.handleCheckUpdate(this.selectedIcon.dataset.path);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
@@ -3693,10 +3693,10 @@ class DesktopManager {
             updateIndicator.title = 'Click to check for updates';
             
             // Add click handler to indicator
-            updateIndicator.addEventListener('click', async (e) => {
+updateIndicator.addEventListener('click', async (e) => {
                 e.stopPropagation(); // Prevent icon selection
-                
-if (updateIndicator.classList.contains('not-linked')) {
+
+                if (updateIndicator.classList.contains('not-linked')) {
                     const linked = await this.showLinkToHFDialog(model.path);
                     if (linked) {
                         await this.handleCheckUpdate(model.path);
@@ -4723,7 +4723,7 @@ async handleCheckUpdate(modelPath) {
             }
         }
 
-        const hfApp = this.desktop.modules.get('huggingface');
+        const hfApp = huggingFaceApp;
         if (hfApp && searchQuery) {
             try {
                 hfApp.setComparisonContext(this.updateComparisonData);
