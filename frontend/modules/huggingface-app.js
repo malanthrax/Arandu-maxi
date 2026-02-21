@@ -11,6 +11,15 @@ class HuggingFaceApp {
         this.loadSuggestions();
         // Don't call initTauriAPI here - wait until first use
         this.setupEventListeners();
+        this.comparisonContext = null;
+    }
+
+    setComparisonContext(context) {
+        this.comparisonContext = context;
+    }
+
+    clearComparisonContext() {
+        this.comparisonContext = null;
     }
 
     async loadSuggestions() {
