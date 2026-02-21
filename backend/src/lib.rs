@@ -21,6 +21,7 @@ mod huggingface_downloader;
 mod tracker_scraper;
 mod tracker_manager;
 mod openai_types;
+mod openai_proxy;
 
 use config::*;
 use process::*;
