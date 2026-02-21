@@ -1146,6 +1146,8 @@ formatFileSize(bytes) {
     }
 
     async performHuggingFaceSearch() {
+        this.clearComparisonContext();
+
         const window = this.desktop.windows.get(this.windowId);
         if (!window) return;
 
