@@ -1145,9 +1145,7 @@ formatFileSize(bytes) {
         `;
     }
 
-    async performHuggingFaceSearch() {
-        this.clearComparisonContext();
-
+async performHuggingFaceSearch() {
         const window = this.desktop.windows.get(this.windowId);
         if (!window) return;
 
@@ -1160,6 +1158,11 @@ formatFileSize(bytes) {
         if (!query) {
             this.desktop.showNotification('Please enter a search term', 'error');
             return;
+        }
+
+        // Only clear comparison context if this is a manual search (not from update check)
+        if (this.comparisonContext && this.comparisonContext.modelId !== query) {
+            this.clearComparisonContext();
         }
 
         // Save to search history
