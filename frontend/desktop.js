@@ -15,6 +15,7 @@ class DesktopManager {
         this.sessionData = null; // Store session data for deferred restoration
         this.restorationInProgress = false; // Flag to prevent duplicate restoration
         this.updateCheckCache = new Map(); // Cache for update check results
+        this.updateComparisonData = null; // Store comparison context for HF search
 
         this.init();
     }
