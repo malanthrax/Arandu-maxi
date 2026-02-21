@@ -9,8 +9,13 @@ use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::openai_types::*;
+use crate::openai_types::{
+    ChatCompletionRequest, AudioTranscriptionRequest, AudioTranscriptionResponse,
+    AudioSpeechRequest, ImageGenerationRequest,
+    ModelInfo, ModelsResponse, OpenAIError, OpenAIErrorResponse
+};
 
+/// OpenAI-compatible API proxy server
 pub struct ProxyServer {
     llama_server_url: String,
     proxy_port: u16,
@@ -55,7 +60,7 @@ impl ProxyServer {
                     shutdown_rx.recv().await;
                 })
                 .await
-                .unwrap();
+                .unwrap_or_else(|e| eprintln!("Proxy server error: {}", e));
         });
 
         Ok(())
@@ -68,6 +73,7 @@ impl ProxyServer {
     }
 }
 
+/// Shared state for proxy handlers
 pub struct ProxyState {
     pub llama_server_url: String,
 }
@@ -101,27 +107,15 @@ async fn chat_completions(
     Json(_request): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
     // Placeholder - will be implemented in Task 6
-    let response = ChatCompletionResponse {
-        id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
-        object: "chat.completion".to_string(),
-        created: chrono::Utc::now().timestamp(),
-        model: "local-llama".to_string(),
-        choices: vec![ChatCompletionChoice {
-            index: 0,
-            message: ChatMessage {
-                role: "assistant".to_string(),
-                content: "Chat completion not yet implemented.".to_string(),
-            },
-            finish_reason: "stop".to_string(),
-        }],
-        usage: Usage {
-            prompt_tokens: 10,
-            completion_tokens: 20,
-            total_tokens: 30,
+    let error = OpenAIErrorResponse {
+        error: OpenAIError {
+            message: "Chat completion not yet implemented.".to_string(),
+            error_type: "not_implemented".to_string(),
+            code: Some("501".to_string()),
         },
     };
 
-    Json(response)
+    (StatusCode::NOT_IMPLEMENTED, Json(error))
 }
 
 async fn audio_transcriptions(
