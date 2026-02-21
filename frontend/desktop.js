@@ -4716,14 +4716,7 @@ const result = await invoke('check_model_update', { modelPath });
         if (isUpdateAvailable) {
             this.showNotification('Update available! Check HF search window.', 'success');
         } else if (isNotLinked) {
-            this.showLinkModelDialog(modelPath);
-            if (icon) {
-                const indicator = icon.querySelector('.update-indicator');
-                if (indicator) {
-                    indicator.className = 'update-indicator gray';
-                }
-            }
-            return;
+            this.showNotification('Model not linked to HF. Showing HF search window.', 'info');
         } else if (isError) {
             this.showNotification(result.message || 'Error checking for updates', 'error');
         } else {
