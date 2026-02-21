@@ -161,22 +161,67 @@ class HuggingFaceApp {
         // Mark dock icon as active
         const huggingfaceDockIcon = document.getElementById('huggingface-dock-icon');
 
-        // Check if window already exists
+// Check if window already exists
         const existingWindow = this.desktop.windows.get(this.windowId);
         if (existingWindow) {
-            // Toggle window visibility
-            if (existingWindow.classList.contains('hidden')) {
-                existingWindow.classList.remove('hidden');
-                existingWindow.style.zIndex = ++this.desktop.windowZIndex;
-                // Update focused state
-                this.desktop.updateDockFocusedState(this.windowId);
-                if (huggingfaceDockIcon) {
-                    huggingfaceDockIcon.classList.add('active');
+            // If modelId is provided, show the bar and bring window to front
+            if (modelId) {
+                const modelIdBar = existingWindow.querySelector('#hf-model-id-bar');
+                const modelIdCode = existingWindow.querySelector('#hf-model-id-code');
+                if (modelIdBar && modelIdCode) {
+                    modelIdCode.textContent = modelId;
+                    modelIdBar.style.display = 'flex';
+
+                    const copyBtn = existingWindow.querySelector('#hf-copy-model-id');
+                    const closeBarBtn = existingWindow.querySelector('#hf-close-model-id-bar');
+                    if (copyBtn && !copyBtn.dataset.listenerSet) {
+                        copyBtn.addEventListener('click', async () => {
+                            try {
+                                await navigator.clipboard.writeText(modelId);
+                                copyBtn.innerHTML = '<span class="material-icons">check</span> Copied!';
+                                setTimeout(() => {
+                                    copyBtn.innerHTML = '<span class="material-icons">content_copy</span> Copy';
+                                }, 2000);
+                            } catch (error) {
+                                console.error('Failed to copy:', error);
+                            }
+                        });
+                        copyBtn.dataset.listenerSet = 'true';
+                    }
+                    if (closeBarBtn && !closeBarBtn.dataset.listenerSet) {
+                        closeBarBtn.addEventListener('click', () => {
+                            modelIdBar.style.display = 'none';
+                        });
+                        closeBarBtn.dataset.listenerSet = 'true';
+                    }
+                }
+
+                // Bring window to front if hidden
+                if (existingWindow.classList.contains('hidden')) {
+                    existingWindow.classList.remove('hidden');
+                    existingWindow.style.zIndex = ++this.desktop.windowZIndex;
+                    this.desktop.updateDockFocusedState(this.windowId);
+                    if (huggingfaceDockIcon) {
+                        huggingfaceDockIcon.classList.add('active');
+                    }
+                } else {
+                    // Already visible, just bring to front
+                    existingWindow.style.zIndex = ++this.desktop.windowZIndex;
                 }
             } else {
-                existingWindow.classList.add('hidden');
-                if (huggingfaceDockIcon) {
-                    huggingfaceDockIcon.classList.remove('active');
+                // Toggle window visibility when no modelId provided (original behavior)
+                if (existingWindow.classList.contains('hidden')) {
+                    existingWindow.classList.remove('hidden');
+                    existingWindow.style.zIndex = ++this.desktop.windowZIndex;
+                    this.desktop.updateDockFocusedState(this.windowId);
+                    if (huggingfaceDockIcon) {
+                        huggingfaceDockIcon.classList.add('active');
+                    }
+                } else {
+                    existingWindow.classList.add('hidden');
+                    if (huggingfaceDockIcon) {
+                        huggingfaceDockIcon.classList.remove('active');
+                    }
                 }
             }
             return;
