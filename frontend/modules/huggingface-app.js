@@ -145,7 +145,7 @@ class HuggingFaceApp {
         return this.tauriInitialized && this.invoke !== null;
     }
 
-    async openHuggingFaceSearch() {
+    async openHuggingFaceSearch(modelId = null) {
         // Check if Tauri API is available
         if (!this.isInitialized()) {
             console.warn('HuggingFace app not fully initialized, attempting to initialize...');
@@ -204,8 +204,20 @@ class HuggingFaceApp {
                 <!-- Tab Content -->
                 <div class="tab-content">
                     <!-- Search Tab -->
-                    <div class="tab-panel active" id="tab-search">
+<div class="tab-panel active" id="tab-search">
                         <div class="huggingface-search-container">
+                            <!-- Model ID Copy Bar (shown when clicking ? on a model) -->
+                            <div class="model-id-bar" id="hf-model-id-bar" style="display: none;">
+                                <span class="model-id-label">HuggingFace Model:</span>
+                                <code class="model-id-code" id="hf-model-id-code"></code>
+                                <button class="copy-btn" id="hf-copy-model-id" title="Copy to clipboard">
+                                    <span class="material-icons">content_copy</span>
+                                    Copy
+                                </button>
+                                <button class="close-bar-btn" id="hf-close-model-id-bar" title="Close">
+                                    <span class="material-icons">close</span>
+                                </button>
+                            </div>
                             <div class="search-section">
                                 <div class="search-header">
                                     <div class="search-controls" style="position: relative;">
@@ -473,8 +485,43 @@ class HuggingFaceApp {
             this.performHuggingFaceSearch();
         });
 
-        // Focus search input
+// Focus search input
         setTimeout(() => searchInput.focus(), 100);
+
+        // Show model ID bar if provided (from ? click)
+        if (modelId) {
+            const modelIdBar = window.querySelector('#hf-model-id-bar');
+            const modelIdCode = window.querySelector('#hf-model-id-code');
+            const copyBtn = window.querySelector('#hf-copy-model-id');
+            const closeBarBtn = window.querySelector('#hf-close-model-id-bar');
+
+            if (modelIdBar && modelIdCode) {
+                modelIdCode.textContent = modelId;
+                modelIdBar.style.display = 'flex';
+
+                // Copy button handler
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', async () => {
+                        try {
+                            await navigator.clipboard.writeText(modelId);
+                            copyBtn.innerHTML = '<span class="material-icons">check</span> Copied!';
+                            setTimeout(() => {
+                                copyBtn.innerHTML = '<span class="material-icons">content_copy</span> Copy';
+                            }, 2000);
+                        } catch (error) {
+                            console.error('Failed to copy:', error);
+                        }
+                    });
+                }
+
+                // Close bar button handler
+                if (closeBarBtn) {
+                    closeBarBtn.addEventListener('click', () => {
+                        modelIdBar.style.display = 'none';
+                    });
+                }
+            }
+        }
 
         // Setup paste link tab listeners
         this.setupPasteLinkListeners();

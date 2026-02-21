@@ -4733,19 +4733,7 @@ const result = await invoke('check_model_update', { modelPath });
         const hfApp = huggingFaceApp;
         if (hfApp && searchQuery) {
             try {
-                hfApp.setComparisonContext(this.updateComparisonData);
-                await hfApp.openHuggingFaceSearch();
-
-                setTimeout(() => {
-                    const hfWindow = document.querySelector('.window[data-window-id="huggingface-search-window"]');
-                    if (hfWindow) {
-                        const searchInput = hfWindow.querySelector('#hf-search-input');
-                        if (searchInput) {
-                            searchInput.value = searchQuery;
-                            hfApp.performHuggingFaceSearch();
-                        }
-                    }
-                }, 300);
+                await hfApp.openHuggingFaceSearch(searchQuery);
             } catch (error) {
                 console.error('Failed to open HF search:', error);
                 this.showNotification('Failed to open HuggingFace search', 'error');

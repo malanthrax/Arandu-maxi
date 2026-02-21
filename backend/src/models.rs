@@ -64,25 +64,27 @@ pub default_preset_id: Option<String>,
     
     // HF Update tracking fields
     #[serde(default)]
-    pub hf_model_id: Option<String>,           // "author/model" format
+    pub hf_model_id: Option<String>,           // "author/model" format (legacy field)
     #[serde(default)]
-    pub hf_link_source: Option<String>,        // "download", "guess", "manual"
+    pub hf_link_source: Option<String>,        // "download", "guess", "manual" (legacy field)
     #[serde(default)]
-    pub local_file_modified: Option<i64>,      // Unix timestamp
+    pub local_file_modified: Option<i64>,      // Unix timestamp (legacy field)
     #[serde(default)]
-    pub file_size_bytes: Option<i64>,          // For additional comparison
+    pub file_size_bytes: Option<i64>,          // For additional comparison (legacy field)
     #[serde(default)]
-    pub last_hf_check: Option<i64>,            // When we last queried HF
+    pub last_hf_check: Option<i64>,            // When we last queried HF (legacy field)
     #[serde(default)]
-    pub hf_file_modified: Option<i64>,         // HF file timestamp
+    pub hf_file_modified: Option<i64>,         // HF file timestamp (legacy field)
     #[serde(default)]
-    pub hf_file_size: Option<i64>,             // HF file size
+    pub hf_file_size: Option<i64>,             // HF file size (legacy field)
     #[serde(default)]
-    pub update_available: bool,                // Computed flag
+    pub update_available: bool,                // Computed flag (legacy field)
+    #[serde(default)]
+    pub hf_metadata: Option<HfMetadata>,       // New HF metadata from update_checker
 }
 
 impl ModelConfig {
-    pub fn new(model_path: String) -> Self {
+pub fn new(model_path: String) -> Self {
         Self {
             custom_args: String::new(),
             server_host: "127.0.0.1".to_string(),
@@ -98,6 +100,7 @@ default_preset_id: None,
             hf_file_modified: None,
             hf_file_size: None,
             update_available: false,
+            hf_metadata: None,
         }
     }
 }
@@ -306,16 +309,7 @@ pub struct DownloadStartResult {
     pub message: String,
 }
 
-// Update checker structures
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateCheckResult {
-    pub success: bool,
-    pub update_available: bool,
-    pub message: String,
-    pub local_modified: Option<i64>,
-    pub hf_modified: Option<i64>,
-    pub last_checked: Option<i64>,
-}
+// Update checker structures - UpdateCheckResult is defined above (line 132)
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitialScanResult {

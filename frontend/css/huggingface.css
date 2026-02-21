@@ -7,6 +7,91 @@
 	padding: 0;
 }
 
+/* Model ID Copy Bar */
+.model-id-bar {
+	display: none;
+	flex-direction: row;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 20px;
+	background: linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-dark) 100%);
+	border-bottom: 1px solid var(--theme-border);
+	transition: all 0.3s ease;
+}
+
+.model-id-bar.visible {
+	display: flex;
+}
+
+.model-id-label {
+	color: var(--theme-text);
+	font-weight: 600;
+	font-size: 13px;
+	white-space: nowrap;
+}
+
+.model-id-code {
+	flex: 1;
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--theme-text);
+	padding: 6px 12px;
+	border-radius: 6px;
+	font-family: 'Consolas', 'Monaco', monospace;
+	font-size: 13px;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.copy-btn {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 14px;
+	background: rgba(255, 255, 255, 0.2);
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 6px;
+	color: var(--theme-text);
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+	background: rgba(255, 255, 255, 0.3);
+	transform: translateY(-1px);
+}
+
+.copy-btn .material-icons {
+	font-size: 16px;
+}
+
+.close-bar-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	background: rgba(255, 255, 255, 0.1);
+	border: none;
+	border-radius: 6px;
+	color: var(--theme-text);
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.close-bar-btn:hover {
+	background: rgba(255, 255, 255, 0.2);
+	transform: rotate(90deg);
+}
+
+.close-bar-btn .material-icons {
+	font-size: 18px;
+}
+
+/* Search Section */
 .search-section {
 	padding: 20px;
 	border-bottom: 1px solid var(--theme-border);
