@@ -3660,16 +3660,23 @@ this.showProperties(this.selectedIcon);
 
             // Get update indicator status from config
             const config = modelConfigs[model.path] || {};
-            let indicatorClass = 'green';
+            let indicatorClass = 'not-linked';
+            let indicatorContent = '?';
             let indicatorTitle = 'Click to check for updates on HuggingFace';
             
             if (config.hf_model_id) {
                 if (config.update_available) {
                     indicatorClass = 'red';
+                    indicatorContent = '✗';
                     indicatorTitle = 'Update available on HuggingFace!';
                 } else if (config.last_hf_check) {
-                    indicatorClass = 'gray';
+                    indicatorClass = 'green';
+                    indicatorContent = '✓';
                     indicatorTitle = `Up to date. Last checked: ${new Date(config.last_hf_check * 1000).toLocaleString()}`;
+                } else {
+                    indicatorClass = 'not-linked';
+                    indicatorContent = '?';
+                    indicatorTitle = 'Click to check for updates';
                 }
             }
 
@@ -3678,35 +3685,92 @@ this.showProperties(this.selectedIcon);
                     <img src="./assets/gguf.png" class="model-icon">
                     <div class="architecture-label">${model.architecture.substring(0, 7)}</div>
                     <div class="quantization-bar ${quantColorClass}"></div>
-<div class="update-indicator ${indicatorClass}" 
-                         title="${indicatorTitle}"
-                         onclick="event.stopPropagation(); desktop.handleCheckUpdate('${model.path}')">
+                    <div class="update-indicator ${indicatorClass}" 
+                         title="${indicatorTitle}">
+                        ${indicatorContent}
                     </div>
                 </div>
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
             `;
 
-            // Add update indicator
-            const updateIndicator = document.createElement('div');
-            updateIndicator.className = 'update-indicator not-linked';
-            updateIndicator.innerHTML = '?';
-            updateIndicator.title = 'Click to check for updates';
-            
-            // Add click handler to indicator
-updateIndicator.addEventListener('click', async (e) => {
-                e.stopPropagation(); // Prevent icon selection
-
-                if (updateIndicator.classList.contains('not-linked')) {
-                    const linked = await this.showLinkToHFDialog(model.path);
-                    if (linked) {
-                        await this.handleCheckUpdate(model.path);
+            // Add click handler to the update indicator
+            const updateIndicator = iconElement.querySelector('.update-indicator');
+            if (updateIndicator) {
+                updateIndicator.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    console.log('Update indicator clicked for:', model.path);
+                    
+                    // Get the model config to check if linked
+                    const modelConfigs = await this.fetchModelConfigs();
+                    const config = modelConfigs[model.path] || {};
+                    const hfModelId = config.hf_model_id;
+                    
+                    // Build the model ID to show
+                    let displayModelId = hfModelId;
+                    if (!displayModelId) {
+                        // Try to extract from path
+                        const parts = model.path.split(/[\\/]/);
+                        if (parts.length >= 3) {
+                            displayModelId = `${parts[parts.length - 3]}/${parts[parts.length - 2]}`;
+                        } else {
+                            displayModelId = model.name.replace('.gguf', '');
+                        }
                     }
-                } else {
-                    await this.handleCheckUpdate(model.path);
-                }
-            });
+                    
+                    // Show simple dialog with copy button
+                    const modal = document.createElement('div');
+                    modal.className = 'modal-overlay';
+                    modal.innerHTML = `
+                        <div class="modal-content" style="max-width: 450px;">
+                            <h3 style="margin-bottom: 16px;">HuggingFace Model ID</h3>
+                            <p style="margin-bottom: 12px; color: var(--theme-text-muted);">Click Copy below, then paste into HF Search</p>
+                            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px;">
+                                <code style="flex: 1; padding: 12px; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; font-size: 14px; word-break: break-all;">${displayModelId}</code>
+                                <button id="copy-model-id" style="padding: 12px 20px; background: var(--theme-primary); border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 14px; white-space: nowrap;">
+                                    <span class="material-icons" style="vertical-align: middle; font-size: 18px; margin-right: 4px;">content_copy</span>
+                                    Copy
+                                </button>
+                            </div>
+                            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                                <button id="close-modal" style="padding: 8px 16px; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; color: var(--theme-text); cursor: pointer;">Close</button>
+                                <button id="open-hf-search" style="padding: 8px 16px; background: var(--theme-primary); border: none; border-radius: 6px; color: white; cursor: pointer;">Open HF Search</button>
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.body.appendChild(modal);
+                    
+                    // Copy button handler
+                    modal.querySelector('#copy-model-id').onclick = async () => {
+                        try {
+                            await navigator.clipboard.writeText(displayModelId);
+                            modal.querySelector('#copy-model-id').innerHTML = '<span class="material-icons" style="vertical-align: middle; font-size: 18px; margin-right: 4px;">check</span> Copied!';
+                            setTimeout(() => {
+                                modal.querySelector('#copy-model-id').innerHTML = '<span class="material-icons" style="vertical-align: middle; font-size: 18px; margin-right: 4px;">content_copy</span> Copy';
+                            }, 2000);
+                        } catch (err) {
+                            console.error('Failed to copy:', err);
+                        }
+                    };
+                    
+                    // Close button handler
+                    modal.querySelector('#close-modal').onclick = () => {
+                        modal.remove();
+                    };
+                    
+                    // Open HF Search button handler
+                    modal.querySelector('#open-hf-search').onclick = () => {
+                        modal.remove();
+                        // Open HF search with the model ID
+                        if (huggingFaceApp) {
+                            huggingFaceApp.openHuggingFaceSearch(displayModelId);
+                        } else {
+                            this.showNotification('HuggingFace app not ready', 'error');
+                        }
+                    };
+                });
+            }
             
-            iconElement.appendChild(updateIndicator);
             desktopIcons.appendChild(iconElement);
         });
 

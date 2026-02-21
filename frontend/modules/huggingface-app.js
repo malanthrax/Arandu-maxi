@@ -405,6 +405,47 @@ class HuggingFaceApp {
         // Add event listeners
         this.setupHuggingFaceSearchListeners();
 
+        // If modelId was provided, show the model ID bar and auto-fill search
+        if (modelId) {
+            const modelIdBar = window.querySelector('#hf-model-id-bar');
+            const modelIdCode = window.querySelector('#hf-model-id-code');
+            const searchInput = window.querySelector('#hf-search-input');
+            const copyBtn = window.querySelector('#hf-copy-model-id');
+            const closeBarBtn = window.querySelector('#hf-close-model-id-bar');
+
+            if (modelIdBar && modelIdCode) {
+                modelIdCode.textContent = modelId;
+                modelIdBar.style.display = 'flex';
+
+                // Set up copy button
+                if (copyBtn) {
+                    copyBtn.onclick = async () => {
+                        try {
+                            await navigator.clipboard.writeText(modelId);
+                            copyBtn.innerHTML = '<span class="material-icons">check</span> Copied!';
+                            setTimeout(() => {
+                                copyBtn.innerHTML = '<span class="material-icons">content_copy</span> Copy';
+                            }, 2000);
+                        } catch (error) {
+                            console.error('Failed to copy:', error);
+                        }
+                    };
+                }
+
+                // Set up close button
+                if (closeBarBtn) {
+                    closeBarBtn.onclick = () => {
+                        modelIdBar.style.display = 'none';
+                    };
+                }
+            }
+
+            // Auto-fill search input
+            if (searchInput) {
+                searchInput.value = modelId;
+            }
+        }
+
         // Don't add to taskbar - use permanent dock icon instead
     }
 
