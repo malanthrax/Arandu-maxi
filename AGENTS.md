@@ -465,6 +465,26 @@ cargo tauri build
 
 ## Recent Changes
 
+### 2025-02-20 - HF Search Model ID Display ❌ BROKEN
+- **attempt:** HF Search Model ID Display with Copy Button
+- **intended behavior:** Click "?" indicator on model → HF search opens → Model ID bar appears at top with Copy button
+- **current status:** NOT WORKING - clicking "?" appears to do nothing
+- **attempts made:**
+  - Added model ID bar HTML to HF search template
+  - Created copy button with clipboard functionality
+  - Added CSS styling for model ID bar (gradient background, copy button)
+  - Modified `openHuggingFaceSearch(modelId)` to accept and display model ID
+  - Fixed early return when model status is 'not_linked'
+  - Fixed existing window detection to show model ID bar
+  - Multiple rebuilds on H drive (`backend/target/release/`)
+- **files modified:**
+  - `frontend/desktop.js` - `handleCheckUpdate()` method
+  - `frontend/modules/huggingface-app.js` - `openHuggingFaceSearch()` method
+  - `frontend/css/huggingface.css` - added ~70 lines of model ID bar styles
+- **commits:** `f4763f3`, `0c826f0`, `9d47de0`, `a699121`
+- **issue:** Code appears correct in source, builds successfully, but runtime behavior doesn't match
+- **see:** "Known Issues" section for detailed investigation notes
+
 ### 2025-02-18 - Phase 2: HuggingFace Direct Link Download ✅ COMPLETE
 - **feat:** HuggingFace Direct Link Download feature fully implemented and tested
   - **Tabbed interface:** Search Models | Paste Link tabs in HuggingFace window
@@ -517,6 +537,53 @@ cargo tauri build
 
 ## Known Issues
 
+### Breaking - HF Search Model ID Display (2025-02-20)
+**Status:** ❌ **BROKEN**
+**Feature:** "?" indicator click to show HF model ID with copy button
+**Build:** `a699121` and later
+**Description:**
+- Clicking the "?" update indicator on a model icon should:
+  1. Check for updates
+  2. Open HF search window
+  3. Show model ID bar at top with Copy button
+  4. Allow instant copy of HF model ID (e.g., `THUDM/glm-4-9b-chat`)
+
+**Current Behavior:**
+- Clicking "?" appears to do nothing
+- No HF search window opens
+- No model ID bar appears
+- No visual feedback to user
+
+**Attempts Made:**
+1. Added model ID bar HTML to HF search window
+2. Created copy button with clipboard functionality
+3. Added CSS styling for model ID bar
+4. Modified `openHuggingFaceSearch(modelId)` to accept model ID parameter
+5. Fixed early return when model status is 'not_linked'
+6. Fixed existing window detection to show model ID bar
+7. Multiple rebuilds on correct H drive location
+
+**Files Modified:**
+- `frontend/desktop.js` - `handleCheckUpdate()` method (lines 4661-4744)
+- `frontend/modules/huggingface-app.js` - `openHuggingFaceSearch()` method (lines 148-574)
+- `frontend/css/huggingface.css` - Model ID bar styles (lines 10-80)
+
+**Expected Code Locations:**
+- Model ID bar HTML: `frontend/modules/huggingface-app.js` line 210
+- CSS for bar: `frontend/css/huggingface.css` lines 10-80
+- Copy handler: `frontend/modules/huggingface-app.js` lines 549-560
+- Window open call: `frontend/desktop.js` line 4736
+
+**Investigation Notes:**
+- Code appears correct in source files on H drive
+- Builds complete successfully without errors
+- EXE timestamp updates per build
+- FrontendDist path verified as `../frontend`
+- Model ID bar HTML exists in template string
+- CSS selectors correctly reference class names
+
+**Status:** Requires deeper investigation into why runtime code differs from source
+
 ### Resolved
 - ~~**Commit `d7ecc6a`** (GGUF update checker)~~ - **FIXED**
   - ~~Application hangs on loading screen~~
@@ -530,15 +597,17 @@ Monitors local GGUF models for updates on HuggingFace.
 
 **How it works:**
 1. **Auto-detection:** If model is in `models/author/model-name/file.gguf` structure, automatically extracts HF model ID
-2. **Manual linking:** Click ? indicator → Enter "author/model-name" → Link to HF
+2. **Manual linking:** Link model using context menu or properties panel
 3. **Update check:** Compares local file modification date with HF commit date
 
 **Visual indicators:**
-- **?** (gray): Not linked to HF - click to link
+- **?** (gray): Not linked to HF - **⚠️ CLICKING THIS IS BROKEN** (see Known Issues)
 - **✓** (green): Up to date
 - **✗** (red): Update available on HF
-- **!** (black/red): Error occurred - click to retry
+- **!** (black/red): Error occurred
 - **⟳** (spinning): Checking in progress
+
+**Note:** The click-to-show-model-ID functionality for the "?" indicator is currently broken. See "Known Issues" section for details.
 
 **Backend modules:**
 - `gguf_parser.rs` - Parse GGUF binary format metadata
@@ -564,19 +633,24 @@ Monitors local GGUF models for updates on HuggingFace.
 
 ---
 
-## Current Status - Phase 2 COMPLETE ✅
+## Current Status
 
-**Phase 2: HuggingFace Direct Link Download** has been successfully implemented and tested.
+### ✅ Working Features
+- Phase 2: HuggingFace Direct Link Download
+  - ✅ Tabbed HF interface (Search Models | Paste Link)
+  - ✅ URL parsing for all HF URL formats
+  - ✅ Model info fetching (description, license, stats)
+  - ✅ GGUF file listing with quantization badges
+  - ✅ Sequential file downloads with progress
+  - ✅ Custom destination folder selection
+  - ✅ Support for ALL GGUF models (text, image, video generation)
+  - ✅ Search now finds Flux, Stable Diffusion, and other image generation models
 
-**Working Features:**
-- ✅ Tabbed HF interface (Search Models | Paste Link)
-- ✅ URL parsing for all HF URL formats
-- ✅ Model info fetching (description, license, stats)
-- ✅ GGUF file listing with quantization badges
-- ✅ Sequential file downloads with progress
-- ✅ Custom destination folder selection
-- ✅ Support for ALL GGUF models (text, image, video generation)
-- ✅ Search now finds Flux, Stable Diffusion, and other image generation models
+### ❌ Known Broken Feature
+- **HF Search Model ID Display via "?" Indicator** (2025-02-20)
+  - ❌ NOT WORKING - See "Known Issues" section above
+  - Clicking "?" should show HF model ID with copy button
+  - Currently has no visible effect
 
 **Files Modified:**
 - `backend/src/huggingface_downloader.rs` (NEW - 371 lines)
