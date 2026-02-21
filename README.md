@@ -59,13 +59,6 @@ Pre-built releases: https://github.com/fredconex/Arandu/releases
 - [ ] Code cleanup and organization
 - [ ] New features (coming soon)
 
-## Known Issues
-
-### HF Search Model ID Display (v0.5.5-beta)
-The "?" indicator on model icons should show a HuggingFace model ID with copy button, but this feature is currently broken. Clicking the "?" indicator does not work as expected.
-
-For detailed information, see [AGENTS.md - Known Issues](AGENTS.md#known-issues).
-
 ## Support Development
 
 <a href="https://www.paypal.com/donate/?hosted_button_id=24CJHH95X3AQS"><img width=256px src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" /></a>
