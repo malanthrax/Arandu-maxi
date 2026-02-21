@@ -21,7 +21,7 @@ pub struct GlobalConfig {
     pub openai_proxy_enabled: bool,
     #[serde(default)]
     pub openai_proxy_port: u16,
-    #[serde(default)]
+    #[serde(default = "default_network_server_host")]
     pub network_server_host: String,
     #[serde(default)]
     pub network_server_port: u16,
@@ -33,6 +33,10 @@ fn default_background_color() -> String {
 
 fn default_theme_is_synced() -> bool {
     true
+}
+
+fn default_network_server_host() -> String {
+    "127.0.0.1".to_string()
 }
 
 impl Default for GlobalConfig {

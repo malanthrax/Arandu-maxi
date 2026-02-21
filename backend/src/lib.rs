@@ -265,10 +265,17 @@ async fn save_config(
     println!("Saving config: models_dir={}, additional_dirs={:?}, exec_folder={}, theme={}, background={}, synced={}", 
         models_directory, additional_models_directories, executable_folder, theme_color, background_color, theme_is_synced);
     
-    // Preserve existing active executable folder
-    let (existing_active_path, existing_active_version) = {
+    // Preserve existing active executable folder and proxy/network settings
+    let (existing_active_path, existing_active_version, existing_proxy_enabled, existing_proxy_port, existing_network_host, existing_network_port) = {
         let cfg = state.config.lock().await;
-        (cfg.active_executable_folder.clone(), cfg.active_executable_version.clone())
+        (
+            cfg.active_executable_folder.clone(),
+            cfg.active_executable_version.clone(),
+            cfg.openai_proxy_enabled,
+            cfg.openai_proxy_port,
+            cfg.network_server_host.clone(),
+            cfg.network_server_port,
+        )
     };
     
     // Filter out empty strings from additional directories
@@ -286,10 +293,10 @@ async fn save_config(
         theme_color,
         background_color,
         theme_is_synced,
-        openai_proxy_enabled: false,
-        openai_proxy_port: 8081,
-        network_server_host: "127.0.0.1".to_string(),
-        network_server_port: 8080,
+        openai_proxy_enabled: existing_proxy_enabled,
+        openai_proxy_port: existing_proxy_port,
+        network_server_host: existing_network_host,
+        network_server_port: existing_network_port,
     };
     
     // Update global config
