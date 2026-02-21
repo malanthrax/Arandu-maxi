@@ -60,7 +60,7 @@ pub struct ModelConfig {
     #[serde(default)]
     pub presets: Vec<ModelPreset>,
     #[serde(default)]
-    pub default_preset_id: Option<String>,
+pub default_preset_id: Option<String>,
     
     // HF Update tracking fields
     #[serde(default)]
@@ -89,7 +89,7 @@ impl ModelConfig {
             server_port: 8080,
             model_path,
             presets: Vec::new(),
-            default_preset_id: None,
+default_preset_id: None,
             hf_model_id: None,
             hf_link_source: None,
             local_file_modified: None,
@@ -117,6 +117,33 @@ pub struct ModelInfo {
 pub struct GgufMetadata {
     pub architecture: String,
     pub name: String,
+    pub quantization: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HfMetadata {
+    pub model_id: String,             // "author/model-name"
+    pub filename: String,             // "model-Q4_K_M.gguf"
+    pub commit_date: Option<String>,  // ISO 8601 from HF API
+    pub linked_at: String,            // ISO 8601 when link was created
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCheckResult {
+    pub status: UpdateStatus,
+    pub local_date: Option<String>,
+    pub remote_date: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum UpdateStatus {
+    UpToDate,
+    UpdateAvailable,
+    Unknown,
+    NotLinked,
+    Error(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

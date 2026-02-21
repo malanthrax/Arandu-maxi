@@ -118,6 +118,7 @@ pub fn extract_gguf_metadata(file_path: &Path) -> Result<GgufMetadata, Box<dyn s
                 .and_then(|n| n.to_str())
                 .unwrap_or("Unknown")
                 .to_string(),
+            quantization: None,
         });
     }
     
@@ -192,6 +193,7 @@ pub fn extract_gguf_metadata(file_path: &Path) -> Result<GgufMetadata, Box<dyn s
     Ok(GgufMetadata {
         architecture,
         name,
+        quantization: None,
     })
 }
 

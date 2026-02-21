@@ -14,6 +14,7 @@ class DesktopManager {
         this.isLoaded = false;
         this.sessionData = null; // Store session data for deferred restoration
         this.restorationInProgress = false; // Flag to prevent duplicate restoration
+        this.updateCheckCache = new Map(); // Cache for update check results
 
         this.init();
     }
@@ -653,6 +654,8 @@ class DesktopManager {
                         await this.launchModelWithPresetExternal(this.selectedIcon, presetId);
                     } else if (action === 'properties' && this.selectedIcon) {
                         this.showProperties(this.selectedIcon);
+                    } else if (action === 'check-update' && this.selectedIcon) {
+                        await this.checkModelUpdate(this.selectedIcon.dataset.path, this.selectedIcon);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
                     } else if (action.startsWith('sort-')) {
@@ -1006,6 +1009,12 @@ class DesktopManager {
                 </div>
                 ${presetsHTMLExternal}
                 <div class="context-menu-separator"></div>
+                <div class="context-menu-item" data-action="check-update">
+                    <div class="menu-item-content">
+                        <span class="material-icons">update</span>
+                        <span>Check for Updates</span>
+                    </div>
+                </div>
                 <div class="context-menu-item" data-action="properties">
                     <div class="menu-item-content">
                         <span class="material-icons">settings</span>
@@ -3676,6 +3685,27 @@ class DesktopManager {
                 <div class="icon-label">${model.name.replace('.gguf', '')}</div>
             `;
 
+            // Add update indicator
+            const updateIndicator = document.createElement('div');
+            updateIndicator.className = 'update-indicator not-linked';
+            updateIndicator.innerHTML = '?';
+            updateIndicator.title = 'Click to check for updates';
+            
+            // Add click handler to indicator
+            updateIndicator.addEventListener('click', async (e) => {
+                e.stopPropagation(); // Prevent icon selection
+                
+                if (updateIndicator.classList.contains('not-linked')) {
+                    const linked = await this.showLinkToHFDialog(model.path);
+                    if (linked) {
+                        await this.checkModelUpdate(model.path, iconElement);
+                    }
+                } else {
+                    await this.checkModelUpdate(model.path, iconElement);
+                }
+            });
+            
+            iconElement.appendChild(updateIndicator);
             desktopIcons.appendChild(iconElement);
         });
 
@@ -4002,6 +4032,140 @@ class DesktopManager {
         } catch (error) {
             console.error('Failed to update system stats:', error);
         }
+    }
+
+    // Update checking methods
+    async checkModelUpdate(modelPath, iconElement, retryCount = 0) {
+        // Find or create indicator
+        let indicator = iconElement.querySelector('.update-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'update-indicator not-linked';
+            indicator.innerHTML = '?';
+            indicator.title = 'Click to check for updates';
+            iconElement.appendChild(indicator);
+        }
+        
+        // Don't re-check if already checking
+        if (indicator.classList.contains('checking')) {
+            return;
+        }
+        
+        // Show checking state
+        indicator.className = 'update-indicator checking';
+        indicator.innerHTML = '⟳';
+        
+        try {
+            const result = await invoke('check_model_update', { modelPath });
+            
+            // Cache result
+            this.updateCheckCache.set(modelPath, result);
+            
+            // Apply result to indicator
+            this.applyUpdateResult(iconElement, result);
+        } catch (error) {
+            console.error('Failed to check for updates:', error);
+            
+            // Retry up to 2 times on network errors
+            if (retryCount < 2 && error.message && error.message.includes('network')) {
+                setTimeout(() => {
+                    this.checkModelUpdate(modelPath, iconElement, retryCount + 1);
+                }, 2000);
+                return;
+            }
+            
+            indicator.className = 'update-indicator error';
+            indicator.innerHTML = '!';
+            indicator.title = `Error: ${error.message}\nClick to retry`;
+        }
+    }
+
+    applyUpdateResult(iconElement, result) {
+        const indicator = iconElement.querySelector('.update-indicator');
+        if (!indicator) return;
+        
+        switch (result.status) {
+            case 'up_to_date':
+                indicator.className = 'update-indicator up-to-date';
+                indicator.innerHTML = '✓';
+                indicator.title = `Up to date\nLocal: ${result.local_date || 'unknown'}\nRemote: ${result.remote_date || 'unknown'}`;
+                break;
+            case 'update_available':
+                indicator.className = 'update-indicator update-available';
+                indicator.innerHTML = '✗';
+                indicator.title = `Update available!\nLocal: ${result.local_date || 'unknown'}\nRemote: ${result.remote_date || 'unknown'}\nClick to recheck`;
+                break;
+            case 'not_linked':
+                indicator.className = 'update-indicator not-linked';
+                indicator.innerHTML = '?';
+                indicator.title = `${result.message}\nClick to link to HuggingFace`;
+                break;
+            case 'unknown':
+                indicator.className = 'update-indicator not-linked';
+                indicator.innerHTML = '?';
+                indicator.title = `${result.message}\nClick to recheck`;
+                break;
+            case 'error':
+                indicator.className = 'update-indicator error';
+                indicator.innerHTML = '!';
+                indicator.title = `Error: ${result.message}\nClick to retry`;
+                break;
+        }
+    }
+
+    async showLinkToHFDialog(modelPath) {
+        // Create modal dialog
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <h3 style="margin-bottom: 16px;">Link to HuggingFace</h3>
+                <p style="margin-bottom: 12px; color: var(--theme-text-muted);">Enter the HuggingFace model ID (e.g., "THUDM/glm-4-9b-chat")</p>
+                <input type="text" id="hf-model-id" placeholder="author/model-name" style="width: 100%; padding: 10px; margin-bottom: 16px; border: 1px solid var(--theme-border); border-radius: 6px; background: var(--theme-surface); color: var(--theme-text);">
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button id="link-cancel" style="padding: 8px 16px; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; color: var(--theme-text); cursor: pointer;">Cancel</button>
+                    <button id="link-confirm" style="padding: 8px 16px; background: var(--theme-primary); border: none; border-radius: 6px; color: white; cursor: pointer;">Link</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Focus input
+        setTimeout(() => modal.querySelector('#hf-model-id').focus(), 100);
+        
+        // Handle buttons
+        return new Promise((resolve) => {
+            modal.querySelector('#link-cancel').onclick = () => {
+                modal.remove();
+                resolve(null);
+            };
+            
+            modal.querySelector('#link-confirm').onclick = async () => {
+                const modelId = modal.querySelector('#hf-model-id').value.trim();
+                if (!modelId) {
+                    this.showNotification('Please enter a model ID', 'error');
+                    return;
+                }
+                
+                // Get filename from path
+                const filename = modelPath.split(/[\\/]/).pop();
+                
+                try {
+                    await invoke('link_model_to_hf', {
+                        modelPath,
+                        hfModelId: modelId,
+                        hfFilename: filename
+                    });
+                    
+                    this.showNotification('Model linked to HuggingFace', 'success');
+                    modal.remove();
+                    resolve(true);
+                } catch (error) {
+                    this.showNotification(`Failed to link: ${error}`, 'error');
+                }
+            };
+        });
     }
 
     setupSystemMonitorIcon() {

@@ -40,10 +40,13 @@ cargo tauri build
 | `config.rs` | Config persistence | `load_settings()`, `save_settings()` |
 | `scanner.rs` | Model file discovery | `scan_models()`, `scan_mmproj_files()` |
 | `huggingface.rs` | HF API integration | `search_huggingface_models()`, `fetch_model_files()` |
+| `huggingface_downloader.rs` | HF Direct Link Download | `parse_model_id()`, `fetch_model_info()`, `fetch_model_files()` |
 | `downloader.rs` | Download management | `DownloadManager`, pause/resume/extract |
 | `llamacpp_manager.rs` | GitHub releases | `fetch_llamacpp_releases()`, release caching |
 | `process.rs` | Process management | `launch_model_internal()`, `launch_model_external()`, `ProcessHandle` |
 | `system_monitor.rs` | Hardware monitoring | `SystemMonitor`, RAM/VRAM tracking |
+| `gguf_parser.rs` | GGUF metadata parsing | `parse_gguf_metadata()`, `get_file_modification_date()` |
+| `update_checker.rs` | HF update checking | `check_huggingface_updates()`, `link_model_to_hf()`, `extract_hf_model_id_from_path()` |
 
 **Key Dependencies:**
 ```toml
@@ -53,6 +56,7 @@ reqwest = { version = "0.13.2", features = ["json", "stream"] }
 sysinfo = { version = "0.38.1", features = ["serde"] }
 nvml-wrapper = "0.11.0"  # NVIDIA GPU monitoring
 zip = "7.4.0"            # Backend extraction
+gguf-rs-lib = "0.2"      # GGUF metadata parsing
 ```
 
 ### Frontend (`frontend/`)
@@ -407,6 +411,19 @@ Arandu/
 
 ## Common Issues
 
+**⚠️ CRITICAL: Working Directory Mismatch:**
+- **Problem:** Agent may work in wrong directory (e.g., C: drive instead of H: drive)
+- **Impact:** Changes don't appear in user's actual project, builds succeed but don't update user's executable
+- **Detection:** Check `pwd` command output vs expected project path
+- **Solution:** 
+  - ALWAYS verify working directory before making changes
+  - Use absolute paths when copying files between locations
+  - Confirm with user: "Current directory is X, should be Y?"
+- **Prevention:** 
+  - Add directory verification step at start of every session
+  - Ask user to confirm project location before major changes
+  - Use explicit path parameters in all file operations
+
 **GitHub API Rate Limiting:**
 - 60 requests/hour unauthenticated
 - 10-minute cache in `llamacpp_manager.rs`
@@ -448,6 +465,38 @@ cargo tauri build
 
 ## Recent Changes
 
+### 2025-02-18 - Phase 2: HuggingFace Direct Link Download ✅ COMPLETE
+- **feat:** HuggingFace Direct Link Download feature fully implemented and tested
+  - **Tabbed interface:** Search Models | Paste Link tabs in HuggingFace window
+  - **Paste Link functionality:** Paste any HuggingFace model URL to download GGUF files
+  - **URL parsing:** Supports multiple URL formats (full URLs, model IDs, blob/resolve URLs)
+  - **Model info display:** Shows name, description, license, downloads, likes, tags
+  - **File selection:** Checklist with quantization badges (Q4_K_M, Q8_0, etc.)
+  - **Sequential downloads:** Downloads files one at a time with progress tracking
+  - **Custom destinations:** Browse and select download location
+  - **Flux/SD support:** Now finds all GGUF models including image generation (Flux, Stable Diffusion)
+  - **Search fix:** Removed "conversational" filter from HF API search to include all GGUF model types
+  - **New backend module:** `huggingface_downloader.rs` with URL parsing and HF API integration
+  - **New Tauri commands:** `parse_hf_url`, `fetch_hf_model_info`, `fetch_hf_model_files`, `get_default_download_path`, `download_hf_file`
+  - **Frontend updates:** `huggingface-app.js` and `huggingface.css` with tab UI and paste link interface
+
+### 2025-02-15 - GGUF Update Checker
+- **feat:** Add GGUF Update Checker feature
+  - Parse GGUF metadata (architecture, name, quantization) from file headers
+  - Three-tier HF tracking: explicit metadata, path extraction, manual linking
+  - Visual update indicators: ✓ (green/up-to-date), ✗ (red/update available), ? (gray/not linked)
+  - Click indicator to check for updates on HuggingFace
+  - Right-click context menu option "Check for Updates"
+  - Link dialog for manual HF model association
+  - Compare local file modification date with HF commit date
+  - Cache update check results for performance
+  - New backend modules: `gguf_parser.rs`, `update_checker.rs`
+  - New Tauri commands: `get_model_metadata`, `check_model_update`, `link_model_to_hf`
+
+### 2025-02-15 - Working Baseline
+- **checkpoint:** `0df8e33` - Working baseline before GGUF update checker
+  - Stable version with multiple model directories and quantization bars
+
 ### 2025-02-14
 - **feat:** Add support for multiple model directories
   - Primary directory + up to 2 additional directories
@@ -466,6 +515,42 @@ cargo tauri build
 
 ---
 
+## Known Issues
+
+### Resolved
+- ~~**Commit `d7ecc6a`** (GGUF update checker)~~ - **FIXED**
+  - ~~Application hangs on loading screen~~
+  - **Solution:** Rebuilt feature on stable checkpoint `0df8e33` with proper testing
+  - **Status:** Working implementation merged
+
+## Features
+
+### GGUF Update Checker
+Monitors local GGUF models for updates on HuggingFace.
+
+**How it works:**
+1. **Auto-detection:** If model is in `models/author/model-name/file.gguf` structure, automatically extracts HF model ID
+2. **Manual linking:** Click ? indicator → Enter "author/model-name" → Link to HF
+3. **Update check:** Compares local file modification date with HF commit date
+
+**Visual indicators:**
+- **?** (gray): Not linked to HF - click to link
+- **✓** (green): Up to date
+- **✗** (red): Update available on HF
+- **!** (black/red): Error occurred - click to retry
+- **⟳** (spinning): Checking in progress
+
+**Backend modules:**
+- `gguf_parser.rs` - Parse GGUF binary format metadata
+- `update_checker.rs` - HF API integration and comparison logic
+
+**Tauri commands:**
+- `get_model_metadata(path)` → GgufMetadata
+- `check_model_update(path)` → UpdateCheckResult
+- `link_model_to_hf(path, model_id, filename)` → HfMetadata
+
+---
+
 ## Skills Applied
 
 - **superpowers:** Agentic development workflow framework
@@ -476,6 +561,45 @@ cargo tauri build
   - `requesting-code-review` - Code quality verification
 - **vercel-react-best-practices:** Frontend performance patterns
 - **plan:** Implementation planning
+
+---
+
+## Current Status - Phase 2 COMPLETE ✅
+
+**Phase 2: HuggingFace Direct Link Download** has been successfully implemented and tested.
+
+**Working Features:**
+- ✅ Tabbed HF interface (Search Models | Paste Link)
+- ✅ URL parsing for all HF URL formats
+- ✅ Model info fetching (description, license, stats)
+- ✅ GGUF file listing with quantization badges
+- ✅ Sequential file downloads with progress
+- ✅ Custom destination folder selection
+- ✅ Support for ALL GGUF models (text, image, video generation)
+- ✅ Search now finds Flux, Stable Diffusion, and other image generation models
+
+**Files Modified:**
+- `backend/src/huggingface_downloader.rs` (NEW - 371 lines)
+- `backend/src/huggingface.rs` (removed "conversational" filter)
+- `backend/src/lib.rs` (added 5 new Tauri commands)
+- `frontend/modules/huggingface-app.js` (tab UI + paste link logic)
+- `frontend/css/huggingface.css` (tab styles + paste link UI)
+
+**Build Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+
+---
+
+## Implementation Plans
+
+Detailed implementation plans for upcoming features are stored in:
+
+**`docs/plans/`** - Contains comprehensive step-by-step implementation guides
+
+### Completed Plans:
+- ✅ **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)** - IMPLEMENTED
+  - Sequential downloads with resume support
+
+When starting new feature work, check this folder for ready-to-implement plans.
 
 ---
 

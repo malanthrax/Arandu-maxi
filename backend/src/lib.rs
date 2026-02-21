@@ -12,12 +12,16 @@ mod huggingface;
 mod downloader;
 mod llamacpp_manager;
 mod system_monitor;
+mod gguf_parser;
+mod update_checker;
+mod huggingface_downloader;
 
 use config::*;
 use process::*;
 use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
+use huggingface_downloader::*;
 use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, InitialScanResult, HFLinkResult, HFFileInfo};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
@@ -1585,6 +1589,69 @@ async fn show_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_model_metadata(
+    model_path: String,
+) -> Result<GgufMetadata, String> {
+    gguf_parser::parse_gguf_metadata(&model_path)
+}
+
+#[tauri::command]
+async fn check_model_update(
+    model_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateCheckResult, String> {
+    // Get model config to check for HF metadata
+    let hf_metadata = {
+        let configs = state.model_configs.lock().await;
+        configs.get(&model_path).and_then(|config| config.hf_metadata.clone())
+    };
+    
+    // Get file modification date
+    let modification_date = gguf_parser::get_file_modification_date(&model_path)
+        .map_err(|e| format!("Failed to get file date: {}", e))?;
+    
+    // Check HF for updates
+    let result = update_checker::check_huggingface_updates(
+        &model_path,
+        hf_metadata.as_ref(),
+        modification_date,
+    ).await;
+    
+    Ok(result)
+}
+
+#[tauri::command]
+async fn link_model_to_hf(
+    model_path: String,
+    hf_model_id: String,
+    hf_filename: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<HfMetadata, String> {
+    // Create HF metadata
+    let metadata = update_checker::link_model_to_hf(
+        &model_path,
+        &hf_model_id,
+        &hf_filename,
+    )?;
+    
+    // Store in model config
+    {
+        let mut configs = state.model_configs.lock().await;
+        let config = configs.entry(model_path.clone()).or_insert_with(|| {
+            ModelConfig::new(model_path.clone())
+        });
+        config.hf_metadata = Some(metadata.clone());
+    }
+    
+    // Save settings to persist
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("Warning: Failed to save settings after linking: {}", e);
+    }
+    
+    Ok(metadata)
+}
+
+#[tauri::command]
 async fn remove_window_state(
     window_id: String,
     state: tauri::State<'_, AppState>,
@@ -1907,6 +1974,75 @@ async fn delete_llamacpp_version(path: String, state: tauri::State<'_, AppState>
     save_settings(&state).await.map_err(|e| format!("Failed to save settings: {}", e))
 }
 
+// ==================== HuggingFace Direct Link Download Commands ====================
+
+#[tauri::command]
+async fn parse_hf_url(url: String) -> Result<String, String> {
+    huggingface_downloader::parse_model_id(&url)
+}
+
+#[tauri::command]
+async fn fetch_hf_model_info(model_id: String) -> Result<ModelCardInfo, String> {
+    huggingface_downloader::fetch_model_info(&model_id).await
+}
+
+#[tauri::command]
+async fn fetch_hf_model_files(model_id: String) -> Result<Vec<HfFileInfo>, String> {
+    huggingface_downloader::fetch_model_files(&model_id).await
+}
+
+#[tauri::command]
+async fn get_default_download_path(
+    model_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let config = state.config.lock().await;
+    let base_dir = &config.models_directory;
+    let path = huggingface_downloader::build_destination_path(base_dir, &model_id);
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn download_hf_file(
+    model_id: String,
+    filename: String,
+    destination: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<DownloadStartResult, String> {
+    use downloader::{DownloadConfig, start_download};
+    use std::path::Path;
+    
+    // Construct download URL
+    let download_url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        model_id, filename
+    );
+    
+    // Ensure destination directory exists
+    let dest_path = Path::new(&destination);
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    
+    // Build download configuration
+    let config = DownloadConfig {
+        base_url: download_url.clone(),
+        destination_folder: destination.clone(),
+        auto_extract: false,
+        create_subfolder: None,
+        files: vec![filename.clone()],
+        custom_headers: None,
+    };
+    
+    // Use existing download infrastructure
+    match start_download(config, &state, app_handle).await {
+        Ok(result) => Ok(result),
+        Err(e) => Err(format!("Failed to start download: {}", e))
+    }
+}
+
 // Initialize and load settings
 async fn initialize_app_state() -> Result<AppState, Box<dyn std::error::Error>> {
     let state = AppState::new();
@@ -2141,10 +2277,21 @@ pub fn run() {
             scan_mmproj_files_command,
             hide_window,
             show_window,
+<<<<<<< HEAD
             initial_scan_models,
             check_model_update,
             get_hf_model_files,
             link_model_to_hf
+=======
+            get_model_metadata,
+            check_model_update,
+            link_model_to_hf,
+            parse_hf_url,
+            fetch_hf_model_info,
+            fetch_hf_model_files,
+            get_default_download_path,
+            download_hf_file
+>>>>>>> phase2-hf-direct-link
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
