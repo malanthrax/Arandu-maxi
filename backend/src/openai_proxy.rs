@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use crate::openai_types::{
     ChatCompletionRequest, AudioTranscriptionRequest, AudioTranscriptionResponse,
@@ -114,6 +115,28 @@ async fn chat_completions(
     State(state): State<Arc<RwLock<ProxyState>>>,
     Json(request): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
+    // Check if llama.cpp server is reachable
+    let health_url = format!("{}/health", state.read().await.llama_server_url);
+    let health_client = reqwest::Client::new();
+    
+    match health_client.get(&health_url).timeout(Duration::from_secs(2)).send().await {
+        Ok(resp) if resp.status().is_success() => {
+            // Server is healthy, proceed
+        }
+        _ => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(OpenAIErrorResponse {
+                    error: OpenAIError {
+                        message: "No llama.cpp server is currently running. Please start a model first.".to_string(),
+                        error_type: "server_not_running".to_string(),
+                        code: Some("503".to_string()),
+                    },
+                })
+            ).into_response();
+        }
+    }
+
     // Check if streaming is requested
     let stream = request.stream.unwrap_or(false);
     

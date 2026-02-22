@@ -1,5 +1,6 @@
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::time::Duration;
 use crate::openai_types::ChatCompletionRequest;
 
 #[derive(Clone)]
@@ -10,10 +11,13 @@ pub struct LlamaClient {
 
 impl LlamaClient {
     pub fn new(base_url: String) -> Self {
-        Self {
-            client: Client::new(),
-            base_url,
-        }
+        let client = Client::builder()
+            .timeout(Duration::from_secs(300)) // 5 minute timeout
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("Failed to create HTTP client");
+            
+        Self { client, base_url }
     }
 
     /// Convert OpenAI format request to llama.cpp format
