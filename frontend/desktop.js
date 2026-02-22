@@ -1,4 +1,6 @@
 // LlamaOS Interface
+// AI AGENTS: Check nowledge-mem memory for file locations and patterns before modifying
+// Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 const { invoke } = window.__TAURI__.core;
 
 class DesktopManager {
@@ -27,6 +29,9 @@ class DesktopManager {
 
         // Set up system monitor icon click event
         this.setupSystemMonitorIcon();
+        
+        // Initialize network serving widget
+        this.initNetworkWidget();
 
         // Wait for DOM to be fully loaded before showing content
         if (document.readyState === 'loading') {
@@ -200,13 +205,24 @@ class DesktopManager {
             }
         }
 
+        // Initialize Tracker App if not already done in DOMContentLoaded
+        if (!trackerApp && typeof TrackerApp !== 'undefined') {
+            try {
+                trackerApp = new TrackerApp(this);
+                console.log('Tracker app initialized (fallback)');
+            } catch (error) {
+                console.error('Failed to initialize Tracker app (fallback):', error);
+            }
+        }
+
         // Log the final status of all managers
         console.log('Module manager status after ensureDesktopInteractivity:', {
             terminalManager: terminalManager ? 'initialized' : 'not initialized',
             propertiesManager: propertiesManager ? 'initialized' : 'not initialized',
             downloadManager: downloadManager ? 'initialized' : 'not initialized',
             llamacppReleasesManager: llamacppReleasesManager ? 'initialized' : 'not initialized',
-            huggingFaceApp: huggingFaceApp ? 'initialized' : 'not initialized'
+            huggingFaceApp: huggingFaceApp ? 'initialized' : 'not initialized',
+            trackerApp: trackerApp ? 'initialized' : 'not initialized'
         });
 
         console.log('Desktop interactivity ensured');
@@ -657,6 +673,8 @@ class DesktopManager {
 this.showProperties(this.selectedIcon);
                     } else if (action === 'check-update' && this.selectedIcon) {
                         await this.handleCheckUpdate(this.selectedIcon.dataset.path);
+                    } else if (action === 'open-folder' && this.selectedIcon) {
+                        await this.openModelFolder(this.selectedIcon.dataset.path);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
                     } else if (action.startsWith('sort-')) {
@@ -704,6 +722,23 @@ this.showProperties(this.selectedIcon);
                         console.error('Error opening HuggingFace search:', error);
                         this.showNotification('Error opening HuggingFace app', 'error');
                     });
+                }
+            });
+        }
+
+        const trackerDockIcon = document.getElementById('tracker-dock-icon');
+        if (trackerDockIcon) {
+            trackerDockIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (trackerApp) {
+                    trackerApp.openTracker().catch(error => {
+                        console.error('Error opening Tracker:', error);
+                        this.showNotification('Error opening Tracker app', 'error');
+                    });
+                } else {
+                    console.warn('Tracker app not initialized, attempting to initialize...');
+                    this.ensureDesktopInteractivity();
+                    this.showNotification('Tracker app is loading, please try again', 'info');
                 }
             });
         }
@@ -1014,6 +1049,12 @@ this.showProperties(this.selectedIcon);
                     <div class="menu-item-content">
                         <span class="material-icons">update</span>
                         <span>Check for Updates</span>
+                    </div>
+                </div>
+                <div class="context-menu-item" data-action="open-folder">
+                    <div class="menu-item-content">
+                        <span class="material-icons">folder_open</span>
+                        <span>Open in File Explorer</span>
                     </div>
                 </div>
                 <div class="context-menu-item" data-action="properties">
@@ -3223,6 +3264,9 @@ this.showProperties(this.selectedIcon);
             } else if (id === 'huggingface-search-window') {
                 const huggingfaceDockIcon = document.getElementById('huggingface-dock-icon');
                 if (huggingfaceDockIcon) huggingfaceDockIcon.classList.remove('active');
+            } else if (id === 'tracker-window') {
+                const trackerDockIcon = document.getElementById('tracker-dock-icon');
+                if (trackerDockIcon) trackerDockIcon.classList.remove('active');
             } else if (id === 'llamacpp-manager-window') {
                 const llamacppDockIcon = document.getElementById('llamacpp-dock-icon');
                 if (llamacppDockIcon) llamacppDockIcon.classList.remove('active');
@@ -3274,6 +3318,9 @@ this.showProperties(this.selectedIcon);
         } else if (focusedWindowId === 'huggingface-search-window') {
             const huggingfaceDockIcon = document.getElementById('huggingface-dock-icon');
             if (huggingfaceDockIcon) huggingfaceDockIcon.classList.add('focused');
+        } else if (focusedWindowId === 'tracker-window') {
+            const trackerDockIcon = document.getElementById('tracker-dock-icon');
+            if (trackerDockIcon) trackerDockIcon.classList.add('focused');
         } else if (focusedWindowId === 'llamacpp-manager-window') {
             const llamacppDockIcon = document.getElementById('llamacpp-dock-icon');
             if (llamacppDockIcon) llamacppDockIcon.classList.add('focused');
@@ -4089,6 +4136,9 @@ this.showProperties(this.selectedIcon);
             // Update memory bars with current stats
             this.updateMemoryBars(stats);
 
+            // Update disk space monitor
+            this.updateDiskSpaceMonitor(stats);
+
             // Update expanded details if visible
             const memoryMonitor = document.getElementById('desktop-memory-monitor');
             if (memoryMonitor && memoryMonitor.classList.contains('expanded')) {
@@ -4700,6 +4750,491 @@ vramFill.style.background = getBarColor(0);
         }
     }
 
+    // Update disk space monitor with models folder size
+    updateDiskSpaceMonitor(stats) {
+        const diskText = document.getElementById('disk-usage-text');
+        if (!diskText) return;
+
+        const sizeGB = stats.models_folder_size_gb;
+        
+        // Format size: show TB if >= 1000 GB, otherwise show GB
+        let formattedSize;
+        if (sizeGB >= 1000) {
+            const sizeTB = (sizeGB / 1024).toFixed(2);
+            formattedSize = `${sizeTB} TB`;
+        } else {
+            formattedSize = `${sizeGB.toFixed(2)} GB`;
+        }
+
+        diskText.textContent = formattedSize;
+        
+        // Update tooltip
+        const diskMonitor = document.getElementById('desktop-disk-monitor');
+        if (diskMonitor) {
+            diskMonitor.title = `Models using ${formattedSize} of disk space (${stats.models_count} models)`;
+        }
+    }
+
+    // Network Serving Widget Methods - OpenAI Proxy Integration
+    
+    initNetworkWidget() {
+        const networkWidget = document.getElementById('desktop-network-widget');
+        const networkPopup = document.getElementById('network-widget-popup');
+        
+        if (!networkWidget || !networkPopup) return;
+        
+        this.networkWidgetOpen = false;
+        this.networkServerActive = false;
+        
+        // Load saved config and check initial status
+        this.loadNetworkConfig();
+        this.checkNetworkStatus();
+        
+        // Toggle popup on widget click
+        networkWidget.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleNetworkWidget();
+        });
+        
+        // Close popup when clicking outside
+        document.addEventListener('click', (e) => {
+            if (this.networkWidgetOpen && 
+                !networkWidget.contains(e.target) && 
+                !networkPopup.contains(e.target)) {
+                this.closeNetworkWidget();
+            }
+        });
+        
+        // Setup activate/deactivate buttons
+        const activateBtn = document.getElementById('network-activate-btn');
+        const deactivateBtn = document.getElementById('network-deactivate-btn');
+        
+        if (activateBtn) {
+            activateBtn.addEventListener('click', () => this.activateNetworkServer());
+        }
+        
+        if (deactivateBtn) {
+            deactivateBtn.addEventListener('click', () => this.deactivateNetworkServer());
+        }
+        
+        // Check status periodically (every 5 seconds)
+        setInterval(() => this.checkNetworkStatus(), 5000);
+    }
+    
+    async loadNetworkConfig() {
+        try {
+            const config = await invoke('get_network_config');
+            const addressSelect = document.getElementById('network-address-input');
+            const portInput = document.getElementById('network-port-input');
+            
+            // Load available network interfaces
+            await this.loadNetworkInterfaces();
+            
+            // Set saved address if it exists in the dropdown
+            if (addressSelect && config.address) {
+                // Check if the saved address is in the dropdown
+                let optionExists = false;
+                for (let i = 0; i < addressSelect.options.length; i++) {
+                    if (addressSelect.options[i].value === config.address) {
+                        optionExists = true;
+                        break;
+                    }
+                }
+                
+                // If saved address isn't in dropdown (e.g., a specific IP), add it
+                if (!optionExists && config.address !== '127.0.0.1' && config.address !== '0.0.0.0') {
+                    const option = document.createElement('option');
+                    option.value = config.address;
+                    option.textContent = `${config.address} (Saved)`;
+                    addressSelect.insertBefore(option, addressSelect.options[1]);
+                }
+                
+                addressSelect.value = config.address;
+            }
+            
+            if (portInput && config.port) {
+                portInput.value = config.port;
+            }
+            
+            // Load proxy port
+            const proxyPortInput = document.getElementById('network-proxy-port-input');
+            if (proxyPortInput && config.proxy_port) {
+                proxyPortInput.value = config.proxy_port;
+            }
+            
+            // Store proxy port for reference
+            this.networkProxyPort = config.proxy_port || 8081;
+        } catch (error) {
+            console.error('Error loading network config:', error);
+        }
+    }
+    
+    async loadNetworkInterfaces() {
+        const addressSelect = document.getElementById('network-address-input');
+        const loadingDiv = document.getElementById('network-interfaces-loading');
+        
+        if (!addressSelect) return;
+        
+        try {
+            if (loadingDiv) loadingDiv.style.display = 'block';
+            
+            const result = await invoke('get_network_interfaces');
+            
+            if (result.interfaces && result.interfaces.length > 0) {
+                // Clear existing options except the first two (127.0.0.1 and 0.0.0.0)
+                while (addressSelect.options.length > 2) {
+                    addressSelect.remove(2);
+                }
+                
+                // Add discovered interfaces
+                result.interfaces.forEach(iface => {
+                    if (iface.type === 'primary' && iface.address !== '127.0.0.1') {
+                        const option = document.createElement('option');
+                        option.value = iface.address;
+                        option.textContent = `${iface.address} (${iface.name})`;
+                        addressSelect.appendChild(option);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error loading network interfaces:', error);
+        } finally {
+            if (loadingDiv) loadingDiv.style.display = 'none';
+        }
+    }
+    
+    async checkNetworkStatus() {
+        try {
+            const status = await invoke('get_network_server_status');
+            
+            if (status.active && !this.networkServerActive) {
+                // Server became active - update UI
+                this.updateNetworkUIActive(
+                    status.config.address, 
+                    status.config.port, 
+                    status.config.proxy_port
+                );
+            } else if (!status.active && this.networkServerActive) {
+                // Server was deactivated - update UI
+                this.updateNetworkUIInactive();
+            }
+            
+            // Store proxy port for reference
+            this.networkProxyPort = status.config.proxy_port || 8081;
+        } catch (error) {
+            console.error('Error checking network status:', error);
+        }
+    }
+    
+    updateNetworkUIActive(address, port, proxyPort) {
+        this.networkServerActive = true;
+        const activateBtn = document.getElementById('network-activate-btn');
+        const deactivateBtn = document.getElementById('network-deactivate-btn');
+        const addressSelect = document.getElementById('network-address-input');
+        const portInput = document.getElementById('network-port-input');
+        const infoDiv = document.getElementById('network-info');
+        const statusIndicator = document.getElementById('network-status-indicator');
+        
+        const proxyPortInput = document.getElementById('network-proxy-port-input');
+        
+        if (activateBtn) activateBtn.disabled = true;
+        if (deactivateBtn) deactivateBtn.disabled = false;
+        if (addressSelect) addressSelect.disabled = true;
+        if (portInput) portInput.disabled = true;
+        if (proxyPortInput) proxyPortInput.disabled = true;
+        
+        // Determine display address
+        let displayAddress = address;
+        if (address === '0.0.0.0') {
+            // When binding to all interfaces, show the primary network IP
+            const selectedOption = addressSelect?.options[addressSelect.selectedIndex];
+            if (selectedOption && selectedOption.value !== '0.0.0.0') {
+                displayAddress = selectedOption.value;
+            } else {
+                // Try to find the first non-loopback interface
+                for (let i = 0; i < (addressSelect?.options.length || 0); i++) {
+                    const opt = addressSelect.options[i];
+                    if (opt.value !== '127.0.0.1' && opt.value !== '0.0.0.0') {
+                        displayAddress = opt.value;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (statusIndicator) {
+            statusIndicator.classList.add('active');
+            statusIndicator.title = `OpenAI API at http://${displayAddress}:${proxyPort}/v1`;
+        }
+        
+        if (infoDiv) {
+            const isAllInterfaces = address === '0.0.0.0';
+            infoDiv.innerHTML = `
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #22c55e; font-weight: bold;">✓ Active</span>
+                    ${isAllInterfaces ? ' <span style="color: #888; font-size: 11px;">(All interfaces)</span>' : ''}
+                </div>
+                <div style="margin-bottom: 4px;">
+                    <strong>OpenAI API:</strong> http://${displayAddress}:${proxyPort}/v1
+                </div>
+                <div style="font-size: 11px; color: #888; margin-bottom: 8px;">
+                    ${isAllInterfaces ? 'Accessible from any device on your network' : 'Local access only'}
+                </div>
+                <div style="font-size: 11px; color: #666;">
+                    llama.cpp server: ${address}:${port}
+                </div>
+            `;
+        }
+    }
+    
+    updateNetworkUIInactive() {
+        this.networkServerActive = false;
+        const activateBtn = document.getElementById('network-activate-btn');
+        const deactivateBtn = document.getElementById('network-deactivate-btn');
+        const addressSelect = document.getElementById('network-address-input');
+        const portInput = document.getElementById('network-port-input');
+        const proxyPortInput = document.getElementById('network-proxy-port-input');
+        const infoDiv = document.getElementById('network-info');
+        const statusIndicator = document.getElementById('network-status-indicator');
+        
+        if (activateBtn) activateBtn.disabled = false;
+        if (deactivateBtn) deactivateBtn.disabled = true;
+        if (addressSelect) addressSelect.disabled = false;
+        if (portInput) portInput.disabled = false;
+        if (proxyPortInput) proxyPortInput.disabled = false;
+        
+        if (statusIndicator) {
+            statusIndicator.classList.remove('active');
+            statusIndicator.title = '';
+        }
+        
+        if (infoDiv) {
+            infoDiv.innerHTML = `
+                <div style="margin-bottom: 8px;">Configure address and port to start OpenAI-compatible API server</div>
+                <div style="font-size: 11px; color: #888;">
+                    Use 0.0.0.0 for LAN access, 127.0.0.1 for local only
+                </div>
+            `;
+        }
+    }
+    
+    toggleNetworkWidget() {
+        const networkWidget = document.getElementById('desktop-network-widget');
+        const networkPopup = document.getElementById('network-widget-popup');
+        
+        if (this.networkWidgetOpen) {
+            this.closeNetworkWidget();
+        } else {
+            // Show popup
+            networkPopup.classList.add('show');
+            networkWidget.classList.add('active');
+            this.networkWidgetOpen = true;
+        }
+    }
+    
+    closeNetworkWidget() {
+        const networkWidget = document.getElementById('desktop-network-widget');
+        const networkPopup = document.getElementById('network-widget-popup');
+        
+        if (networkPopup) networkPopup.classList.remove('show');
+        if (networkWidget) networkWidget.classList.remove('active');
+        this.networkWidgetOpen = false;
+    }
+    
+    async activateNetworkServer() {
+        const addressInput = document.getElementById('network-address-input');
+        const portInput = document.getElementById('network-port-input');
+        const proxyPortInput = document.getElementById('network-proxy-port-input');
+        const infoDiv = document.getElementById('network-info');
+        
+        const address = addressInput.value.trim() || '127.0.0.1';
+        const port = parseInt(portInput.value) || 8080;
+        const proxyPort = parseInt(proxyPortInput.value) || 8081;
+        
+        try {
+            console.log('Sending save_network_config with:', { address, port, proxy_port: proxyPort });
+            
+            // Save the network configuration - Tauri converts camelCase to snake_case automatically
+            await invoke('save_network_config', { 
+                address: address,
+                port: port,
+                proxyPort: proxyPort
+            });
+            
+            // Activate the server
+            const result = await invoke('activate_network_server', {
+                address: address,
+                port: port
+            });
+            
+            if (result.success) {
+                // Update UI with proxy port from response
+                this.updateNetworkUIActive(result.address, result.port, result.proxy_port);
+                this.showNotification(result.message, 'success');
+            } else {
+                throw new Error(result.error || 'Failed to activate server');
+            }
+        } catch (error) {
+            console.error('Full error object:', error);
+            console.error('Error type:', typeof error);
+            console.error('Error keys:', Object.keys(error || {}));
+            
+            // Tauri returns errors in different formats - handle all cases
+            let errorMessage = 'Unknown error';
+            if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?.error) {
+                errorMessage = error.error;
+            } else if (error?.toString && error.toString() !== '[object Object]') {
+                errorMessage = error.toString();
+            } else {
+                errorMessage = JSON.stringify(error);
+            }
+            
+            this.showNotification(`Failed to activate: ${errorMessage}`, 'error');
+            
+            if (infoDiv) {
+                infoDiv.innerHTML = `
+                    <div style="color: #ef4444; margin-bottom: 8px;">
+                        ✗ Error: ${errorMessage}
+                    </div>
+                    <div style="font-size: 11px; color: #888;">
+                        Make sure the port is not already in use by another application
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    async deactivateNetworkServer() {
+        try {
+            const result = await invoke('deactivate_network_server');
+            
+            if (result.success) {
+                this.updateNetworkUIInactive();
+                this.showNotification(result.message, 'info');
+            } else {
+                throw new Error(result.error || 'Failed to deactivate server');
+            }
+        } catch (error) {
+            console.error('Error deactivating network server:', error);
+            this.showNotification(`Failed to deactivate: ${error.message}`, 'error');
+        }
+    }
+    
+    getRunningModels() {
+        const models = [];
+        
+        // Check if terminal manager exists and has terminals
+        if (!terminalManager || !terminalManager.terminals) {
+            return models;
+        }
+        
+        // Get all terminals from terminal manager
+        for (const [windowId, terminalInfo] of terminalManager.terminals.entries()) {
+            if (terminalInfo.modelPath && terminalInfo.modelName) {
+                models.push({
+                    windowId: windowId,
+                    modelPath: terminalInfo.modelPath,
+                    modelName: terminalInfo.modelName,
+                    host: terminalInfo.host || '127.0.0.1',
+                    port: terminalInfo.port || 8080,
+                    status: terminalInfo.status || 'stopped',
+                    processId: terminalInfo.processId
+                });
+            }
+        }
+        
+        return models;
+    }
+    
+    focusModelTerminal(windowId) {
+        const window = this.windows.get(windowId);
+        if (window) {
+            window.style.display = 'block';
+            window.style.zIndex = ++this.windowZIndex;
+            const taskbarItem = document.getElementById(`taskbar-${windowId}`);
+            if (taskbarItem) taskbarItem.classList.add('active');
+        }
+    }
+    
+    async stopModelFromWidget(windowId, event) {
+        event.stopPropagation();
+        
+        const terminalInfo = terminalManager.terminals.get(windowId);
+        if (!terminalInfo) return;
+        
+        try {
+            await terminalManager.stopServer(
+                terminalInfo.processId, 
+                windowId, 
+                terminalInfo.modelPath, 
+                terminalInfo.modelName
+            );
+            this.showNotification(`${terminalInfo.modelName} stopped`, 'info');
+        } catch (error) {
+            console.error('Error stopping model:', error);
+            this.showNotification(`Failed to stop ${terminalInfo.modelName}`, 'error');
+        }
+    }
+    
+    async restartModelFromWidget(windowId, event) {
+        event.stopPropagation();
+        
+        const terminalInfo = terminalManager.terminals.get(windowId);
+        if (!terminalInfo) return;
+        
+        try {
+            await terminalManager.restartServer(
+                windowId, 
+                terminalInfo.modelPath, 
+                terminalInfo.modelName
+            );
+            this.showNotification(`${terminalInfo.modelName} restarted`, 'success');
+        } catch (error) {
+            console.error('Error restarting model:', error);
+            this.showNotification(`Failed to restart ${terminalInfo.modelName}`, 'error');
+        }
+    }
+    
+    async updateModelHost(modelPath, newHost) {
+        try {
+            // Get current settings
+            const config = await invoke('get_model_settings', { modelPath });
+            config.server_host = newHost;
+            
+            // Save settings
+            await invoke('update_model_settings', { modelPath, config });
+            this.showNotification(`Host updated to ${newHost} (will apply on next restart)`, 'success');
+        } catch (error) {
+            console.error('Error updating host:', error);
+            this.showNotification('Failed to update host', 'error');
+        }
+    }
+    
+    async updateModelPort(modelPath, newPort) {
+        try {
+            const portNum = parseInt(newPort, 10);
+            if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+                this.showNotification('Invalid port number', 'error');
+                return;
+            }
+            
+            // Get current settings
+            const config = await invoke('get_model_settings', { modelPath });
+            config.server_port = portNum;
+            
+            // Save settings
+            await invoke('update_model_settings', { modelPath, config });
+            this.showNotification(`Port updated to ${portNum} (will apply on next restart)`, 'success');
+        } catch (error) {
+            console.error('Error updating port:', error);
+            this.showNotification('Failed to update port', 'error');
+        }
+    }
+
 // Update Checker Methods
     
     async performInitialScan() {
@@ -4819,6 +5354,15 @@ updateUpdateIndicator(modelPath, result) {
         } else {
             indicator.className = 'update-indicator green';
             indicator.title = result.message || 'Up to date - Click to check for updates';
+        }
+    }
+
+    async openModelFolder(modelPath) {
+        try {
+            await window.__TAURI__.core.invoke('open_model_folder', { modelPath });
+        } catch (error) {
+            console.error('Error opening model folder:', error);
+            this.showNotification('Error opening folder: ' + error, 'error');
         }
     }
 
@@ -4982,6 +5526,7 @@ let huggingFaceApp;
 let propertiesManager;
 let downloadManager;
 let llamacppReleasesManager;
+let trackerApp;
 
 // Initialize the desktop
 const desktop = new DesktopManager();
@@ -5021,6 +5566,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeModule(window.DownloadManager, 'Download Manager', 'downloadManager');
     initializeModule(window.LlamaCppReleasesManager, 'Llama.cpp Releases Manager', 'llamacppReleasesManager');
     initializeModule(window.HuggingFaceApp, 'HuggingFace App', 'huggingFaceApp');
+    initializeModule(window.TrackerApp, 'Tracker App', 'trackerApp');
 
     console.log('Module initialization complete');
 });

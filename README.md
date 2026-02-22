@@ -10,6 +10,7 @@
 
 - [x] **Model Management** - Organize and launch .gguf models with custom arguments
 - [x] **HuggingFace Integration** - Search and download models directly from HuggingFace
+- [x] **AI Model Tracker** - Browse trending AI models from HuggingFace with filtering and stats
 - [x] **Llama.cpp Backend Management** - Auto-download llama-server backends from GitHub releases
 - [x] **Flexible Launch Options** - Internal (integrated UI) or External (native llama.cpp UI) modes
 - [x] **Argument Presets** - Save and reuse common launch configurations per model
@@ -40,6 +41,28 @@ cargo tauri build
 ## Documentation
 
 See [AGENTS.md](AGENTS.md) for detailed developer documentation including architecture, API reference, and common issues.
+
+### For AI Agents/Developers
+
+⚠️ **MANDATORY: New agents MUST follow the onboarding workflow before making any changes.**
+
+**Critical Documentation (read in order):**
+1. **WORKING_DIRECTORY_WARNING.md** - CRITICAL working directory info
+2. **AGENTS.md** - Architecture, patterns, and how-to guides  
+3. **THIS-PROJECTS-CURRENT-STATE.md** - Current status, recent bugs, build info
+
+**Knowledge Base Memory System:**
+This project uses the `nowledge-mem` memory system to store:
+- File locations (search: "Arandu Complete File Location Reference")
+- Common development patterns (search: "Arandu Common Development Patterns")
+- Critical gotchas and issues (search: "Arandu Critical Gotchas")
+- Feature implementations (search: "Arandu [feature-name]")
+
+**Agent Onboarding:**
+- Check memory FIRST before using shell commands to find files
+- Search for "MANDATORY: Arandu Agent Onboarding Workflow" for complete workflow
+- Always verify working directory is `H:\Ardanu Fix\Arandu-maxi\` (NOT C drive)
+- Build and test before claiming work is complete
 
 ## Download
 

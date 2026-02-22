@@ -1,5 +1,24 @@
 # Arandu - Developer Documentation
 
+> **📋 For current project status, bug fixes, and recent changes:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
+> 
+> **📁 For file locations and where to find specific code:** Check the knowledge base memory (Arandu Complete File Location Reference) before using shell commands
+
+## Agent Quick Reference
+
+**Before you start:**
+1. **Check THIS-PROJECTS-CURRENT-STATE.md** for recent bugs, fixes, and what's already been done
+2. **Check the knowledge base memory** (Arandu Complete File Location Reference) to find files - avoid shell commands when possible
+3. **AGENTS.md** (this file) = Architecture, patterns, and how-to guides
+4. **Use shell commands as fallback** only when memory doesn't have the answer
+
+**File location priorities:**
+1. Knowledge base memory (fastest, has full reference)
+2. AGENTS.md File Structure section
+3. Shell commands (ls, find, grep) - use sparingly
+
+---
+
 ## Project Overview
 
 **Arandu** is a Tauri-based desktop application that provides a user-friendly UI for managing llama.cpp models and servers. It eliminates the need to manually handle DLL files or command-line arguments by providing a complete desktop environment with model management, HuggingFace integration, automatic llama.cpp backend downloads, and hardware monitoring.
@@ -12,13 +31,7 @@
 
 ## Quick Start
 
-```bash
-# Development
-cargo tauri dev
-
-# Build (output: backend/target/release/)
-cargo tauri build
-```
+See [README.md](README.md#quick-start) for prerequisites and setup instructions.
 
 ---
 
@@ -47,6 +60,8 @@ cargo tauri build
 | `system_monitor.rs` | Hardware monitoring | `SystemMonitor`, RAM/VRAM tracking |
 | `gguf_parser.rs` | GGUF metadata parsing | `parse_gguf_metadata()`, `get_file_modification_date()` |
 | `update_checker.rs` | HF update checking | `check_huggingface_updates()`, `link_model_to_hf()`, `extract_hf_model_id_from_path()` |
+| `tracker_scraper.rs` | HF trending models | `fetch_trending_models()`, `fetch_model_details()`, `fetch_model_files()` |
+| `tracker_manager.rs` | Local tracker storage | `TrackerManager`, `save_models()`, `get_models()`, `get_stats()` |
 
 **Key Dependencies:**
 ```toml
@@ -355,6 +370,9 @@ pub struct DownloadManager {
 
 ## File Structure
 
+> **📁 For complete file location reference:** Check knowledge base memory "Arandu Complete File Location Reference" 
+> > This memory has exact paths for every file and quick reference by task (e.g., "right-click menu = desktop.js")
+
 ```
 Arandu/
 ├── backend/
@@ -465,70 +483,31 @@ cargo tauri build
 
 ## Recent Changes
 
-### 2025-02-20 - HF Search Model ID Display ✅ FIXED
-- **feature:** Click "?" indicator on model → Simple dialog with Copy button
-- **behavior:** 
-  - Click "?" on any model icon
-  - Dialog shows HF model ID (extracted from path or linked config)
-  - Click "Copy" to copy to clipboard
-  - Click "Open HF Search" to open HF search with model pre-filled
-- **fix implemented:**
-  - Replaced complex multi-step flow with simple dialog
-  - Fixed duplicate update indicator bug
-  - Added proper indicator content (?, ✓, ✗)
-  - Extracts model ID from path if not explicitly linked
-- **files modified:**
-  - `frontend/desktop.js` - Added simple copy dialog with Copy/Open HF Search buttons
-  - `frontend/modules/huggingface-app.js` - Added model ID bar for new HF windows
-- **commit:** `fe05539`
+> **For complete list of bug fixes and features:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
+
+### 2025-02-21 - Major Updates
+- **feat:** Added "Open in File Explorer" right-click option for GGUF files
+- **feat:** Added total disk space monitor (GB/TB) in top right corner
+- **fix:** Search now queries HF API (not just local database)
+- **fix:** All tracker filters working correctly
+- **fix:** Models loading instantly when tracker opens
+- **fix:** File counts updating properly on refresh
+
+### 2025-02-20 - AI Model Tracker Hybrid Search
+- **feat:** Hybrid local + live search with badge counts
+- **feat:** Live search toggle with rate limiting
+- **feat:** File type filters (GGUF, MLX, SafeTensors, etc.)
+- **fix:** Tracker button and page loading issues
 
 ### 2025-02-18 - Phase 2: HuggingFace Direct Link Download ✅ COMPLETE
-- **feat:** HuggingFace Direct Link Download feature fully implemented and tested
-  - **Tabbed interface:** Search Models | Paste Link tabs in HuggingFace window
-  - **Paste Link functionality:** Paste any HuggingFace model URL to download GGUF files
-  - **URL parsing:** Supports multiple URL formats (full URLs, model IDs, blob/resolve URLs)
-  - **Model info display:** Shows name, description, license, downloads, likes, tags
-  - **File selection:** Checklist with quantization badges (Q4_K_M, Q8_0, etc.)
-  - **Sequential downloads:** Downloads files one at a time with progress tracking
-  - **Custom destinations:** Browse and select download location
-  - **Flux/SD support:** Now finds all GGUF models including image generation (Flux, Stable Diffusion)
-  - **Search fix:** Removed "conversational" filter from HF API search to include all GGUF model types
-  - **New backend module:** `huggingface_downloader.rs` with URL parsing and HF API integration
-  - **New Tauri commands:** `parse_hf_url`, `fetch_hf_model_info`, `fetch_hf_model_files`, `get_default_download_path`, `download_hf_file`
-  - **Frontend updates:** `huggingface-app.js` and `huggingface.css` with tab UI and paste link interface
+- **feat:** Tabbed HF interface with Paste Link functionality
+- **feat:** URL parsing for all HF URL formats
 
-### 2025-02-15 - GGUF Update Checker
-- **feat:** Add GGUF Update Checker feature
-  - Parse GGUF metadata (architecture, name, quantization) from file headers
-  - Three-tier HF tracking: explicit metadata, path extraction, manual linking
-  - Visual update indicators: ✓ (green/up-to-date), ✗ (red/update available), ? (gray/not linked)
-  - Click indicator to check for updates on HuggingFace
-  - Right-click context menu option "Check for Updates"
-  - Link dialog for manual HF model association
-  - Compare local file modification date with HF commit date
-  - Cache update check results for performance
-  - New backend modules: `gguf_parser.rs`, `update_checker.rs`
-  - New Tauri commands: `get_model_metadata`, `check_model_update`, `link_model_to_hf`
+---
 
-### 2025-02-15 - Working Baseline
-- **checkpoint:** `0df8e33` - Working baseline before GGUF update checker
-  - Stable version with multiple model directories and quantization bars
+## Known Issues
 
-### 2025-02-14
-- **feat:** Add support for multiple model directories
-  - Primary directory + up to 2 additional directories
-  - Automatic deduplication across all directories
-  - Downloads still go to primary directory only
-  - Full backward compatibility with existing configs
-- **feat:** Add quantization color bars to GGUF icons (10 color levels by bit-depth)
-- **fix:** Dock button clickability issues (z-index fix)
-- **fix:** Icon font sizing to prevent oversized text rendering
-- **docs:** Update README and AGENTS.md with accurate feature list
-
-### 2025-02-12  
-- **fix:** CSS z-index and pointer-events for dock items
-- **docs:** Add AGENTS.md developer documentation
-- **docs:** Clarify Windows-only platform support
+> **See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md) for current bug status**
 
 ---
 
@@ -557,13 +536,13 @@ Monitors local GGUF models for updates on HuggingFace.
 3. **Update check:** Compares local file modification date with HF commit date
 
 **Visual indicators:**
-- **?** (gray): Not linked to HF - **⚠️ CLICKING THIS IS BROKEN** (see Known Issues)
+- **?** (gray): Not linked to HF - click to link or view model ID
 - **✓** (green): Up to date
 - **✗** (red): Update available on HF
 - **!** (black/red): Error occurred
 - **⟳** (spinning): Checking in progress
 
-**Note:** The click-to-show-model-ID functionality for the "?" indicator is currently broken. See "Known Issues" section for details.
+**Note:** Click the "?" indicator to see the linked HF model ID, copy it, or open HF search.
 
 **Backend modules:**
 - `gguf_parser.rs` - Parse GGUF binary format metadata
@@ -573,6 +552,37 @@ Monitors local GGUF models for updates on HuggingFace.
 - `get_model_metadata(path)` → GgufMetadata
 - `check_model_update(path)` → UpdateCheckResult
 - `link_model_to_hf(path, model_id, filename)` → HfMetadata
+
+---
+
+## AI Model Tracker
+
+Browse and track trending AI models from HuggingFace directly in the app.
+
+**How it works:**
+1. Click the Tracker button in the dock (robot icon)
+2. Click "Refresh" or "Fetch Models" to load trending models from HuggingFace
+3. Use filters to narrow down models by category, quantization, VRAM, etc.
+4. View statistics about loaded models
+
+**Features:**
+- Trending models from HuggingFace API
+- Filter by: category (text, image, video, audio, coding, multimodal), Chinese models only, GGUF only, VRAM limit, backends (CUDA, Vulkan, ROCm, CPU, Intel), quantization
+- Sort by: downloads, likes, date, name, size
+- Statistics panel showing total models, Chinese models, GGUF models, categories
+- Export models to JSON
+
+**Backend modules:**
+- `tracker_scraper.rs` - HuggingFace API integration for trending models
+- `tracker_manager.rs` - Local storage and filtering of tracker data
+
+**Tauri commands:**
+- `get_tracker_models(...)` → Vec<TrackerModel>
+- `refresh_tracker_data()` → TrackerStats
+- `get_tracker_stats()` → TrackerStats
+- `get_tracker_config()` → TrackerConfig
+- `save_tracker_config(config)` → Result
+- `export_tracker_models(models)` → Result
 
 ---
 
@@ -591,26 +601,22 @@ Monitors local GGUF models for updates on HuggingFace.
 
 ## Current Status
 
+> **For complete current status, test results, and build information:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
+
+### Quick Overview
+
+**Last Build:** 2025-02-21 - ✅ SUCCESS (Release + Installer)  
+**Version:** 0.5.5-beta  
+**Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+
 ### ✅ Working Features
-- Phase 2: HuggingFace Direct Link Download
-  - ✅ Tabbed HF interface (Search Models | Paste Link)
-  - ✅ URL parsing for all HF URL formats
-  - ✅ Model info fetching (description, license, stats)
-  - ✅ GGUF file listing with quantization badges
-  - ✅ Sequential file downloads with progress
-  - ✅ Custom destination folder selection
-  - ✅ Support for ALL GGUF models (text, image, video generation)
-  - ✅ Search now finds Flux, Stable Diffusion, and other image generation models
-- HF Search Model ID Display via "?" Indicator
-  - ✅ Click "?" on any model → Simple dialog with Copy button
-  - ✅ Copy button copies HF model ID to clipboard
-  - ✅ Open HF Search button opens search with model pre-filled
-
-**Files Modified:**
-- `frontend/desktop.js` - Added simple copy dialog with Copy/Open HF Search buttons
-- `frontend/modules/huggingface-app.js` - Added model ID bar for new HF windows
-
-**Build Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+- AI Model Tracker with hybrid search (local + live HF)
+- HuggingFace Direct Link Download (Phase 2 complete)
+- "Open in File Explorer" right-click option
+- Total disk space monitor (top right)
+- GGUF Update Checker with visual indicators
+- Multiple model directories support
+- Quantization color bars on icons
 
 ---
 

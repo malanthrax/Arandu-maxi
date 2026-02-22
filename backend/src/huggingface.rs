@@ -1,8 +1,11 @@
 use crate::models::*;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs;
+
+const MODEL_DATE_CUTOFF: &str = "2025-01-01T00:00:00Z";
 
 /// Cleanup leftover .download files from interrupted downloads during startup
 pub async fn cleanup_leftover_downloads(models_directory: &str) -> Result<usize, Box<dyn std::error::Error>> {
@@ -102,6 +105,7 @@ pub async fn search_models(
     sort_by: String,
 ) -> Result<SearchResult, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
+    let cutoff_date = parse_cutoff_date();
     
     // Build search URL with parameters - filter for GGUF models (includes both conversational and text-to-image)
      let url = format!(
@@ -140,8 +144,15 @@ pub async fn search_models(
     
     for (idx, model_data) in models_array.iter().enumerate() {
         if let Some(model) = parse_model_basic(model_data) {
-            eprintln!("DEBUG: Parsed model {}: {} (author: {})", idx, model.id, model.author);
-            models.push(model);
+            if model_is_after_cutoff(&model, &cutoff_date) {
+                eprintln!("DEBUG: Parsed model {}: {} (author: {})", idx, model.id, model.author);
+                models.push(model);
+            } else {
+                eprintln!(
+                    "DEBUG: Skipping model {} because last_modified {:?} is before cutoff",
+                    model.id, model.last_modified
+                );
+            }
         } else {
             eprintln!("DEBUG: Failed to parse model at index {}", idx);
         }
@@ -185,6 +196,35 @@ fn parse_model_basic(data: &Value) -> Option<ModelBasic> {
         likes: data.get("likes").and_then(|v| v.as_u64()).unwrap_or(0),
         last_modified,
     })
+}
+
+fn model_is_after_cutoff(model: &ModelBasic, cutoff: &DateTime<Utc>) -> bool {
+    match &model.last_modified {
+        Some(value) => parse_hf_datetime(value).map(|dt| dt >= *cutoff).unwrap_or(false),
+        None => false,
+    }
+}
+
+fn parse_cutoff_date() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(MODEL_DATE_CUTOFF)
+        .expect("MODEL_DATE_CUTOFF should be a valid RFC3339 timestamp")
+        .with_timezone(&Utc)
+}
+
+fn parse_hf_datetime(value: &str) -> Option<DateTime<Utc>> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(value) {
+        return Some(dt.with_timezone(&Utc));
+    }
+
+    if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
+        return Some(DateTime::<Utc>::from_utc(naive, Utc));
+    }
+
+    if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
+        return Some(DateTime::<Utc>::from_utc(naive, Utc));
+    }
+
+    None
 }
 
 pub async fn get_huggingface_model_details(

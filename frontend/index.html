@@ -1,4 +1,7 @@
 <!DOCTYPE html>
+<!-- Arandu Main HTML Shell -->
+<!-- AI AGENTS: Check nowledge-mem memory for file locations and patterns before modifying -->
+<!-- Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns" -->
 <html lang="en">
 
 <head>
@@ -11,6 +14,7 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/search-history.css">
+    <link rel="stylesheet" href="css/tracker.css">
     <!-- Dock Trigger Zone (for handling iframes) -->
     <div id="dock-trigger"></div>
 
@@ -62,6 +66,7 @@
     <script src="modules/properties-manager.js" defer></script>
     <script src="modules/download-manager.js" defer></script>
     <script src="modules/llamacpp-manager.js" defer></script>
+    <script src="modules/tracker-app.js" defer></script>
     <script src="modules/module-manager.js" defer></script>
 </head>
 
@@ -81,6 +86,79 @@
 
         <!-- Model Info Hint -->
         <div class="model-hint hidden" id="model-hint"></div>
+
+        <!-- Disk Space Monitor - Top Right -->
+        <div class="desktop-disk-monitor" id="desktop-disk-monitor" title="Total Models Disk Space">
+            <div class="disk-info">
+                <span class="material-icons">storage</span>
+                <span class="disk-text" id="disk-usage-text">--</span>
+            </div>
+        </div>
+
+        <!-- Network Serving Widget - Simple Config -->
+        <div class="desktop-network-widget" id="desktop-network-widget">
+            <div class="network-simple-header">
+                <span class="material-icons">lan</span>
+                <span class="network-title">Network Serve</span>
+                <span class="network-status-indicator" id="network-status-indicator"></span>
+            </div>
+        </div>
+
+        <!-- Network Widget Popup - Simple Config Panel -->
+        <div class="network-widget-popup" id="network-widget-popup">
+            <div class="network-simple-content">
+                <div class="network-config-section">
+                    <div class="network-config-label">Server Address</div>
+                    <select class="network-config-input" id="network-address-input" style="cursor: pointer;">
+                        <option value="127.0.0.1">127.0.0.1 (Local only)</option>
+                        <option value="0.0.0.0">0.0.0.0 (All interfaces - LAN)</option>
+                    </select>
+                    <div id="network-interfaces-loading" style="font-size: 11px; color: #888; margin-top: 4px; display: none;">
+                        Loading network interfaces...
+                    </div>
+                </div>
+                
+                <div class="network-config-section">
+                    <div class="network-config-label">llama.cpp Port</div>
+                    <input type="number" 
+                           class="network-config-input" 
+                           id="network-port-input"
+                           placeholder="8080"
+                           value="8080"
+                           min="1"
+                           max="65535">
+                </div>
+                
+                <div class="network-config-section">
+                    <div class="network-config-label">OpenAI API Port</div>
+                    <input type="number" 
+                           class="network-config-input" 
+                           id="network-proxy-port-input"
+                           placeholder="8081"
+                           value="8081"
+                           min="1"
+                           max="65535">
+                    <div style="font-size: 11px; color: #888; margin-top: 4px;">
+                        Port for OpenAI-compatible API endpoint
+                    </div>
+                </div>
+                
+                <div class="network-actions">
+                    <button class="network-action-btn activate-btn" id="network-activate-btn">
+                        <span class="material-icons">play_arrow</span>
+                        Activate
+                    </button>
+                    <button class="network-action-btn deactivate-btn" id="network-deactivate-btn" disabled>
+                        <span class="material-icons">stop</span>
+                        Deactivate
+                    </button>
+                </div>
+                
+                <div class="network-info" id="network-info">
+                    Configure address and port, then click Activate to serve on network
+                </div>
+            </div>
+        </div>
 
         <!-- RAM and VRAM usage indicators on desktop -->
         <div class="desktop-memory-monitor" id="desktop-memory-monitor" title="System Information">
@@ -112,6 +190,9 @@
             <div class="dock-separator"></div>
             <button class="dock-item permanent" id="settings-dock-icon" title="Settings" data-app="settings">
                 <span class="material-icons">settings</span>
+            </button>
+            <button class="dock-item permanent" id="tracker-dock-icon" title="AI Model Tracker" data-app="tracker">
+                <span class="material-icons">insights</span>
             </button>
             <button class="dock-item permanent" id="huggingface-dock-icon" title="Hugging Face Models" data-app="huggingface">
                 <span class="material-icons">cloud_download</span>
