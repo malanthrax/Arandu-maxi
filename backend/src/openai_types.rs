@@ -95,7 +95,7 @@ pub struct Usage {
     pub total_tokens: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
     pub object: String,
@@ -103,7 +103,7 @@ pub struct ModelInfo {
     pub owned_by: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ModelsResponse {
     pub object: String,
     pub data: Vec<ModelInfo>,

@@ -93,22 +93,47 @@ async fn health_check() -> impl IntoResponse {
     Json(json!({"status": "healthy"}))
 }
 
-async fn list_models() -> impl IntoResponse {
-    let models = vec![
-        ModelInfo {
-            id: "local-llama".to_string(),
-            object: "model".to_string(),
-            created: chrono::Utc::now().timestamp(),
-            owned_by: "arandu".to_string(),
+async fn list_models(
+    State(state): State<Arc<RwLock<ProxyState>>>,
+) -> impl IntoResponse {
+    let state_guard = state.read().await;
+    let url = format!("{}/v1/models", state_guard.llama_server_url);
+    drop(state_guard);
+
+    let client = reqwest::Client::new();
+
+    match client.get(&url).timeout(std::time::Duration::from_secs(5)).send().await {
+        Ok(response) if response.status().is_success() => {
+            match response.json::<ModelsResponse>().await {
+                Ok(models) => (StatusCode::OK, Json(models)).into_response(),
+                Err(_) => {
+                    // Fallback to hardcoded if parsing fails
+                    let models = vec![ModelInfo {
+                        id: "local-llama".to_string(),
+                        object: "model".to_string(),
+                        created: chrono::Utc::now().timestamp(),
+                        owned_by: "arandu".to_string(),
+                    }];
+                    let response = ModelsResponse {
+                        object: "list".to_string(),
+                        data: models,
+                    };
+                    (StatusCode::OK, Json(response)).into_response()
+                }
+            }
         }
-    ];
-
-    let response = ModelsResponse {
-        object: "list".to_string(),
-        data: models,
-    };
-
-    Json(response)
+        _ => {
+            // llama.cpp not running or no model loaded
+            let error = OpenAIErrorResponse {
+                error: OpenAIError {
+                    message: "No model currently loaded. Please start a model in Arandu first.".to_string(),
+                    error_type: "no_model_loaded".to_string(),
+                    code: Some("503".to_string()),
+                },
+            };
+            (StatusCode::SERVICE_UNAVAILABLE, Json(error)).into_response()
+        }
+    }
 }
 
 async fn chat_completions(
