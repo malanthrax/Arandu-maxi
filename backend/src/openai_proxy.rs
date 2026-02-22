@@ -5,6 +5,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use axum::response::sse::{Event, Sse};
+use std::convert::Infallible;
+use futures::stream::Stream;
+use futures_util::StreamExt;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -114,15 +118,7 @@ async fn chat_completions(
     let stream = request.stream.unwrap_or(false);
     
     if stream {
-        // TODO: Handle streaming in Task 5
-        let error = json!({
-            "error": {
-                "message": "Streaming not yet implemented. Use stream: false for now.",
-                "type": "not_implemented",
-                "code": "501"
-            }
-        });
-        return (StatusCode::NOT_IMPLEMENTED, Json(error));
+        return handle_streaming_completion(state, request).await.into_response();
     }
     
     // Handle non-streaming completion
@@ -132,7 +128,7 @@ async fn chat_completions(
     match client.chat_completion(&request).await {
         Ok(response) => {
             // llama.cpp returns OpenAI-compatible format, just pass it through
-            (StatusCode::OK, Json(response))
+            (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
             let error = json!({
@@ -142,7 +138,7 @@ async fn chat_completions(
                     "code": "500"
                 }
             });
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(error))
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
         }
     }
 }
@@ -189,4 +185,55 @@ async fn image_generations(
     };
     
     (StatusCode::NOT_IMPLEMENTED, Json(error))
+}
+
+async fn handle_streaming_completion(
+    state: Arc<RwLock<ProxyState>>,
+    request: ChatCompletionRequest,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let state_guard = state.read().await;
+    let client = state_guard.llama_client.clone();
+    drop(state_guard);
+    
+    let stream = async_stream::stream! {
+        match client.chat_completion_stream(&request).await {
+            Ok(response) => {
+                let mut stream = response.bytes_stream();
+                
+                while let Some(chunk) = stream.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            // Parse SSE data from llama.cpp
+                            let text = String::from_utf8_lossy(&bytes);
+                            for line in text.lines() {
+                                if line.starts_with("data: ") {
+                                    let data = &line[6..];
+                                    if data == "[DONE]" {
+                                        yield Ok(Event::default().data("[DONE]"));
+                                    } else {
+                                        yield Ok(Event::default().data(data));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Stream error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let error = json!({
+                    "error": {
+                        "message": e,
+                        "type": "api_error"
+                    }
+                });
+                yield Ok(Event::default().data(error.to_string()));
+            }
+        }
+    };
+    
+    Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }

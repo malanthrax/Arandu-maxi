@@ -123,3 +123,27 @@ pub struct OpenAIError {
 pub struct OpenAIErrorResponse {
     pub error: OpenAIError,
 }
+
+// ============== STREAMING ==============
+
+#[derive(Debug, Serialize)]
+pub struct ChatCompletionStreamResponse {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<ChatCompletionStreamChoice>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChatCompletionStreamChoice {
+    pub index: i32,
+    pub delta: ChatMessageDelta,
+    pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct ChatMessageDelta {
+    pub role: Option<String>,
+    pub content: Option<String>,
+}
