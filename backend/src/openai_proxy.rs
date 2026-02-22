@@ -14,6 +14,7 @@ use crate::openai_types::{
     AudioSpeechRequest, ImageGenerationRequest,
     ModelInfo, ModelsResponse, OpenAIError, OpenAIErrorResponse
 };
+use crate::llama_client::LlamaClient;
 
 /// OpenAI-compatible API proxy server
 #[derive(Debug)]
@@ -42,6 +43,7 @@ impl ProxyServer {
             .route("/health", get(health_check))
             .with_state(Arc::new(RwLock::new(ProxyState {
                 llama_server_url: self.llama_server_url.clone(),
+                llama_client: LlamaClient::new(self.llama_server_url.clone()),
             })));
 
         let addr = SocketAddr::from(([0, 0, 0, 0], self.proxy_port));
@@ -77,6 +79,7 @@ impl ProxyServer {
 /// Shared state for proxy handlers
 pub struct ProxyState {
     pub llama_server_url: String,
+    pub llama_client: LlamaClient,
 }
 
 // ============== HANDLER FUNCTIONS ==============
