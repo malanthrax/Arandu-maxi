@@ -22,6 +22,7 @@ mod tracker_scraper;
 mod tracker_manager;
 mod openai_types;
 mod openai_proxy;
+mod llama_client;
 
 use config::*;
 use process::*;
@@ -2075,55 +2076,180 @@ async fn generate_weekly_report(
     manager.generate_weekly_report()
 }
 
-// Simple network configuration storage (in-memory for now)
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static NETWORK_SERVER_ACTIVE: AtomicBool = AtomicBool::new(false);
-
 #[tauri::command]
 async fn save_network_config(
     address: String,
     port: u16,
+    proxy_port: u16,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // Save to config or state
-    println!("Saving network config: {}:{}", address, port);
-    // In a real implementation, save to persistent storage
+    let mut config = state.config.lock().await;
+    config.network_server_host = address.clone();
+    config.network_server_port = port;
+    config.openai_proxy_port = proxy_port;
+    
+    drop(config);
+    
+    if let Err(e) = save_settings(&state).await {
+        return Err(format!("Failed to save config: {}", e));
+    }
+    
     Ok(())
+}
+
+#[tauri::command]
+async fn get_network_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let config = state.config.lock().await;
+    
+    Ok(serde_json::json!({
+        "address": config.network_server_host,
+        "port": config.network_server_port,
+        "proxy_port": config.openai_proxy_port,
+        "enabled": config.openai_proxy_enabled,
+    }))
+}
+
+#[tauri::command]
+async fn get_network_interfaces() -> Result<serde_json::Value, String> {
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    
+    let mut interfaces = vec![
+        serde_json::json!({
+            "address": "127.0.0.1",
+            "name": "Localhost",
+            "type": "loopback"
+        }),
+        serde_json::json!({
+            "address": "0.0.0.0",
+            "name": "All Interfaces",
+            "type": "all"
+        })
+    ];
+    
+    // Try to get local IP addresses using socket connection trick
+    match tokio::task::spawn_blocking(|| {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0");
+        if let Ok(socket) = socket {
+            // Connect to a public DNS server to determine our outbound interface
+            if socket.connect("8.8.8.8:80").is_ok() {
+                if let Ok(local_addr) = socket.local_addr() {
+                    if let Some(ip) = local_addr.ip().to_string().parse::<Ipv4Addr>().ok() {
+                        // Don't add loopback again
+                        if !ip.is_loopback() {
+                            return Some(ip.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }).await {
+        Ok(Some(ip)) => {
+            interfaces.push(serde_json::json!({
+                "address": ip,
+                "name": "Primary Network Interface",
+                "type": "primary"
+            }));
+        }
+        _ => {}
+    }
+    
+    // The primary interface detection above should catch most cases
+    // For more comprehensive interface listing, we'd need the if-addrs crate
+    
+    Ok(serde_json::json!({
+        "interfaces": interfaces
+    }))
 }
 
 #[tauri::command]
 async fn activate_network_server(
     address: String,
     port: u16,
+    state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    println!("Activating network server on {}:{}", address, port);
+    let proxy_port = {
+        let config = state.config.lock().await;
+        config.openai_proxy_port
+    };
     
-    // Set the active flag
-    NETWORK_SERVER_ACTIVE.store(true, Ordering::SeqCst);
+    let mut proxy = state.openai_proxy.lock().await;
+    if proxy.is_some() {
+        return Err("Network server already active".to_string());
+    }
     
-    // In a real implementation, this would start the actual server
-    // For now, just return success
-    Ok(serde_json::json!({
-        "success": true,
-        "address": address,
-        "port": port,
-        "message": format!("Network server activated on {}:{}", address, port)
-    }))
+    let mut new_proxy = openai_proxy::ProxyServer::new(
+        address.clone(),
+        port,
+        proxy_port,
+    );
+    
+    match new_proxy.start().await {
+        Ok(_) => {
+            *proxy = Some(new_proxy);
+            
+            let mut config = state.config.lock().await;
+            config.openai_proxy_enabled = true;
+            config.network_server_host = address.clone();
+            config.network_server_port = port;
+            drop(config);
+            let _ = save_settings(&state).await;
+            
+            Ok(serde_json::json!({
+                "success": true,
+                "address": address,
+                "port": port,
+                "proxy_port": proxy_port,
+                "message": format!("OpenAI proxy server activated on port {}", proxy_port)
+            }))
+        }
+        Err(e) => Err(format!("Failed to start proxy: {}", e)),
+    }
 }
 
 #[tauri::command]
 async fn deactivate_network_server(
+    state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    println!("Deactivating network server");
+    let mut proxy = state.openai_proxy.lock().await;
     
-    // Clear the active flag
-    NETWORK_SERVER_ACTIVE.store(false, Ordering::SeqCst);
+    if let Some(ref mut p) = *proxy {
+        p.stop().await;
+        *proxy = None;
+        
+        let mut config = state.config.lock().await;
+        config.openai_proxy_enabled = false;
+        drop(config);
+        let _ = save_settings(&state).await;
+        
+        Ok(serde_json::json!({
+            "success": true,
+            "message": "Network server deactivated"
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "success": true,
+            "message": "Network server was not active"
+        }))
+    }
+}
+
+#[tauri::command]
+async fn get_network_server_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let proxy = state.openai_proxy.lock().await;
+    let config = state.config.lock().await;
     
-    // In a real implementation, this would stop the actual server
-    // For now, just return success
     Ok(serde_json::json!({
-        "success": true,
-        "message": "Network server deactivated"
+        "active": proxy.is_some(),
+        "config": {
+            "address": config.network_server_host,
+            "port": config.network_server_port,
+            "proxy_port": config.openai_proxy_port,
+        }
     }))
 }
 
@@ -2325,8 +2451,11 @@ initial_scan_models,
             get_weekly_reports,
             generate_weekly_report,
             save_network_config,
+            get_network_config,
+            get_network_interfaces,
             activate_network_server,
-            deactivate_network_server
+            deactivate_network_server,
+            get_network_server_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
