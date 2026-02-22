@@ -107,19 +107,44 @@ async fn list_models() -> impl IntoResponse {
 }
 
 async fn chat_completions(
-    State(_state): State<Arc<RwLock<ProxyState>>>,
-    Json(_request): Json<ChatCompletionRequest>,
+    State(state): State<Arc<RwLock<ProxyState>>>,
+    Json(request): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
-    // Placeholder - will be implemented in Task 6
-    let error = OpenAIErrorResponse {
-        error: OpenAIError {
-            message: "Chat completion not yet implemented.".to_string(),
-            error_type: "not_implemented".to_string(),
-            code: Some("501".to_string()),
-        },
-    };
-
-    (StatusCode::NOT_IMPLEMENTED, Json(error))
+    // Check if streaming is requested
+    let stream = request.stream.unwrap_or(false);
+    
+    if stream {
+        // TODO: Handle streaming in Task 5
+        let error = json!({
+            "error": {
+                "message": "Streaming not yet implemented. Use stream: false for now.",
+                "type": "not_implemented",
+                "code": "501"
+            }
+        });
+        return (StatusCode::NOT_IMPLEMENTED, Json(error));
+    }
+    
+    // Handle non-streaming completion
+    let state_guard = state.read().await;
+    let client = &state_guard.llama_client;
+    
+    match client.chat_completion(&request).await {
+        Ok(response) => {
+            // llama.cpp returns OpenAI-compatible format, just pass it through
+            (StatusCode::OK, Json(response))
+        }
+        Err(e) => {
+            let error = json!({
+                "error": {
+                    "message": e,
+                    "type": "api_error",
+                    "code": "500"
+                }
+            });
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(error))
+        }
+    }
 }
 
 async fn audio_transcriptions(
