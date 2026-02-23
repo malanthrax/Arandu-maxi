@@ -26,3 +26,6 @@ dist-ssr
 \target
 src-tauri/Cargo.lock
 backend/Cargo.lock
+
+# Worktrees
+.worktrees/
