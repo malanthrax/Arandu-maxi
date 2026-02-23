@@ -3,7 +3,7 @@
 // Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{Manager, Listener, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
+use tauri::{Manager, Listener, Emitter, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
 use tokio::sync::Mutex;
 use std::sync::Arc;
 
@@ -23,6 +23,9 @@ mod tracker_manager;
 mod openai_types;
 mod openai_proxy;
 mod llama_client;
+mod chat_models;
+mod chat_manager;
+mod parameter_controller;
 
 use config::*;
 use process::*;
@@ -30,12 +33,14 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, ProcessStatus, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
 use tracker_scraper::TrackerScraper;
 use tracker_manager::TrackerManager;
+use chat_models::{ChatSession, ChatMessage, ChatSummary, ChatParameters, MessageRole};
+use chat_manager::ChatManager;
 
 // Import ProcessHandle from process module
 use process::ProcessHandle;
@@ -2253,6 +2258,139 @@ async fn get_network_server_status(
     }))
 }
 
+// ==================== Chat Management Commands ====================
+
+#[tauri::command]
+async fn create_chat(
+    model_path: String,
+    model_name: String,
+) -> Result<ChatSession, String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.create_chat(model_path, model_name).await
+}
+
+#[tauri::command]
+async fn load_chat(
+    chat_id: String,
+) -> Result<ChatSession, String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.load_chat(chat_id).await
+}
+
+#[tauri::command]
+async fn list_chats(model_path: Option<String>) -> Result<Vec<ChatSummary>, String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.list_chats(model_path).await
+}
+
+#[tauri::command]
+async fn send_message(
+    chat_id: String,
+    content: String,
+    stream: bool,
+    state: tauri::State<'_, AppState>,
+    window: tauri::Window,
+) -> Result<ChatMessage, String> {
+    let chat_manager = ChatManager::new()?;
+    
+    // Load the chat session to get the model_path
+    let session = chat_manager.load_chat(chat_id.clone()).await?;
+    let model_path = session.model_path.clone();
+    
+    // Find the running process for this model
+    let running_processes = state.running_processes.lock().await;
+    let process_info = running_processes.values()
+        .find(|p| p.model_path == model_path && matches!(p.status, ProcessStatus::Running))
+        .cloned();
+    drop(running_processes);
+    
+    let process_info = process_info.ok_or_else(|| {
+        "No running server found for this model. Please start the model first.".to_string()
+    })?;
+    
+    // Build server URL
+    let server_url = format!("http://{}:{}", process_info.host, process_info.port);
+    
+    if stream {
+        // Streaming mode - send message and emit events
+        let chat_manager_clone = ChatManager::new()?;
+        let chat_id_clone = chat_id.clone();
+        let window_clone = window.clone();
+        
+        // Start the LLM request in a spawned task for streaming
+        tokio::spawn(async move {
+            match chat_manager_clone.send_message_to_llm(chat_id_clone.clone(), content, server_url).await {
+                Ok(response) => {
+                    // Emit the complete response as a stream event
+                    let _ = window_clone.emit(
+                        &format!("chat-stream-{}", chat_id_clone),
+                        serde_json::json!({
+                            "chunk": response,
+                            "done": true,
+                            "full_content": response
+                        })
+                    );
+                }
+                Err(e) => {
+                    let _ = window_clone.emit(
+                        &format!("chat-stream-{}", chat_id_clone),
+                        serde_json::json!({
+                            "error": e,
+                            "done": true
+                        })
+                    );
+                }
+            }
+        });
+        
+        // Return a placeholder message - actual content will come via stream
+        let placeholder_message = ChatMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: MessageRole::Assistant,
+            content: "".to_string(),
+            created_at: chrono::Utc::now(),
+            metadata: None,
+        };
+        
+        Ok(placeholder_message)
+    } else {
+        // Non-streaming mode - send message and return response directly
+        let _assistant_content = chat_manager.send_message_to_llm(chat_id.clone(), content, server_url).await?;
+        
+        // Load the updated session to get the last message
+        let updated_session = chat_manager.load_chat(chat_id).await?;
+        let assistant_message = updated_session.messages.last()
+            .ok_or_else(|| "No messages found after sending".to_string())?;
+        
+        Ok(assistant_message.clone())
+    }
+}
+
+#[tauri::command]
+async fn update_chat_parameters(
+    chat_id: String,
+    parameters: ChatParameters,
+) -> Result<(), String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.update_chat_parameters(chat_id, parameters).await
+}
+
+#[tauri::command]
+async fn delete_chat(
+    chat_id: String,
+) -> Result<(), String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.delete_chat(chat_id).await
+}
+
+#[tauri::command]
+async fn generate_chat_title(
+    chat_id: String,
+) -> Result<String, String> {
+    let chat_manager = ChatManager::new()?;
+    chat_manager.generate_chat_title(chat_id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize logging
@@ -2455,7 +2593,14 @@ initial_scan_models,
             get_network_interfaces,
             activate_network_server,
             deactivate_network_server,
-            get_network_server_status
+            get_network_server_status,
+            create_chat,
+            load_chat,
+            list_chats,
+            send_message,
+            update_chat_parameters,
+            delete_chat,
+            generate_chat_title
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

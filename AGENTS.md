@@ -513,6 +513,25 @@ cargo tauri build
 
 ## Known Issues
 
+### Active (Not Fixed)
+
+- **🛑 Chat Tab Not Loading - REGRESSION (2025-02-23)**
+  - **Status:** CRITICAL - REGRESSION FROM FIX ATTEMPT
+  - **Issue:** Custom Chat tab no longer loads/renders after CSS layout fix attempt
+  - **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
+  - **Symptoms:** Tab exists but clicking it shows nothing or breaks the interface
+  - **Cause:** CSS changes to `.chat-app-wrapper` and `.chat-app-container` broke rendering
+  - **Next Steps:** REVERT CSS changes, then apply fixes one at a time with testing
+  - **See:** THIS-PROJECTS-CURRENT-STATE.md for full details and what to revert
+
+- **⚠️ Chat Input Layout Incorrect (2025-02-23)**
+  - **Status:** NOT FIXED - Superseded by regression above
+  - **Issue:** Chat input area sits too high and does not show 4 visible lines of text
+  - **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
+  - **Symptoms:** Input is not pinned to the bottom; message history visibility is reduced
+  - **Root Cause:** Missing wrapper CSS, broken height chain, media query override
+  - **Note:** Fix attempt caused regression - needs careful re-approach
+
 ### Resolved
 
 - ~~**HF Search Model ID Display (2025-02-20)**~~ - **FIXED in commit `fe05539`**
@@ -605,9 +624,9 @@ Browse and track trending AI models from HuggingFace directly in the app.
 
 ### Quick Overview
 
-**Last Build:** 2025-02-21 - ✅ SUCCESS (Release + Installer)  
+**Last Build:** 2025-02-22 - ✅ SUCCESS (Release + Installer)  
 **Version:** 0.5.5-beta  
-**Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+**Location:** `H:\Ardanu Fix\Arandu-maxi\.worktrees\modern-chat-interface\backend\target\release\Arandu.exe`
 
 ### ✅ Working Features
 - AI Model Tracker with hybrid search (local + live HF)
@@ -617,6 +636,16 @@ Browse and track trending AI models from HuggingFace directly in the app.
 - GGUF Update Checker with visual indicators
 - Multiple model directories support
 - Quantization color bars on icons
+
+### ⚠️ Active Bugs
+- **🛑 Chat Tab Not Loading - REGRESSION (2025-02-23)**
+  - Custom Chat tab no longer renders after CSS fix attempt
+  - CRITICAL - blocks all chat functionality
+  - See Known Issues section for details
+- **Chat Input Layout Incorrect (2025-02-23)**
+  - Input area sits too high
+  - Less than 4 visible lines of text
+  - Fix attempt caused regression above
 
 ---
 

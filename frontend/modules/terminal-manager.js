@@ -57,6 +57,9 @@ class TerminalManager {
                     <div class="server-tab-panel" id="panel-chat-${windowId}" style="background: white;">
                         <iframe src="http://${host}:${port}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
                     </div>
+                    <div class="server-tab-panel" id="panel-custom-${windowId}">
+                        <div id="chat-app-${windowId}" class="chat-app-wrapper"></div>
+                    </div>
                 </div>
             </div>
         `;
@@ -77,6 +80,9 @@ class TerminalManager {
                         </div>
                         <div class="server-tab" id="tab-chat-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'chat')" title="Native Chat" style="opacity: 0.5; pointer-events: none;">
                             <span class="material-icons">chat</span>
+                        </div>
+                        <div class="server-tab" id="tab-custom-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'custom')" title="Custom Chat" style="opacity: 0.5; pointer-events: none;">
+                            <span class="material-icons">smart_toy</span>
                         </div>
                     </div>
                 `;
@@ -188,6 +194,11 @@ class TerminalManager {
             // Now maximize
             this.desktop.maximizeWindow(windowId);
         }, 50);
+        
+        // Initialize custom chat app after window is created and visible
+        setTimeout(() => {
+            this.initializeChatApp(windowId, processId, modelPath, modelName);
+        }, 100);
         
         return window;
     }
@@ -463,6 +474,22 @@ class TerminalManager {
                 }
             }
         }
+
+        // Update custom chat tab state based on server status
+        // Note: Custom tab is enabled when ChatApp initialization is complete
+        // and the server is running
+        if (status !== 'running') {
+            const customTab = document.getElementById(`tab-custom-${windowId}`);
+            if (customTab && !customTab.dataset.initialized) {
+                customTab.style.opacity = '0.5';
+                customTab.style.pointerEvents = 'none';
+            }
+            
+            // If we are currently on the custom tab and server stops, switch to terminal
+            if (customTab?.classList.contains('active')) {
+                this.switchTab(windowId, 'terminal');
+            }
+        }
     }
 
     async stopServer(processId, windowId, modelPath, modelName) {
@@ -677,14 +704,22 @@ class TerminalManager {
     switchTab(windowId, tabName) {
         const terminalTab = document.getElementById(`tab-terminal-${windowId}`);
         const chatTab = document.getElementById(`tab-chat-${windowId}`);
+        const customTab = document.getElementById(`tab-custom-${windowId}`);
         const terminalPanel = document.getElementById(`panel-terminal-${windowId}`);
         const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+        const customPanel = document.getElementById(`panel-custom-${windowId}`);
+
+        // Remove active class from all tabs and panels
+        terminalTab?.classList.remove('active');
+        chatTab?.classList.remove('active');
+        customTab?.classList.remove('active');
+        terminalPanel?.classList.remove('active');
+        chatPanel?.classList.remove('active');
+        customPanel?.classList.remove('active');
 
         if (tabName === 'terminal') {
             terminalTab?.classList.add('active');
-            chatTab?.classList.remove('active');
             terminalPanel?.classList.add('active');
-            chatPanel?.classList.remove('active');
 
             // Fix: Scroll to bottom when switching back to terminal
             const outputDiv = document.getElementById(`server-output-${windowId}`);
@@ -694,11 +729,52 @@ class TerminalManager {
                     outputDiv.scrollTop = outputDiv.scrollHeight;
                 }, 50);
             }
-        } else {
-            terminalTab?.classList.remove('active');
+        } else if (tabName === 'chat') {
             chatTab?.classList.add('active');
-            terminalPanel?.classList.remove('active');
             chatPanel?.classList.add('active');
+        } else if (tabName === 'custom') {
+            customTab?.classList.add('active');
+            customPanel?.classList.add('active');
+            
+            // Trigger a resize event to ensure chat app layout is correct
+            window.dispatchEvent(new Event('resize'));
+        }
+    }
+
+    initializeChatApp(windowId, processId, modelPath, modelName) {
+        console.log('Initializing chat app for window:', windowId);
+        
+        try {
+            // Check if ChatApp class is available
+            if (typeof ChatApp === 'undefined') {
+                console.error('ChatApp class not available. Make sure chat-app.js is loaded.');
+                return;
+            }
+            
+            const chatApp = new ChatApp(this, processId, modelPath, modelName);
+            this.chatApps = this.chatApps || new Map();
+            this.chatApps.set(windowId, chatApp);
+            
+            chatApp.init().then(() => {
+                const container = document.getElementById(`chat-app-${windowId}`);
+                if (container) {
+                    container.innerHTML = chatApp.render();
+                    chatApp.attachEventListeners();
+                    
+                    // Enable the custom chat tab
+                    const customTab = document.getElementById(`tab-custom-${windowId}`);
+                    if (customTab) {
+                        customTab.style.opacity = '1';
+                        customTab.style.pointerEvents = 'auto';
+                    }
+                    
+                    console.log('Chat app initialized successfully for window:', windowId);
+                }
+            }).catch(error => {
+                console.error('Failed to initialize chat app:', error);
+            });
+        } catch (error) {
+            console.error('Error creating ChatApp:', error);
         }
     }
 
@@ -864,6 +940,20 @@ class TerminalManager {
             }
         }
         this.terminals.delete(windowId);
+        
+        // Clean up chat app if exists
+        if (this.chatApps?.has(windowId)) {
+            const chatApp = this.chatApps.get(windowId);
+            if (chatApp && typeof chatApp.destroy === 'function') {
+                try {
+                    chatApp.destroy();
+                    console.log(`Chat app cleaned up for window: ${windowId}`);
+                } catch (error) {
+                    console.error(`Error destroying chat app for window ${windowId}:`, error);
+                }
+            }
+            this.chatApps.delete(windowId);
+        }
     }
 
     // Method to open URL in default browser
