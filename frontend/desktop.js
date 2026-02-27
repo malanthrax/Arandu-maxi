@@ -4012,6 +4012,7 @@ this.showProperties(this.selectedIcon);
             const modelPath = model && model.path ? model.path : '';
             const modelQuantization = model && model.quantization ? model.quantization : '';
             const modelSizeGb = Number(model && model.size_gb) || 0;
+            const modelSizeLabel = `${modelSizeGb.toFixed(2)} GB`;
             iconElement.className = 'desktop-icon';
             iconElement.setAttribute('data-path', modelPath);
             iconElement.setAttribute('data-name', modelName);
@@ -4051,9 +4052,8 @@ this.showProperties(this.selectedIcon);
                 iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
                     <div class="icon-info">
-                        <div class="icon-label">${modelName} GGUF</div>
+                        <div class="icon-label">${modelName} GGUF (${modelSizeLabel})</div>
                         <div class="model-path" title="${modelPath}">${modelPath}</div>
-                        <div class="model-size">${modelSizeGb.toFixed(2)} GB</div>
                     </div>
                     <div class="model-quant">${modelQuantization}</div>
                     <div class="update-indicator ${indicatorClass}"
@@ -4073,7 +4073,7 @@ this.showProperties(this.selectedIcon);
                             ${indicatorContent}
                         </div>
                     </div>
-                    <div class="icon-label">${modelName} GGUF</div>
+                    <div class="icon-label">${modelName} GGUF (${modelSizeLabel})</div>
                 `;
             }
 
