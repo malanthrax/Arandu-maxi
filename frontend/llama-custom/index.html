@@ -1618,6 +1618,9 @@
                     ? await requestChatLogs('search', { term: searchTerm })
                     : await requestChatLogs('list');
                 renderChatHistoryList();
+                if (!searchTerm && !activeChatId && Array.isArray(chatSessions) && chatSessions.length > 0) {
+                    await loadChatById(chatSessions[0].chat_id);
+                }
             } catch (error) {
                 console.error('[ChatUI] Failed to refresh chat list:', error);
             }

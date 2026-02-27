@@ -117,7 +117,7 @@ class TerminalManager {
 
             if (op === 'append') {
                 const result = await invoke('append_chat_log_message', {
-                    chatId: payload.chatId,
+                    chat_id: payload.chatId,
                     role: payload.role,
                     content: payload.content,
                     model: modelLabel
@@ -127,14 +127,14 @@ class TerminalManager {
             }
 
             if (op === 'load') {
-                const result = await invoke('get_chat_log', { chatId: payload.chatId });
+                const result = await invoke('get_chat_log', { chat_id: payload.chatId });
                 send({ ok: true, result });
                 return;
             }
 
             if (op === 'rename') {
                 const result = await invoke('rename_chat_log', {
-                    chatId: payload.chatId,
+                    chat_id: payload.chatId,
                     title: payload.title
                 });
                 send({ ok: true, result });
