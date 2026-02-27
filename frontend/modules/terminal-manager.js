@@ -696,7 +696,7 @@ const content = `
                         <div class="server-output" id="server-output-${windowId}"><div class="server-line server-system">Starting ${modelName}...</div><div class="server-line server-system">Process ID: ${processId}</div><div class="server-line server-system">Server will be available at: ${host}:${port}</span></div><div class="server-line server-system">Waiting for server output...</div></div>
                     </div>
                     <div class="server-tab-panel" id="panel-chat-${windowId}" style="background: white;">
-                        <iframe src="http://${host}:${port}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
+                        <iframe src="http://${host}:${port}/?arandu_chat_ui_v=${Date.now()}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
                     </div>
                 </div>
             </div>
