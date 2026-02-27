@@ -428,9 +428,9 @@ body.has-maximized-window #dock-trigger {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
-	max-height: 120px;
+	max-height: 300px;
 	overflow-y: auto;
-	padding-right: 2px;
+	padding-right: 4px;
 }
 
 .mcp-empty {
@@ -709,6 +709,25 @@ body.has-maximized-window #dock-trigger {
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
+	max-height: 420px;
+	overflow-y: auto;
+	padding-right: 4px;
+}
+
+.mcp-list::-webkit-scrollbar,
+.mcp-form::-webkit-scrollbar {
+	width: 8px;
+}
+
+.mcp-list::-webkit-scrollbar-thumb,
+.mcp-form::-webkit-scrollbar-thumb {
+	background: rgba(148, 163, 184, 0.45);
+	border-radius: 999px;
+}
+
+.mcp-list::-webkit-scrollbar-thumb:hover,
+.mcp-form::-webkit-scrollbar-thumb:hover {
+	background: rgba(148, 163, 184, 0.7);
 }
 
 .network-config-textarea {

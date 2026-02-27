@@ -2557,10 +2557,10 @@ this.showProperties(this.selectedIcon);
             return;
         }
 
-        windowEl.style.width = '900px';
-        windowEl.style.height = '760px';
+        windowEl.style.width = '1120px';
+        windowEl.style.height = '860px';
         windowEl.style.maxWidth = '95vw';
-        windowEl.style.maxHeight = '90vh';
+        windowEl.style.maxHeight = '94vh';
 
         const scope = windowEl.querySelector('.window-content');
         this.setMcpManagerScope(scope);
