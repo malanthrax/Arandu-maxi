@@ -28,13 +28,99 @@
         .chat-container {
             flex: 1;
             display: flex;
-            flex-direction: column;
-            max-width: 1000px;
+            flex-direction: row;
+            max-width: 1320px;
             margin: 0 auto;
             width: 100%;
             padding: 20px;
             position: relative;
             min-height: 0; /* Important for flex child scrolling */
+            gap: 12px;
+        }
+
+        .chat-history-sidebar {
+            width: 320px;
+            min-width: 260px;
+            max-width: 420px;
+            resize: horizontal;
+            overflow: hidden;
+            background: #232323;
+            border: 1px solid #3a3a3a;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-history-header {
+            padding: 10px;
+            border-bottom: 1px solid #3a3a3a;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .chat-history-search {
+            flex: 1;
+            background: #1d1d1d;
+            border: 1px solid #444;
+            border-radius: 8px;
+            color: #ddd;
+            padding: 8px;
+            font-size: 12px;
+        }
+
+        .chat-new-btn {
+            background: #388e3c;
+            border: none;
+            color: #fff;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .chat-history-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .chat-history-item {
+            background: #2f2f2f;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 8px;
+            cursor: pointer;
+        }
+
+        .chat-history-item.active {
+            border-color: #4caf50;
+            background: #2d3a2d;
+        }
+
+        .chat-history-title {
+            font-size: 12px;
+            color: #f0f0f0;
+            font-weight: 600;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .chat-history-meta {
+            font-size: 11px;
+            color: #9a9a9a;
+        }
+
+        .chat-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .chat-messages {
@@ -1019,14 +1105,23 @@
 
     <!-- Chat Container -->
     <div class="chat-container">
-        <div class="chat-messages" id="chatMessages">
-            <div class="message system">
-                <div class="message-label">System</div>
-                <div>Welcome! Configure parameters in the top-right panel, then type your message below. You can now attach images, PDFs, and Word docs.</div>
+        <aside class="chat-history-sidebar">
+            <div class="chat-history-header">
+                <input id="chatHistorySearch" class="chat-history-search" type="text" placeholder="Search chats...">
+                <button id="newChatButton" class="chat-new-btn" type="button">New</button>
             </div>
-        </div>
-        
-        <div class="input-area-wrapper">
+            <div id="chatHistoryList" class="chat-history-list"></div>
+        </aside>
+
+        <div class="chat-main">
+            <div class="chat-messages" id="chatMessages">
+                <div class="message system">
+                    <div class="message-label">System</div>
+                    <div>Welcome! Configure parameters in the top-right panel, then type your message below. You can now attach images, PDFs, and Word docs.</div>
+                </div>
+            </div>
+            
+            <div class="input-area-wrapper">
             <!-- Feature 2: Attachment Preview -->
             <div class="attachment-preview-area" id="attachmentPreview" style="display: none;"></div>
             
@@ -1045,6 +1140,7 @@
                 <textarea class="chat-input" id="chatInput" placeholder="Type your message here... (Enter to send, Shift+Enter for newline)" rows="1" aria-label="Chat input"></textarea>
                 
                 <button class="send-button" id="sendButton" onclick="sendMessage()">Send</button>
+            </div>
             </div>
         </div>
     </div>
@@ -1115,6 +1211,11 @@
         let currentRunningDraftModel = ''; // Track current draft model from running server
         let currentModelPath = ''; // Track current model for chat history key
         let launchConfigBaseline = null; // Snapshot of last-synced launch config
+        let activeChatId = '';
+        let chatSessions = [];
+        let autoTitleDone = false;
+        let chatReqCounter = 0;
+        const pendingChatRequests = new Map();
 
         const launchRestartArgDefaults = {
             launch_ctx_size: defaultParams.launch_ctx_size,
@@ -1472,36 +1573,147 @@
             return args.trim();
         }
 
-        // --- Chat History Persistence ---
-        function getChatStorageKey() {
-            return 'arandu_chat_history_' + (currentModelPath ? currentModelPath.replace(/[\\/]/g, '_') : 'default');
+        // --- Chat History Persistence (Markdown files via parent/backend) ---
+        function requestChatLogs(op, payload = {}) {
+            return new Promise((resolve, reject) => {
+                chatReqCounter += 1;
+                const requestId = `chatreq_${Date.now()}_${chatReqCounter}`;
+                pendingChatRequests.set(requestId, { resolve, reject });
+                window.parent.postMessage({
+                    type: 'chat-logs-request',
+                    request_id: requestId,
+                    op,
+                    payload
+                }, '*');
+
+                setTimeout(() => {
+                    if (pendingChatRequests.has(requestId)) {
+                        pendingChatRequests.delete(requestId);
+                        reject(new Error('Chat logs request timed out'));
+                    }
+                }, 15000);
+            });
         }
 
-        function saveChatHistory() {
+        function parseChatMarkdown(markdown) {
+            const sections = String(markdown || '').split(/\n## /g);
+            const messages = [];
+            for (let i = 0; i < sections.length; i++) {
+                const section = i === 0 ? sections[i] : `## ${sections[i]}`;
+                if (!section.startsWith('## ')) continue;
+                const lines = section.split('\n');
+                const header = lines[0].replace(/^##\s+/, '').trim();
+                const parts = header.split('|').map((p) => p.trim());
+                const role = (parts[0] || '').toLowerCase();
+                if (!['user', 'assistant', 'system'].includes(role)) continue;
+                const content = lines.slice(2).join('\n').trim();
+                messages.push({ role, content });
+            }
+            return messages;
+        }
+
+        async function refreshChatHistoryList(searchTerm = '') {
             try {
-                localStorage.setItem(getChatStorageKey(), JSON.stringify(messageHistory));
-                console.log('[ChatUI] Chat history saved:', messageHistory.length, 'messages');
-            } catch (e) {
-                console.error('[ChatUI] Failed to save chat history:', e);
+                chatSessions = searchTerm
+                    ? await requestChatLogs('search', { term: searchTerm })
+                    : await requestChatLogs('list');
+                renderChatHistoryList();
+            } catch (error) {
+                console.error('[ChatUI] Failed to refresh chat list:', error);
             }
         }
 
-        function loadChatHistory(modelPath) {
-            currentModelPath = modelPath || '';
+        function renderChatHistoryList() {
+            const list = document.getElementById('chatHistoryList');
+            if (!list) return;
+            if (!Array.isArray(chatSessions) || chatSessions.length === 0) {
+                list.innerHTML = '<div class="chat-history-meta">No saved chats yet.</div>';
+                return;
+            }
+
+            list.innerHTML = chatSessions.map((session) => {
+                const id = session.chat_id || '';
+                const title = session.title || 'Untitled Chat';
+                const lastUsed = session.last_used_at ? new Date(session.last_used_at).toLocaleString() : 'Unknown';
+                const count = session.message_count || 0;
+                const activeClass = id === activeChatId ? 'active' : '';
+                return `
+                    <div class="chat-history-item ${activeClass}" data-chat-id="${id}">
+                        <div class="chat-history-title">${title}</div>
+                        <div class="chat-history-meta">${count} msgs · ${lastUsed}</div>
+                    </div>
+                `;
+            }).join('');
+
+            list.querySelectorAll('.chat-history-item').forEach((item) => {
+                item.addEventListener('click', async () => {
+                    const chatId = item.getAttribute('data-chat-id');
+                    await loadChatById(chatId);
+                });
+            });
+        }
+
+        async function startNewChat() {
             try {
-                const saved = localStorage.getItem(getChatStorageKey());
-                if (saved) {
-                    messageHistory = JSON.parse(saved);
-                    console.log('[ChatUI] Chat history loaded:', messageHistory.length, 'messages');
-                    // Restore messages to UI
-                    restoreChatToUI();
-                } else {
-                    messageHistory = [];
-                    console.log('[ChatUI] No saved chat history found');
-                }
-            } catch (e) {
-                console.error('[ChatUI] Failed to load chat history:', e);
+                const created = await requestChatLogs('create');
+                activeChatId = created.chat_id;
                 messageHistory = [];
+                autoTitleDone = false;
+                restoreChatToUI();
+                await refreshChatHistoryList();
+            } catch (error) {
+                console.error('[ChatUI] Failed to create chat:', error);
+            }
+        }
+
+        async function loadChatById(chatId) {
+            if (!chatId) return;
+            try {
+                const result = await requestChatLogs('load', { chatId });
+                activeChatId = chatId;
+                messageHistory = parseChatMarkdown(result.markdown);
+                autoTitleDone = !!(result.entry && result.entry.title && !String(result.entry.title).startsWith('Chat '));
+                restoreChatToUI();
+                renderChatHistoryList();
+            } catch (error) {
+                console.error('[ChatUI] Failed to load chat:', error);
+            }
+        }
+
+        async function maybeAutoGenerateTitle() {
+            if (!activeChatId || autoTitleDone) return;
+            const turns = messageHistory.filter((m) => m.role === 'user' || m.role === 'assistant').length;
+            if (turns < 6) return;
+
+            try {
+                const context = messageHistory
+                    .slice(-8)
+                    .map((m) => `${m.role}: ${m.content}`)
+                    .join('\n\n')
+                    .slice(0, 2500);
+                const resp = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: '',
+                        stream: false,
+                        max_tokens: 20,
+                        temperature: 0.2,
+                        messages: [
+                            { role: 'system', content: 'Generate a short chat title (max 8 words). Return title only.' },
+                            { role: 'user', content: context }
+                        ]
+                    })
+                });
+                const data = await resp.json();
+                const title = data?.choices?.[0]?.message?.content?.trim();
+                if (title) {
+                    await requestChatLogs('rename', { chatId: activeChatId, title });
+                    autoTitleDone = true;
+                    await refreshChatHistoryList();
+                }
+            } catch (error) {
+                console.warn('[ChatUI] Auto-title failed:', error);
             }
         }
 
@@ -1701,6 +1913,18 @@
                 }
                 renderCompatibleModels(data.models, data.currentArch);
             }
+
+            if (data && data.type === 'chat-logs-response' && data.request_id) {
+                const pending = pendingChatRequests.get(data.request_id);
+                if (pending) {
+                    pendingChatRequests.delete(data.request_id);
+                    if (data.ok) {
+                        pending.resolve(data.result);
+                    } else {
+                        pending.reject(new Error(data.error || 'Unknown chat logs error'));
+                    }
+                }
+            }
             
             if (data && data.type === 'current-config') {
                 console.log('[ChatUI] Received current config:', data);
@@ -1717,7 +1941,7 @@
                     if (modelMatch || modelMatch2) {
                         const modelPath = modelMatch ? modelMatch[1] : modelMatch2[1];
                         console.log('[ChatUI] Current model path:', modelPath);
-                        loadChatHistory(modelPath);
+                        currentModelPath = modelPath;
                     }
 
                     applyLaunchArgsToParams(data.launchArgs);
@@ -2039,12 +2263,6 @@ function applySpeculativeFix() {
         // Clear Conversation History (Context)
         function clearContext() {
             messageHistory = [];
-            // Clear saved history
-            try {
-                localStorage.removeItem(getChatStorageKey());
-            } catch (e) {
-                console.error('[ChatUI] Failed to clear saved chat history:', e);
-            }
             const messagesDiv = document.getElementById('chatMessages');
             messagesDiv.innerHTML = `
                 <div class="message system">
@@ -2088,6 +2306,10 @@ function applySpeculativeFix() {
 
             if (!messageText && currentAttachments.length === 0) return;
 
+            if (!activeChatId) {
+                await startNewChat();
+            }
+
             // Feature 1: Reset Abort Controller
             abortController = new AbortController();
             document.getElementById('stopButton').style.display = 'flex';
@@ -2107,7 +2329,17 @@ function applySpeculativeFix() {
             images.forEach(img => userContent.push({ type: 'image_url', image_url: { url: img } }));
 
             messageHistory.push({ role: 'user', content: messageText || "Uploaded files" });
-            saveChatHistory();
+            if (activeChatId) {
+                try {
+                    await requestChatLogs('append', {
+                        chatId: activeChatId,
+                        role: 'user',
+                        content: messageText || 'Uploaded files'
+                    });
+                } catch (error) {
+                    console.warn('[ChatUI] Failed to persist user message:', error);
+                }
+            }
             addMessage('user', messageText || "Sent attachments");
             
             // Clear attachments UI
@@ -2308,6 +2540,19 @@ function applySpeculativeFix() {
                 assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
 
                 messageHistory.push({ role: 'assistant', content: fullText });
+                if (activeChatId) {
+                    try {
+                        await requestChatLogs('append', {
+                            chatId: activeChatId,
+                            role: 'assistant',
+                            content: fullText
+                        });
+                    } catch (error) {
+                        console.warn('[ChatUI] Failed to persist assistant message:', error);
+                    }
+                }
+                await maybeAutoGenerateTitle();
+                await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -2321,10 +2566,6 @@ function applySpeculativeFix() {
                 document.getElementById('sendButton').disabled = false;
                 input.disabled = false;
                 input.focus();
-                // Save chat history after response complete
-                if (messageHistory.length > 0) {
-                    saveChatHistory();
-                }
             }
         }
 
@@ -2346,6 +2587,22 @@ function applySpeculativeFix() {
         document.addEventListener('DOMContentLoaded', () => {
             setupParameterListeners();
             updateParameterDisplay();
+
+            const searchInput = document.getElementById('chatHistorySearch');
+            if (searchInput) {
+                searchInput.addEventListener('input', () => {
+                    refreshChatHistoryList(searchInput.value || '');
+                });
+            }
+
+            const newBtn = document.getElementById('newChatButton');
+            if (newBtn) {
+                newBtn.addEventListener('click', async () => {
+                    await startNewChat();
+                });
+            }
+
+            refreshChatHistoryList();
             
             // Set initial state for floating toggle
             const panel = document.getElementById('parameterPanel');

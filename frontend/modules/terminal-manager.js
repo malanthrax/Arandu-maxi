@@ -39,6 +39,8 @@ class TerminalManager {
             } else if (event.data && event.data.type === 'request-current-config') {
                 console.log('[TerminalManager] Current config requested from chat UI');
                 await this.handleCurrentConfigRequest(event.source);
+            } else if (event.data && event.data.type === 'chat-logs-request') {
+                await this.handleChatLogsRequest(event.data, event.source);
             }
         });
 
@@ -51,6 +53,97 @@ class TerminalManager {
             }
         } catch (error) {
             console.error('Failed to initialize Tauri API:', error);
+        }
+    }
+
+    getTerminalInfoBySourceWindow(sourceWindow) {
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (!chatPanel) continue;
+            const iframe = chatPanel.querySelector('iframe');
+            if (iframe && iframe.contentWindow === sourceWindow) {
+                return info;
+            }
+        }
+
+        const activeWindow = document.querySelector('.window.active[id^="server_"]');
+        if (activeWindow) {
+            return this.terminals.get(activeWindow.id) || null;
+        }
+        return null;
+    }
+
+    async handleChatLogsRequest(data, sourceWindow) {
+        const invoke = this.getInvoke();
+        const requestId = data && data.request_id ? data.request_id : null;
+        const op = data && data.op ? data.op : '';
+        const payload = (data && data.payload) || {};
+        const terminalInfo = this.getTerminalInfoBySourceWindow(sourceWindow);
+        const modelLabel = terminalInfo
+            ? `${terminalInfo.modelName || 'Unknown Model'} (${terminalInfo.modelPath || 'unknown path'})`
+            : 'Unknown Model';
+
+        const send = (body) => {
+            sourceWindow.postMessage({
+                type: 'chat-logs-response',
+                request_id: requestId,
+                ...body
+            }, '*');
+        };
+
+        if (!invoke) {
+            send({ ok: false, error: 'Invoke not available' });
+            return;
+        }
+
+        try {
+            if (op === 'list') {
+                const result = await invoke('list_chat_logs');
+                send({ ok: true, result });
+                return;
+            }
+
+            if (op === 'search') {
+                const result = await invoke('search_chat_logs', { term: payload.term || '' });
+                send({ ok: true, result });
+                return;
+            }
+
+            if (op === 'create') {
+                const result = await invoke('create_chat_log', { model: modelLabel });
+                send({ ok: true, result });
+                return;
+            }
+
+            if (op === 'append') {
+                const result = await invoke('append_chat_log_message', {
+                    chatId: payload.chatId,
+                    role: payload.role,
+                    content: payload.content,
+                    model: modelLabel
+                });
+                send({ ok: true, result });
+                return;
+            }
+
+            if (op === 'load') {
+                const result = await invoke('get_chat_log', { chatId: payload.chatId });
+                send({ ok: true, result });
+                return;
+            }
+
+            if (op === 'rename') {
+                const result = await invoke('rename_chat_log', {
+                    chatId: payload.chatId,
+                    title: payload.title
+                });
+                send({ ok: true, result });
+                return;
+            }
+
+            send({ ok: false, error: `Unsupported chat logs operation: ${op}` });
+        } catch (error) {
+            send({ ok: false, error: error && error.message ? error.message : String(error) });
         }
     }
 

@@ -3,6 +3,7 @@
 // Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::fs;
 use chrono::Utc;
 use tauri::{Manager, Listener, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
 
@@ -44,6 +45,232 @@ use tracker_manager::TrackerManager;
 
 // Import ProcessHandle from process module
 use process::ProcessHandle;
+
+fn arandu_base_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Unable to resolve home directory".to_string())?;
+    Ok(home.join(".Arandu"))
+}
+
+fn chats_dir() -> Result<PathBuf, String> {
+    let dir = arandu_base_dir()?.join("chats");
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("Failed to create chats directory: {}", e))?;
+    }
+    Ok(dir)
+}
+
+fn chats_index_path() -> Result<PathBuf, String> {
+    Ok(chats_dir()?.join("index.json"))
+}
+
+fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
+    let index_path = chats_index_path()?;
+    if !index_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(&index_path)
+        .map_err(|e| format!("Failed to read chats index: {}", e))?;
+
+    serde_json::from_str::<Vec<serde_json::Value>>(&content)
+        .map_err(|e| format!("Failed to parse chats index: {}", e))
+}
+
+fn write_chats_index(index: &[serde_json::Value]) -> Result<(), String> {
+    let index_path = chats_index_path()?;
+    let content = serde_json::to_string_pretty(index)
+        .map_err(|e| format!("Failed to serialize chats index: {}", e))?;
+    fs::write(&index_path, content)
+        .map_err(|e| format!("Failed to write chats index: {}", e))
+}
+
+fn chat_markdown_path(chat_id: &str) -> Result<PathBuf, String> {
+    Ok(chats_dir()?.join(format!("{}.md", chat_id)))
+}
+
+fn sanitize_chat_title(raw: &str) -> String {
+    let cleaned = raw
+        .replace(['\n', '\r'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if cleaned.is_empty() {
+        "Untitled Chat".to_string()
+    } else if cleaned.len() > 80 {
+        cleaned.chars().take(80).collect::<String>()
+    } else {
+        cleaned
+    }
+}
+
+#[tauri::command]
+async fn list_chat_logs() -> Result<Vec<serde_json::Value>, String> {
+    let mut index = read_chats_index()?;
+    index.sort_by(|a, b| {
+        let a_ts = a.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+        let b_ts = b.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+        b_ts.cmp(a_ts)
+    });
+    Ok(index)
+}
+
+#[tauri::command]
+async fn create_chat_log(model: String) -> Result<serde_json::Value, String> {
+    let now = Utc::now().to_rfc3339();
+    let chat_id = format!("chat-{}", Utc::now().timestamp_millis());
+    let title = format!("Chat {}", Utc::now().format("%Y-%m-%d %H:%M"));
+    let model_label = model.trim();
+
+    let mut index = read_chats_index()?;
+    let entry = serde_json::json!({
+        "chat_id": chat_id,
+        "title": title,
+        "created_at": now,
+        "last_used_at": now,
+        "last_model": model_label,
+        "models_used": if model_label.is_empty() { Vec::<String>::new() } else { vec![model_label.to_string()] },
+        "message_count": 0
+    });
+
+    let chat_path = chat_markdown_path(entry.get("chat_id").and_then(|v| v.as_str()).unwrap_or(""))?;
+    let md = format!(
+        "---\nchat_id: {}\ntitle: {}\ncreated_at: {}\nlast_used_at: {}\nmodels_used: {}\n---\n\n",
+        entry["chat_id"].as_str().unwrap_or(""),
+        entry["title"].as_str().unwrap_or("Untitled Chat"),
+        entry["created_at"].as_str().unwrap_or(""),
+        entry["last_used_at"].as_str().unwrap_or(""),
+        entry["models_used"].as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
+            .unwrap_or_default()
+    );
+    fs::write(&chat_path, md).map_err(|e| format!("Failed to create chat file: {}", e))?;
+
+    index.push(entry.clone());
+    write_chats_index(&index)?;
+    Ok(entry)
+}
+
+#[tauri::command]
+async fn append_chat_log_message(chat_id: String, role: String, content: String, model: String) -> Result<serde_json::Value, String> {
+    let role_norm = role.trim().to_lowercase();
+    if role_norm != "user" && role_norm != "assistant" && role_norm != "system" {
+        return Err("Invalid chat role".to_string());
+    }
+
+    let now = Utc::now().to_rfc3339();
+    let mut index = read_chats_index()?;
+    let idx = index
+        .iter()
+        .position(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+        .ok_or_else(|| "Chat not found".to_string())?;
+
+    let path = chat_markdown_path(&chat_id)?;
+    if !path.exists() {
+        return Err("Chat markdown file not found".to_string());
+    }
+
+    let model_label = model.trim();
+    let section = format!(
+        "## {} | {} | {}\n\n{}\n\n",
+        role_norm.to_uppercase(),
+        now,
+        if model_label.is_empty() { "unknown" } else { model_label },
+        content
+    );
+
+    let mut existing = fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
+    existing.push_str(&section);
+    fs::write(&path, existing).map_err(|e| format!("Failed to append chat file: {}", e))?;
+
+    let message_count = index[idx].get("message_count").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
+    index[idx]["message_count"] = serde_json::json!(message_count);
+    index[idx]["last_used_at"] = serde_json::json!(now);
+    if !model_label.is_empty() {
+        index[idx]["last_model"] = serde_json::json!(model_label);
+        let mut models = index[idx]
+            .get("models_used")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if !models.iter().any(|v| v.as_str() == Some(model_label)) {
+            models.push(serde_json::json!(model_label));
+            index[idx]["models_used"] = serde_json::Value::Array(models);
+        }
+    }
+
+    write_chats_index(&index)?;
+    Ok(index[idx].clone())
+}
+
+#[tauri::command]
+async fn rename_chat_log(chat_id: String, title: String) -> Result<serde_json::Value, String> {
+    let mut index = read_chats_index()?;
+    let idx = index
+        .iter()
+        .position(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+        .ok_or_else(|| "Chat not found".to_string())?;
+
+    let cleaned = sanitize_chat_title(&title);
+    index[idx]["title"] = serde_json::json!(cleaned);
+    index[idx]["last_used_at"] = serde_json::json!(Utc::now().to_rfc3339());
+    write_chats_index(&index)?;
+    Ok(index[idx].clone())
+}
+
+#[tauri::command]
+async fn get_chat_log(chat_id: String) -> Result<serde_json::Value, String> {
+    let index = read_chats_index()?;
+    let entry = index
+        .iter()
+        .find(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+        .cloned()
+        .ok_or_else(|| "Chat not found".to_string())?;
+
+    let path = chat_markdown_path(&chat_id)?;
+    let markdown = fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
+
+    Ok(serde_json::json!({
+        "entry": entry,
+        "markdown": markdown
+    }))
+}
+
+#[tauri::command]
+async fn search_chat_logs(term: String) -> Result<Vec<serde_json::Value>, String> {
+    let needle = term.trim().to_lowercase();
+    if needle.is_empty() {
+        return list_chat_logs().await;
+    }
+
+    let index = read_chats_index()?;
+    let mut matches = Vec::new();
+
+    for item in index {
+        let chat_id = item.get("chat_id").and_then(|v| v.as_str()).unwrap_or("");
+        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        let mut is_match = title.to_lowercase().contains(&needle);
+        if !is_match && !chat_id.is_empty() {
+            if let Ok(path) = chat_markdown_path(chat_id) {
+                if let Ok(md) = fs::read_to_string(path) {
+                    if md.to_lowercase().contains(&needle) {
+                        is_match = true;
+                    }
+                }
+            }
+        }
+
+        if is_match {
+            matches.push(item);
+        }
+    }
+
+    matches.sort_by(|a, b| {
+        let a_ts = a.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+        let b_ts = b.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+        b_ts.cmp(a_ts)
+    });
+    Ok(matches)
+}
 
 /// Detect backend type from asset name
 fn detect_backend_type(asset_name: &str) -> String {
@@ -3341,6 +3568,12 @@ get_weekly_reports,
             test_mcp_connection,
             list_mcp_tools,
             correct_mcp_json_with_active_model,
+            list_chat_logs,
+            create_chat_log,
+            append_chat_log_message,
+            rename_chat_log,
+            get_chat_log,
+            search_chat_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
