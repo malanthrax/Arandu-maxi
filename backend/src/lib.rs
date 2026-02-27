@@ -2495,6 +2495,19 @@ fn resolve_mcp_url(connection: &McpServerConfig) -> Option<String> {
         }
     }
 
+    if let Some(mcp_servers) = payload.get("mcpServers").and_then(|v| v.as_object()) {
+        for server in mcp_servers.values() {
+            for key in ["url", "endpoint"] {
+                if let Some(value) = server.get(key).and_then(|v| v.as_str()) {
+                    let trimmed = value.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 
