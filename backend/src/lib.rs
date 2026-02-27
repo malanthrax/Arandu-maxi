@@ -72,8 +72,34 @@ fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
     let content = fs::read_to_string(&index_path)
         .map_err(|e| format!("Failed to read chats index: {}", e))?;
 
-    serde_json::from_str::<Vec<serde_json::Value>>(&content)
-        .map_err(|e| format!("Failed to parse chats index: {}", e))
+    let parsed: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse chats index: {}", e))?;
+
+    if let Some(arr) = parsed.as_array() {
+        return Ok(arr.clone());
+    }
+
+    if let Some(obj) = parsed.as_object() {
+        if let Some(entries) = obj.get("entries").and_then(|v| v.as_array()) {
+            return Ok(entries.clone());
+        }
+
+        // Backward compatibility: map keyed by chat_id
+        let mut values: Vec<serde_json::Value> = obj
+            .values()
+            .filter(|v| v.is_object())
+            .cloned()
+            .collect();
+
+        values.sort_by(|a, b| {
+            let a_ts = a.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+            let b_ts = b.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
+            b_ts.cmp(a_ts)
+        });
+        return Ok(values);
+    }
+
+    Err("Failed to parse chats index: unsupported JSON format".to_string())
 }
 
 fn write_chats_index(index: &[serde_json::Value]) -> Result<(), String> {
