@@ -2463,6 +2463,41 @@ fn mcp_test_payload(connection: &McpServerConfig) -> Result<serde_json::Value, S
         .map_err(|_| "JSON payload must be valid JSON".to_string())
 }
 
+fn resolve_mcp_url(connection: &McpServerConfig) -> Option<String> {
+    let direct = connection.url.trim();
+    if !direct.is_empty() {
+        return Some(direct.to_string());
+    }
+
+    if connection.transport != McpTransport::Json {
+        return None;
+    }
+
+    let payload = serde_json::from_str::<serde_json::Value>(connection.json_payload.trim()).ok()?;
+
+    for key in ["url", "endpoint", "serverUrl", "server_url"] {
+        if let Some(value) = payload.get(key).and_then(|v| v.as_str()) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    if let Some(server_obj) = payload.get("server") {
+        for key in ["url", "endpoint"] {
+            if let Some(value) = server_obj.get(key).and_then(|v| v.as_str()) {
+                let trimmed = value.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn parse_mcp_tools_from_response(response: &serde_json::Value) -> Result<Vec<McpToolInfo>, String> {
     if let Some(error) = response.get("error") {
         let details = if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
@@ -2733,11 +2768,12 @@ async fn list_mcp_tools(
         });
     }
 
-    if connection.url.trim().is_empty() {
+    let resolved_url = resolve_mcp_url(&connection);
+    if resolved_url.is_none() {
         return Ok(McpToolsResult {
             success: false,
             latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "URL is required for tool discovery".to_string(),
+            message: "URL is required for tool discovery. For JSON transport, include a URL in the URL field or inside JSON payload (url/endpoint).".to_string(),
             tool_count: 0,
             tools: Vec::new(),
             status_code: None,
@@ -2745,7 +2781,7 @@ async fn list_mcp_tools(
         });
     }
 
-    let url = connection.url.trim().to_string();
+    let url = resolved_url.unwrap_or_default();
     let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
 
     let result = run_mcp_tool_discovery(connection.transport.clone(), url, timeout_duration).await;
@@ -2883,18 +2919,19 @@ async fn test_mcp_connection(
             }
         }
         _ => {
-        if connection.url.trim().is_empty() {
+        let resolved_url = resolve_mcp_url(&connection);
+        if resolved_url.is_none() {
             return Ok(McpTestResult {
                 success: false,
                 latency_ms: start_time.elapsed().as_millis() as i64,
-                message: "URL is required for transport validation. Set a URL to test this JSON MCP connection.".to_string(),
+                message: "URL is required for transport validation. For JSON transport, include a URL in the URL field or inside JSON payload (url/endpoint).".to_string(),
                 status_code: None,
                 exit_code: None,
                 error: Some("missing_url".to_string()),
             });
         }
 
-        let url = connection.url.trim().to_string();
+        let url = resolved_url.unwrap_or_default();
         let client = reqwest::Client::new();
         let transport = connection.transport.clone();
             let init_payload = match mcp_test_payload(&connection) {

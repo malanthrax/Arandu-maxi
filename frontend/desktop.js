@@ -5579,7 +5579,7 @@ vramFill.style.background = getBarColor(0);
 
         const isStdio = transportSelect.value === 'stdio';
         const isJson = transportSelect.value === 'json';
-        urlField.style.display = isStdio ? 'none' : 'flex';
+        urlField.style.display = (isStdio || isJson) ? 'none' : 'flex';
         commandField.style.display = isStdio ? 'flex' : 'none';
         jsonField.style.display = isJson ? 'flex' : 'none';
     }
