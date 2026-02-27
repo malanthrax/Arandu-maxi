@@ -18,6 +18,9 @@ class DesktopManager {
         this.restorationInProgress = false; // Flag to prevent duplicate restoration
         this.updateCheckCache = new Map(); // Cache for update check results
         this.updateComparisonData = null; // Store comparison context for HF search
+        this.mcpConnections = [];
+        this.editingMcpConnectionId = null;
+        this.mcpManagerScope = null;
 
         this.init();
     }
@@ -32,6 +35,7 @@ class DesktopManager {
         
         // Initialize network serving widget
         this.initNetworkWidget();
+        this.initMcpManager();
 
         // Wait for DOM to be fully loaded before showing content
         if (document.readyState === 'loading') {
@@ -238,10 +242,51 @@ class DesktopManager {
         // Load models and populate desktop
         await this.loadModels();
 
+        // Initialize view toggle
+        this.initViewToggle();
+
         // Update custom arguments indicators
         setTimeout(() => {
             this.updateCustomArgsIndicators();
         }, 500);
+    }
+
+    initViewToggle() {
+        const iconBtn = document.getElementById('view-icon-btn');
+        const listBtn = document.getElementById('view-list-btn');
+
+        if (iconBtn && listBtn) {
+            iconBtn.addEventListener('click', () => {
+                this.setDesktopView('icon');
+            });
+            listBtn.addEventListener('click', () => {
+                this.setDesktopView('list');
+            });
+
+            // Load saved preference
+            const savedView = localStorage.getItem('desktop-model-view') || 'icon';
+            this.setDesktopView(savedView);
+        }
+    }
+
+    setDesktopView(view) {
+        const desktopIcons = document.getElementById('desktop-icons');
+        const iconBtn = document.getElementById('view-icon-btn');
+        const listBtn = document.getElementById('view-list-btn');
+
+        if (!desktopIcons) return;
+
+        if (view === 'list') {
+            desktopIcons.classList.add('list-view');
+            if (iconBtn) iconBtn.classList.remove('active');
+            if (listBtn) listBtn.classList.add('active');
+        } else {
+            desktopIcons.classList.remove('list-view');
+            if (iconBtn) iconBtn.classList.add('active');
+            if (listBtn) listBtn.classList.remove('active');
+        }
+
+        localStorage.setItem('desktop-model-view', view);
     }
 
     async loadConfiguration() {
@@ -644,6 +689,8 @@ class DesktopManager {
                     } else if (action === 'launch-preset' && this.selectedIcon) {
                         const presetId = e.target.closest('[data-preset-id]')?.dataset.presetId;
                         await this.launchModelWithPreset(this.selectedIcon, presetId);
+                    } else if (action === 'launch-half-context' && this.selectedIcon) {
+                        await this.launchModelWithHalfContext(this.selectedIcon);
                     } else if (action === 'launch-external' && this.selectedIcon) {
                         if (!hasSubmenu || isSubmenuItem) {
                             // Check if we have exactly one preset and should use it
@@ -723,6 +770,14 @@ this.showProperties(this.selectedIcon);
                         this.showNotification('Error opening HuggingFace app', 'error');
                     });
                 }
+            });
+        }
+
+        const mcpDockIcon = document.getElementById('mcp-dock-icon');
+        if (mcpDockIcon) {
+            mcpDockIcon.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.openMcpConfigPanel();
             });
         }
 
@@ -1036,6 +1091,12 @@ this.showProperties(this.selectedIcon);
                     ${hasMultiplePresets ? '<span class="material-icons submenu-arrow">chevron_right</span>' : ''}
                 </div>
                 ${presetsHTML}
+                <div class="context-menu-item" data-action="launch-half-context">
+                    <div class="menu-item-content">
+                        <span class="material-icons">swap_horiz</span>
+                        <span>Load with half context</span>
+                    </div>
+                </div>
                 <div class="context-menu-item ${hasMultiplePresets ? 'has-submenu' : ''}" data-action="launch-external">
                     <div class="menu-item-content">
                         <span class="material-icons">computer</span>
@@ -1462,6 +1523,9 @@ this.showProperties(this.selectedIcon);
         switch (action) {
             case 'settings':
                 this.toggleSettingsPanel();
+                break;
+            case 'mcp':
+                this.openMcpConfigPanel();
                 break;
             case 'huggingface':
                 if (huggingFaceApp) {
@@ -2238,6 +2302,271 @@ this.showProperties(this.selectedIcon);
         }
 
         console.log('=== Launch Model Completed ===');
+    }
+
+    async launchModelWithHalfContext(icon) {
+        const modelPath = icon.dataset.path;
+        const modelName = icon.dataset.name;
+
+        const buildHalfContextArgs = (baseArgs) => {
+            const normalized = String(baseArgs || '').trim();
+            const tokens = normalized
+                .split(/\s+/)
+                .map((token) => token.trim())
+                .filter((token) => token.length > 0);
+
+            const alreadyHasContextShift = tokens.some((token) => token === '--context-shift');
+
+            return alreadyHasContextShift
+                ? normalized
+                : normalized
+                    ? `${normalized} --context-shift`
+                    : '--context-shift';
+        };
+
+        let launchArgs = '--context-shift';
+
+        try {
+            const currentConfig = await invoke('get_model_settings', { modelPath: modelPath });
+            launchArgs = buildHalfContextArgs(currentConfig && currentConfig.custom_args ? currentConfig.custom_args : '');
+        } catch (error) {
+            console.error('Failed to load model settings for half-context launch:', error);
+            launchArgs = '--context-shift';
+        }
+
+        const terminalManagerReady = await this.ensureTerminalManager();
+        if (!terminalManagerReady || !terminalManager) {
+            this.showNotification('Terminal system not ready. Please try again in a moment.', 'error');
+            return;
+        }
+
+        const existingTerminal = terminalManager.getExistingTerminal ? terminalManager.getExistingTerminal(modelPath) : null;
+        if (existingTerminal) {
+            const [windowId] = existingTerminal;
+            const window = this.windows.get(windowId);
+            if (window) {
+                window.style.display = 'block';
+                window.style.zIndex = ++this.windowZIndex;
+                const taskbarItem = document.getElementById(`taskbar-${windowId}`);
+                if (taskbarItem) taskbarItem.classList.add('active');
+                this.showNotification(`${modelName} terminal already open`, 'info');
+                return;
+            }
+        }
+
+        try {
+            const result = await invoke('launch_model_with_half_context', { modelPath: modelPath });
+
+            if (result.success) {
+                const config = await invoke('get_config');
+                let activeVersion = 'N/A';
+                if (config.active_executable_folder) {
+                    // Extract version and backend from path like "versions/b7779/cuda" or "versions/b7779-cuda"
+                    const pathParts = config.active_executable_folder.replace(/\\/g, '/').split('/');
+                    if (pathParts.length >= 2) {
+                        const versionPart = pathParts[pathParts.length - 2];
+                        const backendPart = pathParts[pathParts.length - 1];
+
+                        // Check if it's nested structure (version/backend) or flat (version-backend)
+                        if (versionPart === 'versions') {
+                            activeVersion = backendPart;
+                        } else {
+                            activeVersion = `${versionPart}-${backendPart}`;
+                        }
+                    }
+                } else if (config.active_executable_version) {
+                    activeVersion = config.active_executable_version;
+                }
+
+                const terminal = await terminalManager.openServerTerminal(
+                    result.process_id,
+                    result.model_name,
+                    result.server_host,
+                    result.server_port,
+                    modelPath,
+                    activeVersion,
+                    launchArgs
+                );
+
+                if (!terminal) {
+                    console.error('Failed to create terminal window');
+                    this.showNotification(`Failed to create terminal window for ${modelName}`, 'error');
+                }
+            } else {
+                throw new Error(result.error || result.message || 'Launch failed with unknown error');
+            }
+        } catch (error) {
+            console.error('=== Launch Model With Half Context Error ===');
+            console.error('Error details:', error);
+
+            const errorMessage = error.message || (typeof error === 'string' ? error : 'An unknown error occurred');
+
+            if (errorMessage.includes('No such file or directory') || errorMessage.includes('failed to find') || errorMessage.includes('Server executable not found')) {
+                this.showNotification(`Launch failed: No llama.cpp executable found.`, 'error');
+
+                if (llamacppReleasesManager) {
+                    llamacppReleasesManager.showLlamaCppManager();
+                    const installedTabButton = document.querySelector('.llamacpp-top-tabs .top-tab[data-top-tab="installed"]');
+                    if (installedTabButton) {
+                        llamacppReleasesManager.switchTopTab(installedTabButton, 'installed');
+                    }
+                }
+            } else {
+                this.showNotification(`Failed to launch ${modelName} with half context: ${errorMessage}`, 'error');
+            }
+        }
+    }
+
+    setMcpManagerScope(scope) {
+        this.mcpManagerScope = (scope && typeof scope.querySelector === 'function') ? scope : null;
+    }
+
+    getMcpManagerScope() {
+        return this.mcpManagerScope || document;
+    }
+
+    getMcpElement(id, scope = this.getMcpManagerScope()) {
+        if (!scope || typeof scope.querySelector !== 'function') {
+            return null;
+        }
+
+        return scope.querySelector(`#${id}`);
+    }
+
+    async openMcpConfigPanel() {
+        const windowId = 'mcp-manager-window';
+        const existingWindow = this.windows.get(windowId);
+
+        if (existingWindow) {
+            existingWindow.style.display = 'block';
+            existingWindow.style.zIndex = ++this.windowZIndex;
+            this.updateDockFocusedState(windowId);
+            this.setMcpManagerScope(existingWindow.querySelector('.window-content'));
+            await this.loadMcpConnections();
+            this.showNotification('MCP management window opened', 'info');
+            return;
+        }
+
+        const windowEl = this.createWindow(
+            windowId,
+            'MCP Manager',
+            'mcp-manager-window',
+            `
+                <div class="mcp-manager-shell">
+                    <div class="mcp-section" id="mcp-section">
+                        <div class="mcp-header">
+                            <span class="mcp-title">MCP Connections</span>
+                            <button class="network-action-btn mini-btn" id="mcp-refresh-btn" type="button">
+                                <span class="material-icons">refresh</span>
+                                Refresh
+                            </button>
+                        </div>
+
+                        <div class="mcp-list" id="mcp-connections-list">
+                            <div class="mcp-empty">No MCP servers yet. Add one below.</div>
+                        </div>
+
+                        <div class="mcp-form-title">Add or edit connection</div>
+
+                        <div class="mcp-form">
+                            <input type="hidden" id="mcp-edit-id" value="">
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Name</div>
+                                <input type="text" class="network-config-input" id="mcp-name" placeholder="My MCP Server">
+                            </div>
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Transport</div>
+                                <select class="network-config-input" id="mcp-transport">
+                                    <option value="stdio">Stdio</option>
+                                    <option value="sse">SSE</option>
+                                    <option value="http">HTTP</option>
+                                    <option value="json">JSON</option>
+                                    <option value="streamable_http">Streamable HTTP</option>
+                                </select>
+                            </div>
+
+                            <div class="network-config-section mcp-transport-field" id="mcp-url-field">
+                                <div class="network-config-label">URL</div>
+                                <input type="text" class="network-config-input" id="mcp-url" placeholder="https://host:port/mcp">
+                            </div>
+
+                            <div class="network-config-section mcp-transport-field" id="mcp-command-field">
+                                <div class="network-config-label">Command</div>
+                                <input type="text" class="network-config-input" id="mcp-command" placeholder="uvx, node, python, etc.">
+                            </div>
+
+                            <div class="network-config-section mcp-transport-field" id="mcp-json-field">
+                                <div class="network-config-label">JSON Payload</div>
+                                <textarea class="network-config-input mcp-json-textarea" id="mcp-json-payload" rows="4" placeholder='{"path":"...","env":{}}'></textarea>
+                                <div style="margin-top: 8px;">
+                                    <button class="network-action-btn activate-btn" id="mcp-correct-json-btn" type="button">
+                                        <span class="material-icons">auto_fix_high</span>
+                                        Correct with current AI
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Connection Arguments</div>
+                                <div class="mcp-pair-list" id="mcp-args-list"></div>
+                                <button class="network-action-btn activate-btn" id="mcp-add-arg-btn" type="button">Add Argument</button>
+                            </div>
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Environment Variables</div>
+                                <div class="mcp-pair-list" id="mcp-env-vars-list"></div>
+                                <button class="network-action-btn activate-btn" id="mcp-add-env-btn" type="button">Add Variable</button>
+                            </div>
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Headers</div>
+                                <div class="mcp-pair-list" id="mcp-headers-list"></div>
+                                <button class="network-action-btn activate-btn" id="mcp-add-header-btn" type="button">Add Header</button>
+                            </div>
+
+                            <div class="network-config-section">
+                                <div class="network-config-label">Timeout (seconds)</div>
+                                <input type="number" class="network-config-input" id="mcp-timeout" value="10" min="1" max="3600">
+                            </div>
+
+                            <div class="network-config-section" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                                <input type="checkbox" id="mcp-enabled" checked>
+                                <span>Enable this connection by default</span>
+                            </div>
+
+                            <div class="network-actions">
+                                <button class="network-action-btn activate-btn" id="mcp-save-btn" type="button">
+                                    <span class="material-icons">save</span>
+                                    Save
+                                </button>
+                                <button class="network-action-btn deactivate-btn" id="mcp-reset-btn" type="button">
+                                    <span class="material-icons">restart_alt</span>
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `
+        );
+
+        if (!windowEl) {
+            this.showNotification('Failed to open MCP manager', 'error');
+            return;
+        }
+
+        windowEl.style.width = '900px';
+        windowEl.style.height = '760px';
+        windowEl.style.maxWidth = '95vw';
+        windowEl.style.maxHeight = '90vh';
+
+        const scope = windowEl.querySelector('.window-content');
+        this.setMcpManagerScope(scope);
+        this.initMcpManager(scope);
+        await this.loadMcpConnections();
+        this.showNotification('MCP management window opened', 'info');
     }
 
     async launchModelExternal(icon) {
@@ -3221,31 +3550,13 @@ this.showProperties(this.selectedIcon);
     }
 
     closeWindow(id) {
-        if (id === 'chat-application') {
-            if (typeof chatApp !== 'undefined' && chatApp) {
-                chatApp.hide();
-            }
-            const taskbarItem = document.getElementById(`taskbar-${id}`);
-            if (taskbarItem) {
-                taskbarItem.remove();
-            }
-            return;
-        }
         const window = this.windows.get(id);
         if (window) {
-            // If this is a server terminal, stop the server first and disconnect related chats
+            // If this is a server terminal, stop the server first
             const terminalInfo = terminalManager ? terminalManager.getTerminalData(id) : null;
             if (terminalInfo && (terminalInfo.status === 'running' || terminalInfo.status === 'starting') && terminalManager) {
                 // Stop the server
                 terminalManager.stopServer(terminalInfo.processId, id, terminalInfo.modelPath, terminalInfo.modelName);
-
-                // Disconnect any chat sessions connected to this server
-                if (typeof chatApp !== 'undefined' && chatApp && terminalInfo.host && terminalInfo.port) {
-                    chatApp.disconnectChatsForServer(terminalInfo.host, terminalInfo.port);
-                } else if (window.chatApp && terminalInfo.host && terminalInfo.port) {
-                    // Fallback to window.chatApp if global chatApp is not available
-                    window.chatApp.disconnectChatsForServer(terminalInfo.host, terminalInfo.port);
-                }
             }
 
             window.remove();
@@ -3285,24 +3596,20 @@ this.showProperties(this.selectedIcon);
     }
 
     minimizeWindow(id) {
-        if (id === 'chat-application') {
-            chatApp.hide();
-        } else {
-            const window = this.windows.get(id);
-            const taskbarItem = document.getElementById(`taskbar-${id}`);
+        const window = this.windows.get(id);
+        const taskbarItem = document.getElementById(`taskbar-${id}`);
 
-            if (window) {
-                // Store current dimensions before minimizing
-                const rect = window.getBoundingClientRect();
-                window.dataset.savedWidth = rect.width.toString();
-                window.dataset.savedHeight = rect.height.toString();
+        if (window) {
+            // Store current dimensions before minimizing
+            const rect = window.getBoundingClientRect();
+            window.dataset.savedWidth = rect.width.toString();
+            window.dataset.savedHeight = rect.height.toString();
 
-                window.style.display = 'none';
-                if (taskbarItem) {
-                    taskbarItem.classList.remove('active');
-                }
-                this.updateDockAutoHidingStatus();
+            window.style.display = 'none';
+            if (taskbarItem) {
+                taskbarItem.classList.remove('active');
             }
+            this.updateDockAutoHidingStatus();
         }
     }
 
@@ -3327,6 +3634,9 @@ this.showProperties(this.selectedIcon);
         } else if (focusedWindowId === 'download-history-window') {
             const downloadsDockIcon = document.getElementById('downloads-dock-icon');
             if (downloadsDockIcon) downloadsDockIcon.classList.add('focused');
+        } else if (focusedWindowId === 'mcp-manager-window') {
+            const mcpDockIcon = document.getElementById('mcp-dock-icon');
+            if (mcpDockIcon) mcpDockIcon.classList.add('focused');
         } else {
             // For other windows, find the corresponding taskbar item
             const taskbarItem = document.getElementById(`taskbar-${focusedWindowId}`);
@@ -3470,12 +3780,9 @@ this.showProperties(this.selectedIcon);
         // Add title attribute for hover tooltip showing full name
         item.title = name;
 
-        // Add click handler to focus/minimize window
+// Add click handler to focus/minimize window
         item.addEventListener('click', () => {
-            if (id === 'chat-application') {
-                chatApp.toggle();
-            } else {
-                const window = this.windows.get(id);
+            const window = this.windows.get(id);
                 if (window) {
                     if (window.style.display === 'none' || window.classList.contains('hidden')) {
                         // Restore window
@@ -3511,7 +3818,6 @@ this.showProperties(this.selectedIcon);
                         this.minimizeWindow(id);
                     }
                 }
-            }
         });
 
         item.classList.add('active');
@@ -3685,32 +3991,44 @@ this.showProperties(this.selectedIcon);
         const desktopIcons = document.getElementById('desktop-icons');
         if (!desktopIcons) return;
 
+        const safeModels = Array.isArray(models) ? models : [];
+
         // Clear existing icons
         desktopIcons.innerHTML = '';
+
+        // Sort models by size (largest first)
+        const sortedModels = [...safeModels].sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
+
+        // Check current view mode
+        const isListView = desktopIcons.classList.contains('list-view');
 
         // Fetch model configs to get update status
         const modelConfigs = await this.fetchModelConfigs();
 
         // Create new icons from models data
-        models.forEach((model, index) => {
+        sortedModels.forEach((model) => {
             const iconElement = document.createElement('div');
+            const modelName = (model && model.name ? model.name : '').replace('.gguf', '');
+            const modelPath = model && model.path ? model.path : '';
+            const modelQuantization = model && model.quantization ? model.quantization : '';
+            const modelSizeGb = Number(model && model.size_gb) || 0;
             iconElement.className = 'desktop-icon';
-            iconElement.setAttribute('data-path', model.path);
-            iconElement.setAttribute('data-name', model.name);
-            iconElement.setAttribute('data-size', model.size_gb);
-            iconElement.setAttribute('data-architecture', model.architecture);
-            iconElement.setAttribute('data-quantization', model.quantization);
-            iconElement.setAttribute('data-date', model.date);
+            iconElement.setAttribute('data-path', modelPath);
+            iconElement.setAttribute('data-name', modelName);
+            iconElement.setAttribute('data-size', modelSizeGb);
+            iconElement.setAttribute('data-architecture', model && model.architecture ? model.architecture : '');
+            iconElement.setAttribute('data-quantization', modelQuantization);
+            iconElement.setAttribute('data-date', model && model.date ? model.date : '');
 
             // Extract bit level from quantization for color coding
-            const quantColorClass = this.getQuantizationColorClass(model.quantization);
+            const quantColorClass = this.getQuantizationColorClass(modelQuantization);
 
             // Get update indicator status from config
-            const config = modelConfigs[model.path] || {};
+            const config = modelConfigs[modelPath] || {};
             let indicatorClass = 'not-linked';
             let indicatorContent = '?';
             let indicatorTitle = 'Click to check for updates on HuggingFace';
-            
+
             if (config.hf_model_id) {
                 if (config.update_available) {
                     indicatorClass = 'red';
@@ -3727,40 +4045,59 @@ this.showProperties(this.selectedIcon);
                 }
             }
 
-            iconElement.innerHTML = `
-                <div class="icon-image">
-                    <img src="./assets/gguf.png" class="model-icon">
-                    <div class="architecture-label">${model.architecture.substring(0, 7)}</div>
+            // Render differently based on view mode
+            if (isListView) {
+                // List view - vertical scrolling list (file manager style)
+                iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
-                    <div class="update-indicator ${indicatorClass}" 
-                         title="${indicatorTitle}">
+                    <div class="icon-info">
+                        <div class="icon-label">${modelName} GGUF</div>
+                        <div class="model-path" title="${modelPath}">${modelPath}</div>
+                        <div class="model-size">${modelSizeGb.toFixed(2)} GB</div>
+                    </div>
+                    <div class="model-quant">${modelQuantization}</div>
+                    <div class="update-indicator ${indicatorClass}"
+                         title="${indicatorTitle}" style="flex-shrink: 0; margin-left: 12px;">
                         ${indicatorContent}
                     </div>
-                </div>
-                <div class="icon-label">${model.name.replace('.gguf', '')}</div>
-            `;
+                `;
+            } else {
+                // Icon view - original grid layout
+                iconElement.innerHTML = `
+                    <div class="icon-image">
+                        <img src="./assets/gguf.png" class="model-icon">
+                        <div class="architecture-label">${(model && model.architecture ? model.architecture : '').substring(0, 7)}</div>
+                        <div class="quantization-bar ${quantColorClass}"></div>
+                        <div class="update-indicator ${indicatorClass}"
+                             title="${indicatorTitle}">
+                            ${indicatorContent}
+                        </div>
+                    </div>
+                    <div class="icon-label">${modelName} GGUF</div>
+                `;
+            }
 
             // Add click handler to the update indicator
             const updateIndicator = iconElement.querySelector('.update-indicator');
             if (updateIndicator) {
                 updateIndicator.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    console.log('Update indicator clicked for:', model.path);
+                    console.log('Update indicator clicked for:', modelPath);
                     
                     // Get the model config to check if linked
                     const modelConfigs = await this.fetchModelConfigs();
-                    const config = modelConfigs[model.path] || {};
+                    const config = modelConfigs[modelPath] || {};
                     const hfModelId = config.hf_model_id;
                     
                     // Build the model ID to show
                     let displayModelId = hfModelId;
                     if (!displayModelId) {
                         // Try to extract from path
-                        const parts = model.path.split(/[\\/]/);
+                        const parts = modelPath.split(/[\\/]/);
                         if (parts.length >= 3) {
                             displayModelId = `${parts[parts.length - 3]}/${parts[parts.length - 2]}`;
                         } else {
-                            displayModelId = model.name.replace('.gguf', '');
+                            displayModelId = modelName || modelPath.split(/[\\/]/).pop() || 'model';
                         }
                     }
                     
@@ -4494,14 +4831,7 @@ this.showProperties(this.selectedIcon);
                 }
             }
 
-            // Sync chats through chat app
-            if (window.chatApp && window.chatApp.chats) {
-                for (const [windowId, chatData] of window.chatApp.chats) {
-                    await window.chatApp.saveChatState(windowId, chatData);
-                }
-            }
-
-        } catch (error) {
+} catch (error) {
             console.error('Error syncing session state:', error);
         }
     }
@@ -4654,10 +4984,7 @@ this.showProperties(this.selectedIcon);
                 terminalManager.removeTerminal(windowId);
             }
 
-            if (window.chatApp && window.chatApp.chats && window.chatApp.chats.has(windowId)) {
-                await window.chatApp.removeChatFromSession(windowId);
-            }
-        } catch (error) {
+} catch (error) {
             console.error('Error removing window from session:', error);
         }
     }
@@ -4872,20 +5199,24 @@ vramFill.style.background = getBarColor(0);
     async loadNetworkInterfaces() {
         const addressSelect = document.getElementById('network-address-input');
         const loadingDiv = document.getElementById('network-interfaces-loading');
-        
+        const lanIpDiv = document.getElementById('current-lan-ip');
+
         if (!addressSelect) return;
-        
+
         try {
             if (loadingDiv) loadingDiv.style.display = 'block';
-            
+
             const result = await invoke('get_network_interfaces');
-            
+
             if (result.interfaces && result.interfaces.length > 0) {
                 // Clear existing options except the first two (127.0.0.1 and 0.0.0.0)
                 while (addressSelect.options.length > 2) {
                     addressSelect.remove(2);
                 }
-                
+
+                // Find primary interface for display
+                let primaryIp = null;
+
                 // Add discovered interfaces
                 result.interfaces.forEach(iface => {
                     if (iface.type === 'primary' && iface.address !== '127.0.0.1') {
@@ -4893,11 +5224,26 @@ vramFill.style.background = getBarColor(0);
                         option.value = iface.address;
                         option.textContent = `${iface.address} (${iface.name})`;
                         addressSelect.appendChild(option);
+                        primaryIp = iface.address;
                     }
                 });
+
+                // Update LAN IP display
+                if (lanIpDiv && primaryIp) {
+                    const proxyPort = this.networkProxyPort || 8081;
+                    lanIpDiv.innerHTML = `
+                        <strong>Your LAN IP:</strong> ${primaryIp}<br>
+                        <span style="color: #888;">Clients connect to: http://${primaryIp}:${proxyPort}/v1</span>
+                    `;
+                } else if (lanIpDiv) {
+                    lanIpDiv.innerHTML = '<span style="color: #888;">Connect via: http://&lt;your-pc-ip&gt;:8081/v1</span>';
+                }
             }
         } catch (error) {
             console.error('Error loading network interfaces:', error);
+            if (lanIpDiv) {
+                lanIpDiv.innerHTML = '<span style="color: #888;">Using 0.0.0.0 (accessible from any IP)</span>';
+            }
         } finally {
             if (loadingDiv) loadingDiv.style.display = 'none';
         }
@@ -5111,7 +5457,7 @@ vramFill.style.background = getBarColor(0);
     async deactivateNetworkServer() {
         try {
             const result = await invoke('deactivate_network_server');
-            
+
             if (result.success) {
                 this.updateNetworkUIInactive();
                 this.showNotification(result.message, 'info');
@@ -5123,7 +5469,927 @@ vramFill.style.background = getBarColor(0);
             this.showNotification(`Failed to deactivate: ${error.message}`, 'error');
         }
     }
-    
+
+    initMcpManager(scope = document) {
+        this.setMcpManagerScope(scope);
+        const root = this.getMcpManagerScope();
+
+        const refreshBtn = this.getMcpElement('mcp-refresh-btn', root);
+        const saveBtn = this.getMcpElement('mcp-save-btn', root);
+        const resetBtn = this.getMcpElement('mcp-reset-btn', root);
+        const transportSelect = this.getMcpElement('mcp-transport', root);
+        const addArgBtn = this.getMcpElement('mcp-add-arg-btn', root);
+        const addEnvBtn = this.getMcpElement('mcp-add-env-btn', root);
+        const addHeaderBtn = this.getMcpElement('mcp-add-header-btn', root);
+        const correctJsonBtn = this.getMcpElement('mcp-correct-json-btn', root);
+
+        if (!refreshBtn || !saveBtn || !resetBtn || !transportSelect || !addArgBtn || !addEnvBtn || !addHeaderBtn || !correctJsonBtn) {
+            return;
+        }
+
+        this.refreshMcpTransportInputs();
+        this.populateMcpForm();
+        this.loadMcpConnections();
+
+        refreshBtn.addEventListener('click', () => this.loadMcpConnections());
+        saveBtn.addEventListener('click', () => this.saveMcpConnection());
+        resetBtn.addEventListener('click', () => this.resetMcpForm());
+        addArgBtn.addEventListener('click', () => this.addMcpPairRow('mcp-args-list'));
+        addEnvBtn.addEventListener('click', () => this.addMcpPairRow('mcp-env-vars-list'));
+        addHeaderBtn.addEventListener('click', () => this.addMcpPairRow('mcp-headers-list'));
+        correctJsonBtn.addEventListener('click', () => this.correctMcpJsonWithCurrentAi());
+
+        transportSelect.addEventListener('change', () => {
+            this.refreshMcpTransportInputs();
+        });
+    }
+
+    async correctMcpJsonWithCurrentAi() {
+        const root = this.getMcpManagerScope();
+        const transportInput = this.getMcpElement('mcp-transport', root);
+        const jsonPayloadInput = this.getMcpElement('mcp-json-payload', root);
+        const correctBtn = this.getMcpElement('mcp-correct-json-btn', root);
+
+        if (!transportInput || !jsonPayloadInput || !correctBtn) {
+            return;
+        }
+
+        if ((transportInput.value || '').toLowerCase() !== 'json') {
+            this.showNotification('Switch transport to JSON to use AI correction', 'info');
+            return;
+        }
+
+        const jsonInput = (jsonPayloadInput.value || '').trim();
+        if (!jsonInput) {
+            this.showNotification('Paste JSON payload first', 'info');
+            return;
+        }
+
+        const originalHtml = correctBtn.innerHTML;
+        correctBtn.disabled = true;
+        correctBtn.innerHTML = '<span class="material-icons">hourglass_top</span> Correcting...';
+
+        try {
+            const result = await invoke('correct_mcp_json_with_active_model', { jsonInput });
+            const correctedJson = (result && result.corrected_json ? String(result.corrected_json) : '').trim();
+
+            if (!correctedJson) {
+                this.showNotification('AI returned an empty correction', 'error');
+                return;
+            }
+
+            const escapedJson = this.escapeHtml(correctedJson);
+            const decision = await ModalDialog.showCustom({
+                title: 'AI JSON Correction Preview',
+                content: `
+                    <p style="margin-top: 0; color: var(--theme-text-muted);">Review the corrected JSON and apply if it looks right.</p>
+                    <textarea class="network-config-input mcp-json-textarea" rows="12" readonly style="width: 100%;">${escapedJson}</textarea>
+                `,
+                buttons: [
+                    { text: 'Cancel', className: 'btn-secondary', action: () => 'cancel' },
+                    { text: 'Apply', className: 'btn-primary', action: () => 'apply' }
+                ]
+            });
+
+            if (decision === 'apply') {
+                jsonPayloadInput.value = correctedJson;
+                this.showNotification('Corrected JSON applied', 'success');
+            }
+        } catch (error) {
+            const message = (error && error.message) ? error.message : String(error || 'Unknown error');
+            await ModalDialog.showInfo({
+                title: 'AI JSON Correction Failed',
+                message
+            });
+        } finally {
+            correctBtn.disabled = false;
+            correctBtn.innerHTML = originalHtml;
+        }
+    }
+
+    refreshMcpTransportInputs() {
+        const transportSelect = this.getMcpElement('mcp-transport', this.getMcpManagerScope());
+        const urlField = this.getMcpElement('mcp-url-field', this.getMcpManagerScope());
+        const commandField = this.getMcpElement('mcp-command-field', this.getMcpManagerScope());
+        const jsonField = this.getMcpElement('mcp-json-field', this.getMcpManagerScope());
+
+        if (!transportSelect || !urlField || !commandField || !jsonField) {
+            return;
+        }
+
+        const isStdio = transportSelect.value === 'stdio';
+        const isJson = transportSelect.value === 'json';
+        urlField.style.display = isStdio ? 'none' : 'flex';
+        commandField.style.display = isStdio ? 'flex' : 'none';
+        jsonField.style.display = isJson ? 'flex' : 'none';
+    }
+
+    async loadMcpConnections() {
+        try {
+            const connections = await invoke('get_mcp_connections');
+            this.mcpConnections = Array.isArray(connections) ? connections : [];
+            this.renderMcpConnections();
+        } catch (error) {
+            console.error('Failed to load MCP connections:', error);
+            this.showNotification('Failed to load MCP connections', 'error');
+        }
+    }
+
+    renderMcpConnections() {
+            const list = this.getMcpElement('mcp-connections-list', this.getMcpManagerScope());
+        if (!list) return;
+
+        list.innerHTML = '';
+
+        if (!this.mcpConnections.length) {
+            list.innerHTML = '<div class="mcp-empty">No MCP servers yet. Add one below.</div>';
+            return;
+        }
+
+        this.mcpConnections.forEach(connection => {
+            const entry = document.createElement('div');
+            entry.className = 'mcp-entry';
+
+        const status = this.getMcpStatusLabel(connection);
+        const statusClass = status.className;
+        const toolsInfo = this.getMcpToolsInfo(connection);
+
+            entry.innerHTML = `
+                <div class="mcp-entry-main">
+                    <div class="mcp-entry-meta">
+                        <div class="mcp-entry-name">${connection.name || 'Unnamed'}</div>
+                        <div class="mcp-entry-sub">${this.getMcpTransportLabel(connection.transport)} • ${connection.url || connection.command || 'Not configured'}</div>
+                        <div class="mcp-status ${statusClass}">${status.text}</div>
+                        <div class="mcp-tools-card">
+                            <div class="mcp-tools-header">
+                                <span>Tools</span>
+                                <span class="mcp-tools-count">${toolsInfo.count}</span>
+                            </div>
+                            <div class="mcp-tools-status ${toolsInfo.className}">${toolsInfo.text}</div>
+                            <div class="mcp-tools-preview">${toolsInfo.preview}</div>
+                        </div>
+                    </div>
+                    <label class="mcp-entry-toggle">
+                        <input type="checkbox" data-id="${connection.id}" class="mcp-enabled-toggle" ${connection.enabled ? 'checked' : ''}>
+                        Enabled
+                    </label>
+                </div>
+                <div class="mcp-entry-actions">
+                    <button class="network-action-btn activate-btn mcp-test-btn" data-id="${connection.id}" type="button">
+                        <span class="material-icons">play_arrow</span>
+                        Test
+                    </button>
+                    <button class="network-action-btn activate-btn mcp-list-tools-btn" data-id="${connection.id}" type="button">
+                        <span class="material-icons">list</span>
+                        MCP Tools
+                    </button>
+                    <button class="network-action-btn activate-btn mcp-edit-btn" data-id="${connection.id}" type="button">
+                        <span class="material-icons">edit</span>
+                        Edit
+                    </button>
+                    <button class="network-action-btn deactivate-btn mcp-delete-btn" data-id="${connection.id}" type="button">
+                        <span class="material-icons">delete</span>
+                        Delete
+                    </button>
+                </div>
+            `;
+
+            const enabledToggle = entry.querySelector('.mcp-enabled-toggle');
+            if (enabledToggle) {
+                enabledToggle.addEventListener('change', (event) => {
+                    const target = event.currentTarget;
+                    this.toggleMcpConnection(target.dataset.id, target.checked);
+                });
+            }
+
+            const testButton = entry.querySelector('.mcp-test-btn');
+            if (testButton) {
+                testButton.addEventListener('click', (event) => {
+                    const target = event.currentTarget;
+                    this.testMcpConnection(target.dataset.id);
+                });
+            }
+
+            const toolsButton = entry.querySelector('.mcp-list-tools-btn');
+            if (toolsButton) {
+                toolsButton.addEventListener('click', (event) => {
+                    const target = event.currentTarget;
+                    this.openMcpToolsWindow(target.dataset.id);
+                });
+            }
+
+            const editButton = entry.querySelector('.mcp-edit-btn');
+            if (editButton) {
+                editButton.addEventListener('click', (event) => {
+                    const target = event.currentTarget;
+                    const connection = this.mcpConnections.find(item => item.id === target.dataset.id);
+                    if (connection) {
+                        this.populateMcpForm(connection);
+                    }
+                });
+            }
+
+            const deleteButton = entry.querySelector('.mcp-delete-btn');
+            if (deleteButton) {
+                deleteButton.addEventListener('click', (event) => {
+                    const target = event.currentTarget;
+                    this.deleteMcpConnection(target.dataset.id);
+                });
+            }
+
+            list.appendChild(entry);
+        });
+    }
+
+    getMcpTransportLabel(transport) {
+        if (!transport) return 'Stdio';
+
+        const labels = {
+            stdio: 'STDIO',
+            sse: 'SSE',
+            http: 'HTTP',
+            json: 'JSON',
+            streamable_http: 'Streamable HTTP',
+            streamablehttp: 'Streamable HTTP'
+        };
+
+        return labels[transport] || transport;
+    }
+
+    getMcpStatusLabel(connection) {
+        if (!connection.enabled) {
+            return {
+                text: 'Disabled',
+                className: 'never'
+            };
+        }
+
+        if (connection.last_test_status === 'ok') {
+            return {
+                text: 'Connected',
+                className: 'ok'
+            };
+        }
+
+        if (connection.last_test_status === 'error') {
+            return {
+                text: connection.last_test_message || 'Failed',
+                className: 'error'
+            };
+        }
+
+        if (connection.last_test_status) {
+            return {
+                text: connection.last_test_message || connection.last_test_status,
+                className: 'never'
+            };
+        }
+
+        return {
+            text: 'Never tested',
+            className: 'never'
+        };
+    }
+
+    getMcpToolsInfo(connection) {
+        const tools = Array.isArray(connection.tools) ? connection.tools : [];
+        const refreshAt = connection.tools_last_refresh_at || '';
+
+        if (!connection.enabled) {
+            return {
+                count: String(tools.length),
+                text: 'Tools hidden (connection disabled)',
+                className: 'never',
+                preview: refreshAt ? `Last sync: ${new Date(refreshAt).toLocaleTimeString()}` : 'Enable then refresh to load tools'
+            };
+        }
+
+        if (connection.tools_last_status === 'ok') {
+            const count = tools.length;
+            return {
+                count: String(count),
+                text: `Loaded${refreshAt ? ` • ${new Date(refreshAt).toLocaleTimeString()}` : ''}`,
+                className: 'ok',
+                preview: this.buildMcpToolsPreview(tools)
+            };
+        }
+
+        if (connection.tools_last_status === 'error') {
+            const errorMessage = connection.tools_last_message || connection.tools_last_error || 'Tool discovery failed';
+            return {
+                count: String(tools.length || 0),
+                text: errorMessage,
+                className: 'error',
+                preview: refreshAt ? `Last sync: ${new Date(refreshAt).toLocaleTimeString()}` : 'No tool data yet'
+            };
+        }
+
+        if (connection.tools_last_message) {
+            return {
+                count: String(tools.length || 0),
+                text: connection.tools_last_message,
+                className: 'never',
+                preview: this.buildMcpToolsPreview(tools)
+            };
+        }
+
+        return {
+            count: String(tools.length || 0),
+            text: 'Tools not loaded yet',
+            className: 'never',
+            preview: this.buildMcpToolsPreview(tools)
+        };
+    }
+
+    buildMcpToolsPreview(tools) {
+        if (!Array.isArray(tools) || !tools.length) {
+            return 'No tools cached';
+        }
+
+        const maxItems = 3;
+        const names = tools
+            .slice(0, maxItems)
+            .map((tool) => {
+                const name = tool && tool.name ? String(tool.name).trim() : '';
+                return name || '(Unnamed)';
+            })
+            .join(', ');
+
+        if (tools.length <= maxItems) {
+            return names;
+        }
+
+        return `${names} + ${tools.length - maxItems} more`;
+    }
+
+    addMcpPairRow(containerId, name = '', value = '') {
+        const container = this.getMcpElement(containerId, this.getMcpManagerScope());
+        if (!container) return;
+
+        const row = document.createElement('div');
+        row.className = 'mcp-pair-row';
+
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'mcp-pair-input';
+        nameInput.placeholder = 'Name';
+        nameInput.value = name;
+
+        const valueInput = document.createElement('input');
+        valueInput.type = 'text';
+        valueInput.className = 'mcp-pair-input';
+        valueInput.placeholder = 'Value';
+        valueInput.value = value;
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'network-action-btn deactivate-btn mcp-pair-remove';
+        removeButton.textContent = '−';
+        removeButton.title = 'Remove entry';
+        removeButton.addEventListener('click', () => row.remove());
+
+        row.appendChild(nameInput);
+        row.appendChild(valueInput);
+        row.appendChild(removeButton);
+        container.appendChild(row);
+    }
+
+    clearMcpPairList(containerId) {
+        const container = this.getMcpElement(containerId, this.getMcpManagerScope());
+        if (!container) return;
+        container.innerHTML = '';
+    }
+
+    ensureAtLeastOneMcpPairRow(containerId) {
+        const container = this.getMcpElement(containerId, this.getMcpManagerScope());
+        if (!container || container.children.length) return;
+        this.addMcpPairRow(containerId);
+    }
+
+    setMcpPairRowsFromEntries(containerId, entries) {
+        this.clearMcpPairList(containerId);
+
+        if (Array.isArray(entries) && entries.length) {
+            entries.forEach(({ name, value }) => {
+                this.addMcpPairRow(containerId, name, value);
+            });
+        }
+
+        this.ensureAtLeastOneMcpPairRow(containerId);
+    }
+
+    setMcpArgsRowsFromList(containerId, args) {
+        const list = Array.isArray(args) ? args.map(item => String(item)) : [];
+        const rows = [];
+        let index = 0;
+
+        while (index < list.length) {
+            const current = list[index].trim();
+            if (!current) {
+                index += 1;
+                continue;
+            }
+
+            const eqIndex = current.indexOf('=');
+            if (eqIndex > -1) {
+                rows.push({
+                    name: current.slice(0, eqIndex),
+                    value: current.slice(eqIndex + 1),
+                });
+                index += 1;
+                continue;
+            }
+
+            const next = list[index + 1] ? list[index + 1].trim() : '';
+            if (current.startsWith('-') && next && !next.startsWith('-')) {
+                rows.push({ name: current, value: next });
+                index += 2;
+                continue;
+            }
+
+            rows.push({ name: current, value: '' });
+            index += 1;
+        }
+
+        this.setMcpPairRowsFromEntries(containerId, rows);
+    }
+
+    setMcpObjectRowsFromMap(containerId, mapObj) {
+        const entries = [];
+        if (mapObj && typeof mapObj === 'object' && !Array.isArray(mapObj)) {
+            Object.keys(mapObj).forEach((key) => {
+                const value = mapObj[key];
+                entries.push({
+                    name: String(key),
+                    value: value == null ? '' : String(value)
+                });
+            });
+        }
+
+        this.setMcpPairRowsFromEntries(containerId, entries);
+    }
+
+    collectMcpPairRows(containerId) {
+        const container = this.getMcpElement(containerId, this.getMcpManagerScope());
+        if (!container) return [];
+
+        const pairs = [];
+        const rows = Array.from(container.querySelectorAll('.mcp-pair-row'));
+        rows.forEach((row) => {
+            const inputs = row.querySelectorAll('.mcp-pair-input');
+            if (inputs.length < 2) {
+                return;
+            }
+
+            const name = (inputs[0].value || '').trim();
+            const value = (inputs[1].value || '').trim();
+
+            if (!name && !value) {
+                return;
+            }
+
+            pairs.push({ name, value });
+        });
+
+        return pairs;
+    }
+
+    populateMcpForm(connection = null) {
+        const root = this.getMcpManagerScope();
+        const editIdInput = this.getMcpElement('mcp-edit-id', root);
+        const nameInput = this.getMcpElement('mcp-name', root);
+        const transportInput = this.getMcpElement('mcp-transport', root);
+        const urlInput = this.getMcpElement('mcp-url', root);
+        const commandInput = this.getMcpElement('mcp-command', root);
+        const jsonPayloadInput = this.getMcpElement('mcp-json-payload', root);
+        const timeoutInput = this.getMcpElement('mcp-timeout', root);
+        const enabledInput = this.getMcpElement('mcp-enabled', root);
+
+        if (!editIdInput || !nameInput || !transportInput || !urlInput || !commandInput || !jsonPayloadInput || !timeoutInput || !enabledInput) {
+            return;
+        }
+
+        if (!connection) {
+            this.editingMcpConnectionId = null;
+            editIdInput.value = '';
+            nameInput.value = '';
+            transportInput.value = 'stdio';
+            urlInput.value = '';
+            commandInput.value = '';
+            jsonPayloadInput.value = '';
+            timeoutInput.value = '10';
+            enabledInput.checked = true;
+
+            this.setMcpArgsRowsFromList('mcp-args-list', []);
+            this.setMcpObjectRowsFromMap('mcp-env-vars-list', {});
+            this.setMcpObjectRowsFromMap('mcp-headers-list', {});
+
+            this.refreshMcpTransportInputs();
+            return;
+        }
+
+        this.editingMcpConnectionId = connection.id;
+        editIdInput.value = connection.id || '';
+        nameInput.value = connection.name || '';
+        transportInput.value = connection.transport || 'stdio';
+        urlInput.value = connection.url || '';
+        commandInput.value = connection.command || '';
+        jsonPayloadInput.value = connection.json_payload || '';
+        this.setMcpArgsRowsFromList('mcp-args-list', connection.args || []);
+        this.setMcpObjectRowsFromMap('mcp-env-vars-list', connection.env_vars || {});
+        this.setMcpObjectRowsFromMap('mcp-headers-list', connection.headers || {});
+        timeoutInput.value = String(connection.timeout_seconds || 10);
+        enabledInput.checked = !!connection.enabled;
+
+        this.refreshMcpTransportInputs();
+    }
+
+    resetMcpForm() {
+        this.populateMcpForm();
+        this.showNotification('MCP form reset', 'info');
+    }
+
+    async buildMcpConnectionPayload() {
+        const root = this.getMcpManagerScope();
+        const editIdInput = this.getMcpElement('mcp-edit-id', root);
+        const nameInput = this.getMcpElement('mcp-name', root);
+        const transportInput = this.getMcpElement('mcp-transport', root);
+        const urlInput = this.getMcpElement('mcp-url', root);
+        const commandInput = this.getMcpElement('mcp-command', root);
+        const jsonPayloadInput = this.getMcpElement('mcp-json-payload', root);
+        const timeoutInput = this.getMcpElement('mcp-timeout', root);
+        const enabledInput = this.getMcpElement('mcp-enabled', root);
+
+        if (!nameInput || !transportInput || !urlInput || !commandInput || !jsonPayloadInput || !timeoutInput || !enabledInput || !editIdInput) {
+            throw new Error('MCP form fields are missing');
+        }
+
+        const name = nameInput.value.trim();
+        if (!name) {
+            this.showNotification('MCP connection name is required', 'error');
+            return null;
+        }
+
+        const transport = transportInput.value || 'stdio';
+        const url = urlInput.value.trim();
+        const command = commandInput.value.trim();
+
+        if (transport === 'stdio' && !command) {
+            this.showNotification('Command is required for Stdio transport', 'error');
+            return null;
+        }
+
+        if (transport !== 'stdio' && transport !== 'json' && !url) {
+            this.showNotification('URL is required for non-stdio transport', 'error');
+            return null;
+        }
+
+        const timeoutSeconds = parseInt(timeoutInput.value, 10);
+        if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+            this.showNotification('Timeout must be a positive number', 'error');
+            return null;
+        }
+
+        const argRows = this.collectMcpPairRows('mcp-args-list');
+        const envPairs = this.collectMcpPairRows('mcp-env-vars-list');
+        const headerPairs = this.collectMcpPairRows('mcp-headers-list');
+
+        const args = argRows
+            .flatMap(pair => {
+                const name = pair.name;
+                const value = pair.value;
+                if (!name) {
+                    return [];
+                }
+
+                if (!value) {
+                    return [name];
+                }
+
+                return [name, value];
+            });
+
+        const env_vars = {};
+        envPairs.forEach((pair) => {
+            if (!pair.name) {
+                return;
+            }
+            env_vars[pair.name] = pair.value;
+        });
+
+        const headers = {};
+        headerPairs.forEach((pair) => {
+            if (!pair.name) {
+                return;
+            }
+            headers[pair.name] = pair.value;
+        });
+
+        if (args.includes(undefined) || args.includes(null)) {
+            return null;
+        }
+
+        const connectionId = editIdInput.value || this.editingMcpConnectionId;
+        const existingConnection = connectionId
+            ? this.mcpConnections.find(item => item.id === connectionId)
+            : null;
+
+        const existingTools = existingConnection && Array.isArray(existingConnection.tools)
+            ? existingConnection.tools
+            : [];
+        const existingToolsLastRefreshAt = existingConnection
+            ? existingConnection.tools_last_refresh_at || null
+            : null;
+        const existingToolsLastStatus = existingConnection
+            ? existingConnection.tools_last_status || null
+            : null;
+        const existingToolsLastMessage = existingConnection
+            ? existingConnection.tools_last_message || null
+            : null;
+        const existingToolsLastError = existingConnection
+            ? existingConnection.tools_last_error || null
+            : null;
+
+        return {
+            id: connectionId || '',
+            name,
+            transport,
+            enabled: !!enabledInput.checked,
+            url,
+            command,
+            json_payload: jsonPayloadInput.value.trim(),
+            args,
+            env_vars,
+            headers,
+            timeout_seconds: timeoutSeconds,
+            last_test_at: null,
+            last_test_status: null,
+            last_test_message: null,
+            tools: existingTools,
+            tools_last_refresh_at: existingToolsLastRefreshAt,
+            tools_last_status: existingToolsLastStatus,
+            tools_last_message: existingToolsLastMessage,
+            tools_last_error: existingToolsLastError,
+        };
+    }
+
+    async saveMcpConnection() {
+        try {
+            const connection = await this.buildMcpConnectionPayload();
+            if (!connection) {
+                return;
+            }
+
+            await invoke('save_mcp_connection', { connection });
+            this.showNotification('MCP connection saved', 'success');
+            this.resetMcpForm();
+            await this.loadMcpConnections();
+        } catch (error) {
+            console.error('Error saving MCP connection:', error);
+            this.showNotification(`Failed to save MCP connection: ${error.message || error}`, 'error');
+        }
+    }
+
+    async toggleMcpConnection(id, enabled) {
+        try {
+            await invoke('toggle_mcp_connection', { id, enabled });
+            await this.loadMcpConnections();
+        } catch (error) {
+            console.error('Error toggling MCP connection:', error);
+            this.showNotification(`Failed to toggle MCP connection: ${error.message || error}`, 'error');
+        }
+    }
+
+    async testMcpConnection(id) {
+        try {
+            const result = await invoke('test_mcp_connection', { id });
+
+            if (result.success) {
+                this.showNotification(result.message || 'MCP connection test passed', 'success');
+            } else {
+                this.showNotification(result.message || 'MCP connection test failed', 'error');
+            }
+
+            await this.loadMcpConnections();
+        } catch (error) {
+            console.error('Error testing MCP connection:', error);
+            this.showNotification(`Failed to test MCP connection: ${error.message || error}`, 'error');
+        }
+    }
+
+    async listMcpTools(id, options = {}) {
+        const { showNotification = true } = options;
+        try {
+            const result = await invoke('list_mcp_tools', { id });
+
+            if (showNotification) {
+                if (result.success) {
+                    this.showNotification(result.message || 'MCP tools loaded', 'success');
+                } else {
+                    this.showNotification(result.message || 'Failed to load MCP tools', 'error');
+                }
+            }
+
+            await this.loadMcpConnections();
+
+            return result;
+        } catch (error) {
+            console.error('Error listing MCP tools:', error);
+            if (showNotification) {
+                this.showNotification(`Failed to list MCP tools: ${error.message || error}`, 'error');
+            }
+            throw error;
+        }
+    }
+
+    async openMcpToolsWindow(id) {
+        let connection = this.mcpConnections.find(item => item.id === id);
+
+        if (!connection) {
+            await this.loadMcpConnections();
+            connection = this.mcpConnections.find(item => item.id === id);
+            if (!connection) {
+                this.showNotification('MCP connection not found', 'error');
+                return;
+            }
+        }
+
+        const windowId = `mcp-tools-window-${id}`;
+
+        const existingWindow = this.windows.get(windowId);
+        if (existingWindow) {
+            this.closeWindow(windowId);
+        }
+
+        const toolsInfo = this.getMcpToolsInfo(connection);
+        const tools = Array.isArray(connection.tools) ? connection.tools : [];
+        const lastSync = connection.tools_last_refresh_at
+            ? `Last sync ${new Date(connection.tools_last_refresh_at).toLocaleString()}`
+            : 'Tools not synced yet';
+
+        const toolsHtml = tools.length
+            ? tools.map((tool) => this.buildMcpToolDetailHtml(tool)).join('')
+            : '<div class="mcp-tools-empty">No tools cached for this connection yet.</div>';
+
+        const toolsWindow = this.createWindow(
+            windowId,
+            'MCP Tools',
+            'mcp-tools-window',
+            `
+                <div class="mcp-tools-window-headline">${this.escapeHtml(connection.name || 'Unnamed')} • ${this.getMcpTransportLabel(connection.transport)}</div>
+                <div class="mcp-tools-window-subtitle">${this.escapeHtml(connection.url || connection.command || 'Not configured')}</div>
+                <div class="mcp-tools-window-status ${toolsInfo.className}">${this.escapeHtml(toolsInfo.text)}</div>
+                <div class="mcp-tools-window-sync">${this.escapeHtml(lastSync)}</div>
+                <div class="mcp-tools-window-summary">${this.getMcpToolsSummaryText(tools, connection)}</div>
+                <div class="mcp-tools-window-actions">
+                    <button class="network-action-btn activate-btn mcp-tools-refresh-btn" data-id="${connection.id}" type="button">
+                        <span class="material-icons">refresh</span>
+                        Refresh
+                    </button>
+                </div>
+                <div class="mcp-tools-list" id="mcp-tools-list-${connection.id}">
+                    ${toolsHtml}
+                </div>
+            `
+        );
+
+        if (!toolsWindow) {
+            this.showNotification('Failed to open MCP tools window', 'error');
+            return;
+        }
+
+        toolsWindow.style.width = '760px';
+        toolsWindow.style.height = '620px';
+        toolsWindow.style.maxHeight = '85vh';
+
+        const refreshButton = toolsWindow.querySelector('.mcp-tools-refresh-btn');
+        if (refreshButton) {
+            refreshButton.addEventListener('click', async () => {
+                const previousText = refreshButton.textContent;
+                refreshButton.disabled = true;
+                refreshButton.textContent = 'Refreshing...';
+
+                try {
+                    const result = await this.listMcpTools(id, { showNotification: false });
+                    const updatedConnection = this.mcpConnections.find(item => item.id === id);
+                    const currentConnection = updatedConnection || connection;
+                    const updatedToolsInfo = this.getMcpToolsInfo(currentConnection);
+                    const updatedTools = Array.isArray(currentConnection.tools) ? currentConnection.tools : [];
+                    const list = toolsWindow.querySelector(`#mcp-tools-list-${id}`);
+                    const statusElement = toolsWindow.querySelector('.mcp-tools-window-status');
+                    const syncElement = toolsWindow.querySelector('.mcp-tools-window-sync');
+                    const summaryElement = toolsWindow.querySelector('.mcp-tools-window-summary');
+
+                    if (list) {
+                        list.innerHTML = updatedTools.length
+                            ? updatedTools.map((tool) => this.buildMcpToolDetailHtml(tool)).join('')
+                            : '<div class="mcp-tools-empty">No tools cached for this connection yet.</div>';
+                    }
+
+                    if (statusElement) {
+                        statusElement.className = `mcp-tools-window-status ${updatedToolsInfo.className}`;
+                        statusElement.textContent = updatedToolsInfo.text;
+                    }
+
+                    if (syncElement) {
+                        const syncedAt = currentConnection.tools_last_refresh_at
+                            ? `Last sync ${new Date(currentConnection.tools_last_refresh_at).toLocaleString()}`
+                            : 'Tools not synced yet';
+                        syncElement.textContent = syncedAt;
+                    }
+
+                    if (summaryElement) {
+                        summaryElement.textContent = this.getMcpToolsSummaryText(updatedTools, currentConnection);
+                    }
+
+                    if (result.success) {
+                        this.showNotification(result.message || 'MCP tools reloaded', 'success');
+                    } else {
+                        this.showNotification(result.message || 'MCP tools refresh failed', 'error');
+                    }
+                } catch (refreshError) {
+                    this.showNotification(`Failed to refresh MCP tools: ${refreshError.message || refreshError}`, 'error');
+                } finally {
+                    refreshButton.disabled = false;
+                    refreshButton.textContent = previousText;
+                }
+            });
+        }
+    }
+
+    getMcpToolsSummaryText(tools, connection) {
+        const count = Array.isArray(tools) ? tools.length : 0;
+        const enabledText = connection && connection.enabled ? 'Enabled' : 'Disabled';
+        if (!count) {
+            return `${enabledText} • No tools discovered yet`;
+        }
+
+        return `${enabledText} • ${count} tool(s) discovered`;
+    }
+
+    getMcpSchemaSummary(schema) {
+        if (!schema || typeof schema !== 'object') {
+            return typeof schema === 'string' ? schema : 'Unavailable';
+        }
+
+        const type = typeof schema.type === 'string' ? schema.type : 'object';
+        const properties = schema.properties && typeof schema.properties === 'object'
+            ? Object.keys(schema.properties)
+            : [];
+        const required = Array.isArray(schema.required) ? schema.required : [];
+
+        if (properties.length) {
+            const requiredText = required.length
+                ? ` (${required.length} required)`
+                : '';
+            return `${type} with ${properties.length} properties${requiredText}`;
+        }
+
+        return `type: ${type}`;
+    }
+
+    buildMcpToolDetailHtml(tool) {
+        const name = this.escapeHtml(tool && tool.name ? tool.name : '(Unnamed)');
+        const description = this.escapeHtml(tool && tool.description ? tool.description : 'No description available');
+        const inputSchema = tool ? (tool.inputSchema || tool.input_schema) : null;
+        const outputSchema = tool ? (tool.outputSchema || tool.output_schema) : null;
+        const inputSummary = this.getMcpSchemaSummary(inputSchema);
+        const outputSummary = this.getMcpSchemaSummary(outputSchema);
+        const inputRaw = JSON.stringify(inputSchema || {});
+        const outputRaw = JSON.stringify(outputSchema || {});
+
+        return `
+            <div class="mcp-tool-item">
+                <div class="mcp-tool-item-name">${name}</div>
+                <div class="mcp-tool-item-description">${description}</div>
+                <div class="mcp-tool-item-meta">
+                    <div>Input: ${this.escapeHtml(inputSummary)}</div>
+                    <div>Output: ${this.escapeHtml(outputSummary)}</div>
+                </div>
+                <details class="mcp-tool-item-details">
+                    <summary>Show schema</summary>
+                    <pre>Input: ${this.escapeHtml(inputRaw)}\nOutput: ${this.escapeHtml(outputRaw)}</pre>
+                </details>
+            </div>
+        `;
+    }
+
+    async deleteMcpConnection(id) {
+        if (!window.confirm('Delete this MCP connection?')) {
+            return;
+        }
+
+        try {
+            await invoke('delete_mcp_connection', { id });
+            this.showNotification('MCP connection deleted', 'info');
+            await this.loadMcpConnections();
+            this.resetMcpForm();
+        } catch (error) {
+            console.error('Error deleting MCP connection:', error);
+            this.showNotification(`Failed to delete MCP connection: ${error.message || error}`, 'error');
+        }
+    }
+
     getRunningModels() {
         const models = [];
         

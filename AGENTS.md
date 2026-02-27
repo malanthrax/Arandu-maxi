@@ -1,8 +1,8 @@
-# Arandu - Developer Documentation
+﻿# Arandu - Developer Documentation
 
-> **📋 For current project status, bug fixes, and recent changes:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
+> **ðŸ“‹ For current project status, bug fixes, and recent changes:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
 > 
-> **📁 For file locations and where to find specific code:** Check the knowledge base memory (Arandu Complete File Location Reference) before using shell commands
+> **ðŸ“ For file locations and where to find specific code:** Check the knowledge base memory (Arandu Complete File Location Reference) before using shell commands
 
 ## Agent Quick Reference
 
@@ -13,9 +13,24 @@
 4. **Use shell commands as fallback** only when memory doesn't have the answer
 
 **File location priorities:**
-1. Knowledge base memory (fastest, has full reference)
+1. **Knowledge base memory** (search `H:\Ardanu Fix\Arandu-maxi\docs\knowledge-base`) - **ALWAYS CHECK HERE FIRST**
 2. AGENTS.md File Structure section
-3. Shell commands (ls, find, grep) - use sparingly
+3. Shell commands (ls, find, grep) - use only as a last resort
+
+**MANDATORY RULE: MEMORY FIRST**
+You must always search `H:\Ardanu Fix\Arandu-maxi\docs\knowledge-base` for file locations before using any file system commands. If you find a path, use it. If you change a path or find a new one, you MUST update `docs/knowledge-base` immediately to keep it current.
+
+### NOWLEDGE-MEM REQUIREMENT (CRITICAL)
+
+- Use the nowledge-mem MCP endpoint declared in `tools.yaml` for project memory operations.
+- Ensure every significant item is captured in nowledge mem, including:
+  - errors and issues
+  - bug fixes
+  - ideas and decisions
+  - plans and implementation steps
+  - code changes and file locations
+- If required project memory/instruction data is not in `AGENTS.md`, update it immediately.
+- When practical, include concise evidence in memory entries (commands run, file paths, and outcomes).
 
 ---
 
@@ -79,26 +94,26 @@ gguf-rs-lib = "0.2"      # GGUF metadata parsing
 **Structure:**
 ```
 frontend/
-├── index.html           # Main HTML shell
-├── desktop.js           # Core desktop logic, window management
-├── css/
-│   ├── main.css         # Base styles, theme CSS vars
-│   ├── desktop.css      # Desktop icons, dock, taskbar
-│   ├── windows.css      # Window system
-│   ├── properties.css   # Model properties panel
-│   ├── huggingface.css  # HF search UI
-│   ├── llama-manager.css # Backend manager UI
-│   └── ...
-└── modules/
-    ├── theme-definitions.js      # Theme color palettes
-    ├── huggingface-app.js        # HF search & download
-    ├── terminal-manager.js       # Process terminals
-    ├── properties-manager.js     # Model settings UI
-    ├── download-manager.js       # Download progress UI
-    ├── llamacpp-manager.js       # Backend manager
-    ├── module-manager.js         # Dynamic module loader
-    ├── modal-dialog.js           # Dialog system
-    └── search-history.js         # Search history
+â”œâ”€â”€ index.html           # Main HTML shell
+â”œâ”€â”€ desktop.js           # Core desktop logic, window management
+â”œâ”€â”€ css/
+â”‚   â”œâ”€â”€ main.css         # Base styles, theme CSS vars
+â”‚   â”œâ”€â”€ desktop.css      # Desktop icons, dock, taskbar
+â”‚   â”œâ”€â”€ windows.css      # Window system
+â”‚   â”œâ”€â”€ properties.css   # Model properties panel
+â”‚   â”œâ”€â”€ huggingface.css  # HF search UI
+â”‚   â”œâ”€â”€ llama-manager.css # Backend manager UI
+â”‚   â””â”€â”€ ...
+â””â”€â”€ modules/
+    â”œâ”€â”€ theme-definitions.js      # Theme color palettes
+    â”œâ”€â”€ huggingface-app.js        # HF search & download
+    â”œâ”€â”€ terminal-manager.js       # Process terminals
+    â”œâ”€â”€ properties-manager.js     # Model settings UI
+    â”œâ”€â”€ download-manager.js       # Download progress UI
+    â”œâ”€â”€ llamacpp-manager.js       # Backend manager
+    â”œâ”€â”€ module-manager.js         # Dynamic module loader
+    â”œâ”€â”€ modal-dialog.js           # Dialog system
+    â””â”€â”€ search-history.js         # Search history
 ```
 
 ---
@@ -147,12 +162,12 @@ struct GlobalConfig {
 **Backend Type Detection:**
 ```rust
 fn detect_backend_type(asset_name: &str) -> String {
-    // cuda, cudart → "cuda"
-    // rocm, hip → "rocm"
-    // vulkan → "vulkan"
-    // opencl → "opencl"
-    // metal → "metal"
-    // cpu or unknown → "cpu"
+    // cuda, cudart â†’ "cuda"
+    // rocm, hip â†’ "rocm"
+    // vulkan â†’ "vulkan"
+    // opencl â†’ "opencl"
+    // metal â†’ "metal"
+    // cpu or unknown â†’ "cpu"
 }
 ```
 
@@ -172,10 +187,16 @@ fn detect_backend_type(asset_name: &str) -> String {
 
 1. **Internal** - Uses built-in web UI on port 8080
    - Command: `llama-server.exe -m <model> [args]`
-   - UI served at `http://127.0.0.1:8080`
+   - UI served at `http://127.0.0.1:8080` (or dynamic port)
+   - Serves custom UI from `frontend/llama-custom` via `--path`
    
 2. **External** - Opens in separate window
    - Same command but opens llama.cpp's native web UI
+
+**Parameter Bridge (iframe -> Parent):**
+The custom chat UI communicates with Arandu via `window.parent.postMessage`.
+- `type: 'request-restart'`: Triggers a server restart with updated `custom_args` and `env_vars`.
+- Handled by `TerminalManager.handleRestartRequest()` in `frontend/modules/terminal-manager.js`.
 
 **ProcessHandle Architecture:**
 ```rust
@@ -324,81 +345,81 @@ pub struct DownloadManager {
 ## Tauri Commands Reference
 
 ### Configuration
-- `get_config()` → `GlobalConfig`
-- `save_config(models_dir, exec_folder, theme, bg, synced)` → Result
+- `get_config()` â†’ `GlobalConfig`
+- `save_config(models_dir, exec_folder, theme, bg, synced)` â†’ Result
 
 ### Models
-- `scan_models_command()` → `{success, models: [ModelInfo]}`
-- `get_model_settings(model_path)` → `ModelConfig`
-- `update_model_settings(model_path, config)` → Result
-- `save_model_preset(model_path, preset)` → Result
-- `delete_model_preset(model_path, preset_id)` → Result
+- `scan_models_command()` â†’ `{success, models: [ModelInfo]}`
+- `get_model_settings(model_path)` â†’ `ModelConfig`
+- `update_model_settings(model_path, config)` â†’ Result
+- `save_model_preset(model_path, preset)` â†’ Result
+- `delete_model_preset(model_path, preset_id)` â†’ Result
 
 ### Process Management  
-- `launch_model_internal(model_path, config, window_label)` → `LaunchResult`
-- `launch_model_external(model_path, config, window_label)` → `LaunchResult`
-- `stop_process(process_id)` → Result
-- `get_process_status(process_id)` → `ProcessOutput`
-- `kill_all_processes()` → Result
+- `launch_model_internal(model_path, config, window_label)` â†’ `LaunchResult`
+- `launch_model_external(model_path, config, window_label)` â†’ `LaunchResult`
+- `stop_process(process_id)` â†’ Result
+- `get_process_status(process_id)` â†’ `ProcessOutput`
+- `kill_all_processes()` â†’ Result
 
 ### HuggingFace
-- `search_huggingface_models(query, limit)` → `SearchResult`
-- `fetch_model_details(model_id)` → `ModelDetails`
-- `get_hf_suggestions()` → `[{id, name, author}]`
+- `search_huggingface_models(query, limit)` â†’ `SearchResult`
+- `fetch_model_details(model_id)` â†’ `ModelDetails`
+- `get_hf_suggestions()` â†’ `[{id, name, author}]`
 
 ### Downloads
-- `start_download(url, filename, destination)` → `DownloadStartResult`
-- `start_llamacpp_download(url, filename, version, backend_type)` → Result
-- `pause_download(download_id)` → Result
-- `resume_download(download_id)` → Result
-- `cancel_download(download_id)` → Result
-- `get_download_status(download_id)` → `DownloadStatus`
-- `get_all_downloads()` → `[DownloadStatus]`
-- `clear_completed_downloads()` → Result
+- `start_download(url, filename, destination)` â†’ `DownloadStartResult`
+- `start_llamacpp_download(url, filename, version, backend_type)` â†’ Result
+- `pause_download(download_id)` â†’ Result
+- `resume_download(download_id)` â†’ Result
+- `cancel_download(download_id)` â†’ Result
+- `get_download_status(download_id)` â†’ `DownloadStatus`
+- `get_all_downloads()` â†’ `[DownloadStatus]`
+- `clear_completed_downloads()` â†’ Result
 
 ### Llama.cpp Releases
-- `get_llamacpp_releases()` → `[LlamaCppReleaseFrontend]`
-- `refresh_llamacpp_releases()` → Result (force cache refresh)
-- `fetch_commit_info(tag_name)` → `CommitInfo`
+- `get_llamacpp_releases()` â†’ `[LlamaCppReleaseFrontend]`
+- `refresh_llamacpp_releases()` â†’ Result (force cache refresh)
+- `fetch_commit_info(tag_name)` â†’ `CommitInfo`
 
 ### System
-- `browse_folder(input_id)` → Opens native folder dialog
-- `get_app_version()` → String
-- `open_external_link(url)` → Opens browser
+- `browse_folder(input_id)` â†’ Opens native folder dialog
+- `get_app_version()` â†’ String
+- `open_external_link(url)` â†’ Opens browser
 
 ---
 
 ## File Structure
 
-> **📁 For complete file location reference:** Check knowledge base memory "Arandu Complete File Location Reference" 
+> **ðŸ“ For complete file location reference:** Check knowledge base memory "Arandu Complete File Location Reference" 
 > > This memory has exact paths for every file and quick reference by task (e.g., "right-click menu = desktop.js")
 
 ```
 Arandu/
-├── backend/
-│   ├── Cargo.toml
-│   ├── tauri.conf.json        # Tauri config
-│   ├── build.rs
-│   ├── icons/
-│   └── src/
-│       ├── main.rs
-│       ├── lib.rs             # Main entry + commands
-│       ├── models.rs          # All data structures
-│       ├── config.rs          # Config I/O
-│       ├── scanner.rs         # Model scanning
-│       ├── huggingface.rs     # HF API client
-│       ├── downloader.rs      # Download manager
-│       ├── llamacpp_manager.rs # GitHub releases
-│       ├── process.rs         # Process spawning
-│       └── system_monitor.rs  # Hardware monitoring
-├── frontend/
-│   ├── index.html
-│   ├── desktop.js
-│   ├── css/                   # All stylesheets
-│   ├── assets/                # Logo, icons
-│   ├── modules/               # JS modules
-│   └── *.json                 # Config/data files
-└── README.md
+â”œâ”€â”€ backend/
+â”‚   â”œâ”€â”€ Cargo.toml
+â”‚   â”œâ”€â”€ tauri.conf.json        # Tauri config
+â”‚   â”œâ”€â”€ build.rs
+â”‚   â”œâ”€â”€ icons/
+â”‚   â””â”€â”€ src/
+â”‚       â”œâ”€â”€ main.rs
+â”‚       â”œâ”€â”€ lib.rs             # Main entry + commands
+â”‚       â”œâ”€â”€ models.rs          # All data structures
+â”‚       â”œâ”€â”€ config.rs          # Config I/O
+â”‚       â”œâ”€â”€ scanner.rs         # Model scanning
+â”‚       â”œâ”€â”€ huggingface.rs     # HF API client
+â”‚       â”œâ”€â”€ downloader.rs      # Download manager
+â”‚       â”œâ”€â”€ llamacpp_manager.rs # GitHub releases
+â”‚       â”œâ”€â”€ process.rs         # Process spawning
+â”‚       â””â”€â”€ system_monitor.rs  # Hardware monitoring
+â”œâ”€â”€ frontend/
+â”‚   â”œâ”€â”€ index.html
+â”‚   â”œâ”€â”€ desktop.js
+â”‚   â”œâ”€â”€ css/                   # All stylesheets
+â”‚   â”œâ”€â”€ assets/                # Logo, icons
+â”‚   â”œâ”€â”€ modules/               # JS modules
+â”‚   â””â”€â”€ *.json                 # Config/data files
+â””â”€â”€ README.md
 ```
 
 ---
@@ -429,7 +450,7 @@ Arandu/
 
 ## Common Issues
 
-**⚠️ CRITICAL: Working Directory Mismatch:**
+**âš ï¸ CRITICAL: Working Directory Mismatch:**
 - **Problem:** Agent may work in wrong directory (e.g., C: drive instead of H: drive)
 - **Impact:** Changes don't appear in user's actual project, builds succeed but don't update user's executable
 - **Detection:** Check `pwd` command output vs expected project path
@@ -485,6 +506,21 @@ cargo tauri build
 
 > **For complete list of bug fixes and features:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
 
+### 2026-02-24 - Model View Toggle + GGUF Suffix
+- **feat:** Added view toggle for model display (icon grid vs vertical list)
+- **feat:** List view shows models as horizontal bars sorted by size (largest first)
+- **feat:** List view includes: quantization bar, model name, file path, size, quantization badge, update indicator
+- **feat:** View preference saved to localStorage
+- **fix:** CSS conflict causing architecture label to show in list view (duplicate rule)
+- **feat:** Added "GGUF" suffix to model names in both icon and list view
+- **docs:** Updated AGENTS.md with all changes
+
+### 2026-02-24 - Qwen2.5 Speculative Models Downloaded
+- **download:** Qwen2.5-14B-Instruct-Q4_K_M (8.99 GB) - merged from 3 split files
+- **download:** Qwen2.5-0.5B-Instruct-Q4_K_M (0.49 GB) - draft model
+- **location:** C:\Users\Gordprime\AppData\Roaming\Msty\models\blobs\Qwen2.5\
+- **purpose:** Test speculative decoding (draft token) feature
+
 ### 2025-02-21 - Major Updates
 - **feat:** Added "Open in File Explorer" right-click option for GGUF files
 - **feat:** Added total disk space monitor (GB/TB) in top right corner
@@ -499,7 +535,7 @@ cargo tauri build
 - **feat:** File type filters (GGUF, MLX, SafeTensors, etc.)
 - **fix:** Tracker button and page loading issues
 
-### 2025-02-18 - Phase 2: HuggingFace Direct Link Download ✅ COMPLETE
+### 2025-02-18 - Phase 2: HuggingFace Direct Link Download âœ… COMPLETE
 - **feat:** Tabbed HF interface with Paste Link functionality
 - **feat:** URL parsing for all HF URL formats
 
@@ -515,7 +551,7 @@ cargo tauri build
 
 ### Active (Not Fixed)
 
-- **🛑 Chat Tab Not Loading - REGRESSION (2025-02-23)**
+- **ðŸ›‘ Chat Tab Not Loading - REGRESSION (2025-02-23)**
   - **Status:** CRITICAL - REGRESSION FROM FIX ATTEMPT
   - **Issue:** Custom Chat tab no longer loads/renders after CSS layout fix attempt
   - **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
@@ -524,7 +560,7 @@ cargo tauri build
   - **Next Steps:** REVERT CSS changes, then apply fixes one at a time with testing
   - **See:** THIS-PROJECTS-CURRENT-STATE.md for full details and what to revert
 
-- **⚠️ Chat Input Layout Incorrect (2025-02-23)**
+- **âš ï¸ Chat Input Layout Incorrect (2025-02-23)**
   - **Status:** NOT FIXED - Superseded by regression above
   - **Issue:** Chat input area sits too high and does not show 4 visible lines of text
   - **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
@@ -556,10 +592,10 @@ Monitors local GGUF models for updates on HuggingFace.
 
 **Visual indicators:**
 - **?** (gray): Not linked to HF - click to link or view model ID
-- **✓** (green): Up to date
-- **✗** (red): Update available on HF
+- **âœ“** (green): Up to date
+- **âœ—** (red): Update available on HF
 - **!** (black/red): Error occurred
-- **⟳** (spinning): Checking in progress
+- **âŸ³** (spinning): Checking in progress
 
 **Note:** Click the "?" indicator to see the linked HF model ID, copy it, or open HF search.
 
@@ -568,9 +604,9 @@ Monitors local GGUF models for updates on HuggingFace.
 - `update_checker.rs` - HF API integration and comparison logic
 
 **Tauri commands:**
-- `get_model_metadata(path)` → GgufMetadata
-- `check_model_update(path)` → UpdateCheckResult
-- `link_model_to_hf(path, model_id, filename)` → HfMetadata
+- `get_model_metadata(path)` â†’ GgufMetadata
+- `check_model_update(path)` â†’ UpdateCheckResult
+- `link_model_to_hf(path, model_id, filename)` â†’ HfMetadata
 
 ---
 
@@ -596,12 +632,12 @@ Browse and track trending AI models from HuggingFace directly in the app.
 - `tracker_manager.rs` - Local storage and filtering of tracker data
 
 **Tauri commands:**
-- `get_tracker_models(...)` → Vec<TrackerModel>
-- `refresh_tracker_data()` → TrackerStats
-- `get_tracker_stats()` → TrackerStats
-- `get_tracker_config()` → TrackerConfig
-- `save_tracker_config(config)` → Result
-- `export_tracker_models(models)` → Result
+- `get_tracker_models(...)` â†’ Vec<TrackerModel>
+- `refresh_tracker_data()` â†’ TrackerStats
+- `get_tracker_stats()` â†’ TrackerStats
+- `get_tracker_config()` â†’ TrackerConfig
+- `save_tracker_config(config)` â†’ Result
+- `export_tracker_models(models)` â†’ Result
 
 ---
 
@@ -624,11 +660,11 @@ Browse and track trending AI models from HuggingFace directly in the app.
 
 ### Quick Overview
 
-**Last Build:** 2025-02-22 - ✅ SUCCESS (Release + Installer)  
+**Last Build:** 2025-02-23 - âœ… SUCCESS (Release Build)  
 **Version:** 0.5.5-beta  
-**Location:** `H:\Ardanu Fix\Arandu-maxi\.worktrees\modern-chat-interface\backend\target\release\Arandu.exe`
+**Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
 
-### ✅ Working Features
+### âœ… Working Features
 - AI Model Tracker with hybrid search (local + live HF)
 - HuggingFace Direct Link Download (Phase 2 complete)
 - "Open in File Explorer" right-click option
@@ -636,16 +672,16 @@ Browse and track trending AI models from HuggingFace directly in the app.
 - GGUF Update Checker with visual indicators
 - Multiple model directories support
 - Quantization color bars on icons
+- **Advanced Parameter Sidebar** in Chat UI
+- **Restart Bridge** for hardware parameter updates
 
-### ⚠️ Active Bugs
-- **🛑 Chat Tab Not Loading - REGRESSION (2025-02-23)**
-  - Custom Chat tab no longer renders after CSS fix attempt
-  - CRITICAL - blocks all chat functionality
-  - See Known Issues section for details
-- **Chat Input Layout Incorrect (2025-02-23)**
-  - Input area sits too high
-  - Less than 4 visible lines of text
-  - Fix attempt caused regression above
+### âš ï¸ Active Bugs
+- **ðŸ›‘ Parameter Panel Interaction Bugs (2025-02-23)**
+  - Parameter panel starts visible and close button is unresponsive.
+- **ðŸ›‘ Chat Input: Enter key does not send (2025-02-23)**
+  - Enter key inserts newline instead of sending message.
+- **ðŸ›‘ Chat UI: Send button unresponsive (2025-02-23)**
+  - Send button fails to trigger LLM completion.
 
 ---
 
@@ -656,7 +692,7 @@ Detailed implementation plans for upcoming features are stored in:
 **`docs/plans/`** - Contains comprehensive step-by-step implementation guides
 
 ### Completed Plans:
-- ✅ **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)** - IMPLEMENTED
+- âœ… **[Phase 2: HuggingFace Direct Link Download](docs/plans/Phase-2-HF-Direct-Link.md)** - IMPLEMENTED
   - Sequential downloads with resume support
 
 When starting new feature work, check this folder for ready-to-implement plans.
@@ -672,3 +708,13 @@ When starting new feature work, check this folder for ready-to-implement plans.
 
 - GitHub: https://github.com/fredconex/Arandu
 - Releases: https://github.com/fredconex/Arandu/releases
+
+---
+
+## Final Reminder - Knowledge Mem Protocol (Read Every Time)
+
+- Before searching for files, bugs, features, or implementation context, query nowledge mem first.
+- During work, continue checking nowledge mem whenever new uncertainty appears.
+- After every meaningful action (edit, move, save, discovery, fix, verification), add or update at least one nowledge memory.
+- Treat memory updates as mandatory deliverables, not optional notes.
+

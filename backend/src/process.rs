@@ -1,6 +1,7 @@
 use tokio::process::{Child, Command as TokioCommand};
 use tokio::io::{BufReader, AsyncBufReadExt};
 use std::process::Stdio;
+#[cfg(windows)]
 use uuid::Uuid;
 use chrono::Utc;
 use std::sync::Arc;
@@ -155,7 +156,7 @@ pub async fn launch_model_server(
     let executable_path = resolve_llama_server_path_with_fallback(state, &global_config).await;
     
     if !executable_path.exists() {
-        return Err(format!("Server executable not found at: {:?}", executable_path).into());
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Server executable not found at: {:?}", executable_path))));
     }
     
     let requested_port = parse_port_from_args(&model_config.custom_args, model_config.server_port);
@@ -171,12 +172,61 @@ pub async fn launch_model_server(
     
     // Build command with custom args if any
     let mut cmd = TokioCommand::new(&executable_path);
+    
+    // Set working directory to the executable's parent folder
+    if let Some(parent) = executable_path.parent() {
+        cmd.current_dir(parent);
+    }
+
+    // Add path to custom UI files
+    // Use proper path resolution based on environment (dev vs release)
+    let custom_ui_path = {
+        let mut path = std::path::PathBuf::from("frontend/llama-custom");
+        
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // Check for dev mode: executable_dir/frontend/llama-custom
+                let dev_path = exe_dir.join("frontend/llama-custom");
+                // Check for release mode: executable_dir/resources/frontend/llama-custom
+                let release_path = exe_dir.join("resources/frontend/llama-custom");
+                // Check for target/release weirdness: executable_dir/_up_/frontend/llama-custom
+                let up_path = exe_dir.join("_up_/frontend/llama-custom");
+                
+                if dev_path.exists() {
+                    path = dev_path;
+                } else if release_path.exists() {
+                    path = release_path;
+                } else if up_path.exists() {
+                    path = up_path;
+                }
+            }
+        }
+        
+        // Ensure we have an absolute path
+        if !path.is_absolute() {
+             if let Ok(cwd) = std::env::current_dir() {
+                 path = cwd.join(path);
+             }
+        }
+        
+        println!("Resolved custom UI path: {:?}", path);
+        path
+    };
+
+    println!("Using custom UI path: {:?}", custom_ui_path);
+    cmd.args(["--path", custom_ui_path.to_str().unwrap_or("")]);
+
     cmd.args(["-m", &model_config.model_path])
        .args(["--host", &model_config.server_host])
        .args(["--port", &final_port.to_string()])
        .stdout(Stdio::piped())
        .stderr(Stdio::piped())
        .kill_on_drop(true); // Ensure child process is killed when dropped
+
+    // Apply environment variables
+    for (key, value) in &model_config.env_vars {
+        cmd.env(key, value);
+    }
 
     // Hide console window on Windows release builds
     #[cfg(all(windows, not(debug_assertions)))]
@@ -187,10 +237,11 @@ pub async fn launch_model_server(
         let mut custom_args = parse_custom_args(&model_config.custom_args);
         filter_port_args(&mut custom_args); // Filter out --port arguments
         
-        // Resolve relative paths for --mmproj and -mm
+        // Resolve relative paths for --mmproj, -mm, --model-draft, and -md
         let mut i = 0;
         while i < custom_args.len() {
-            if (custom_args[i] == "--mmproj" || custom_args[i] == "-mm") && i + 1 < custom_args.len() {
+            if (custom_args[i] == "--mmproj" || custom_args[i] == "-mm" || 
+                custom_args[i] == "--model-draft" || custom_args[i] == "-md") && i + 1 < custom_args.len() {
                 let path = &custom_args[i + 1];
                 if !std::path::Path::new(path).is_absolute() {
                     let abs_path = std::path::Path::new(&global_config.models_directory).join(path);
@@ -280,7 +331,7 @@ pub async fn launch_model_external(
     let executable_path = resolve_llama_server_path_with_fallback(state, &global_config).await;
     
     if !executable_path.exists() {
-        return Err(format!("Server executable not found at: {:?}", executable_path).into());
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Server executable not found at: {:?}", executable_path))));
     }
     
     let requested_port = parse_port_from_args(&model_config.custom_args, model_config.server_port);
@@ -309,10 +360,11 @@ pub async fn launch_model_external(
         let mut custom_args = parse_custom_args(&model_config.custom_args);
         filter_port_args(&mut custom_args); // Filter out --port arguments
         
-        // Resolve relative paths for --mmproj and -mm
+        // Resolve relative paths for --mmproj, -mm, --model-draft, and -md
         let mut i = 0;
         while i < custom_args.len() {
-            if (custom_args[i] == "--mmproj" || custom_args[i] == "-mm") && i + 1 < custom_args.len() {
+            if (custom_args[i] == "--mmproj" || custom_args[i] == "-mm" || 
+                custom_args[i] == "--model-draft" || custom_args[i] == "-md") && i + 1 < custom_args.len() {
                 let path = &custom_args[i + 1];
                 if !std::path::Path::new(path).is_absolute() {
                     let abs_path = std::path::Path::new(&global_config.models_directory).join(path);
@@ -331,6 +383,12 @@ pub async fn launch_model_external(
     #[cfg(windows)]
     {
         let mut cmd = TokioCommand::new("cmd");
+        
+        // Apply environment variables
+        for (key, value) in &model_config.env_vars {
+            cmd.env(key, value);
+        }
+
         cmd.args(["/c", "start", "cmd", "/k"])
            .arg(executable_path.to_string_lossy().to_string())
            .args(&cmd_args);
@@ -340,6 +398,9 @@ pub async fn launch_model_external(
     #[cfg(not(windows))]
     {
         let mut cmd = TokioCommand::new("x-terminal-emulator");
+        for (key, value) in &model_config.env_vars {
+            cmd.env(key, value);
+        }
         cmd.args(["-e"])
            .arg(executable_path.to_string_lossy().to_string())
            .args(&cmd_args);
@@ -347,12 +408,18 @@ pub async fn launch_model_external(
         // Fallback to other terminal emulators if x-terminal-emulator fails
         if cmd.spawn().is_err() {
             let mut cmd = TokioCommand::new("gnome-terminal");
+            for (key, value) in &model_config.env_vars {
+                cmd.env(key, value);
+            }
             cmd.args(["--"])
                .arg(executable_path.to_string_lossy().to_string())
                .args(&cmd_args);
             
             if cmd.spawn().is_err() {
                 let mut cmd = TokioCommand::new("xterm");
+                for (key, value) in &model_config.env_vars {
+                    cmd.env(key, value);
+                }
                 cmd.args(["-e"])
                    .arg(executable_path.to_string_lossy().to_string())
                    .args(&cmd_args);
@@ -564,7 +631,7 @@ pub async fn get_process_logs(
             return_code: None,
         })
     } else {
-        Err("Process not found".into())
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "Process not found")))
     }
 }
 

@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tower_http::cors::{Any, CorsLayer};
 use crate::openai_types::{
     ChatCompletionRequest, AudioTranscriptionRequest, AudioTranscriptionResponse,
     AudioSpeechRequest, ImageGenerationRequest,
@@ -39,6 +40,12 @@ impl ProxyServer {
     }
 
     pub async fn start(&mut self) -> Result<(), String> {
+        // Configure CORS to allow all origins (needed for cross-LAN access)
+        let cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
+
         let app = Router::new()
             .route("/v1/models", get(list_models))
             .route("/v1/chat/completions", post(chat_completions))
@@ -46,6 +53,7 @@ impl ProxyServer {
             .route("/v1/audio/speech", post(audio_speech))
             .route("/v1/images/generations", post(image_generations))
             .route("/health", get(health_check))
+            .layer(cors)
             .with_state(Arc::new(RwLock::new(ProxyState {
                 llama_server_url: self.llama_server_url.clone(),
                 llama_client: LlamaClient::new(self.llama_server_url.clone()),
@@ -97,22 +105,47 @@ async fn list_models(
     State(state): State<Arc<RwLock<ProxyState>>>,
 ) -> impl IntoResponse {
     let state_guard = state.read().await;
-    let url = format!("{}/v1/models", state_guard.llama_server_url);
+    // llama.cpp uses /props endpoint to get model info, not /v1/models
+    let url = format!("{}/props", state_guard.llama_server_url);
     drop(state_guard);
 
     let client = reqwest::Client::new();
 
     match client.get(&url).timeout(std::time::Duration::from_secs(5)).send().await {
         Ok(response) if response.status().is_success() => {
-            match response.json::<ModelsResponse>().await {
-                Ok(models) => (StatusCode::OK, Json(models)).into_response(),
-                Err(_) => {
-                    // Fallback to hardcoded if parsing fails
+            // Parse llama.cpp props response to get model name
+            match response.json::<serde_json::Value>().await {
+                Ok(props) => {
+                    // llama.cpp returns model info in different possible fields
+                    let model_name = props.get("model")
+                        .and_then(|m| m.as_str())
+                        .or_else(|| props.get("default_generation_settings")
+                            .and_then(|s| s.get("model"))
+                            .and_then(|m| m.as_str()))
+                        .or_else(|| props.get("generation_settings")
+                            .and_then(|s| s.get("model"))
+                            .and_then(|m| m.as_str()))
+                        .unwrap_or("unknown-model");
+                    
                     let models = vec![ModelInfo {
-                        id: "local-llama".to_string(),
+                        id: model_name.to_string(),
                         object: "model".to_string(),
                         created: chrono::Utc::now().timestamp(),
-                        owned_by: "arandu".to_string(),
+                        owned_by: "llama.cpp".to_string(),
+                    }];
+                    let response = ModelsResponse {
+                        object: "list".to_string(),
+                        data: models,
+                    };
+                    (StatusCode::OK, Json(response)).into_response()
+                }
+                Err(_) => {
+                    // Fallback to generic response
+                    let models = vec![ModelInfo {
+                        id: "llama-model".to_string(),
+                        object: "model".to_string(),
+                        created: chrono::Utc::now().timestamp(),
+                        owned_by: "llama.cpp".to_string(),
                     }];
                     let response = ModelsResponse {
                         object: "list".to_string(),

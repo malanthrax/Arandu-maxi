@@ -1,6 +1,6 @@
-# Arandu - Mandatory AI Agent Rules
+﻿# Arandu - Mandatory AI Agent Rules
 
-⚠️ **CRITICAL: ALL AI agents working on this project MUST follow these rules.**
+âš ï¸ **CRITICAL: ALL AI agents working on this project MUST follow these rules.**
 
 Failure to follow these rules results in:
 - Lost work (working in wrong directory)
@@ -95,7 +95,7 @@ Ardanu Fix\Arandu-maxi\backend"
    ```
 
 2. **Verify build succeeds:**
-   - ✅ 0 errors (warnings OK)
+   - âœ… 0 errors (warnings OK)
    - Output: `backend/target/release/Arandu.exe`
 
 3. **Test the feature:**
@@ -163,7 +163,7 @@ Ardanu Fix\Arandu-maxi\backend"
 1. **Add to THIS-PROJECTS-CURRENT-STATE.md:**
    ```markdown
    ## New Feature: [Feature Name]
-   **Status:** COMPLETE ✅
+   **Status:** COMPLETE âœ…
    **Date:** [YYYY-MM-DD]
    
    **Description:** What it does
@@ -172,7 +172,7 @@ Ardanu Fix\Arandu-maxi\backend"
    - `frontend/...` - What changed
    - `backend/...` - What changed
    
-   **Build Status:** ✅ SUCCESS
+   **Build Status:** âœ… SUCCESS
    ```
 
 2. **Update relevant sections in AGENTS.md** if you:
@@ -258,3 +258,16 @@ If you're stuck:
 ---
 
 *These rules exist because previous agents learned the hard way. Follow them.*
+
+
+---
+
+## Rule 8: CONSOLIDATED DOCUMENTATION
+
+**All documentation MUST be kept within the Arandu-maxi folder.**
+
+- **Knowledge Base:** docs/knowledge-base/
+- **Implementation Plans:** docs/plans/
+- **Root Docs:** README.md, AGENTS.md, THIS-PROJECTS-CURRENT-STATE.md
+
+**NEVER** create documentation in the parent H:\Ardanu Fix\ directory or other sibling folders. This prevents fragmentation and ensures all agents have the same context.

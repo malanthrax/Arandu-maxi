@@ -1,536 +1,270 @@
 # Arandu Development Status - 2025-02-23
 
-## 🆕 NEW FEATURE: Modern Chat Interface (Phase 1 Complete) ⚠️ REGRESSION BUG
+## 🟩 MCP Integration (Frontend + Backend)
 
-**Status:** IMPLEMENTED WITH REGRESSION BUG  
-**Date:** 2025-02-23  
-**Branch:** `main` (merged from `feature/modern-chat-interface`)  
-**Build Status:** ✅ SUCCESS  
-**🛑 CURRENT STOPPER:** Chat tab no longer loads after CSS fix attempt (REGRESSION)
+**Status:** Implemented (connection management phase complete)
+**Date:** 2026-02-24
+**Context:** MCP server registry now supports CRUD + test + persistence in UI and settings.
 
-### Description
-Implemented a modern, ChatGPT/Claude-style chat interface as a replacement for the native llama.cpp web UI. The interface integrates as a third tab in the terminal window, providing persistent conversations, real-time parameter adjustment, and a polished user experience.
+### Scope completed
+- Added MCP connection management in **Network** area: add/edit/remove/save, test, toggle, and reload.
+- Kept phase-one boundaries: connection management only; no MCP tool invocation in chat yet.
+- MCP registry is owned by backend settings (`GlobalConfig.mcp_servers`) and surfaced through dedicated Tauri commands.
 
-### Features Implemented
+### ✅ Daily update (2026-02-25)
+- Fixed MCP JSON transport save-path behavior so `transport: json` no longer requires a URL in either frontend or backend validation.
+- Added backend test coverage for this path: `mcp_validation_accepts_json_without_url`.
+- Updated MCP test behavior to provide a clear error when testing JSON transport without URL instead of blocking save.
+- Fixed MCP transport dropdown contrast/visibility by styling `#mcp-transport` and option list to dark backgrounds with light text.
+- Rebuilt executable to include today’s MCP fixes: `backend/target/release/Arandu.exe`.
+- Re-ran backend tests and confirmed all passing (`38 passed` after MCP discovery additions).
 
-**Core Chat Functionality:**
-- ✅ Persistent chat sessions stored in `~/.Arandu/chats/`
-- ✅ Streaming message responses
-- ✅ Chat history sidebar with date grouping (Today/Yesterday/Last 7 Days/Older)
-- ✅ Auto-generated titles after 5 message pairs
-- ✅ Multiple concurrent chats per model
-- ✅ Real-time parameter adjustment via sliders
+### ✅ MCP tools discovery milestone (2026-02-25)
+- Implemented backend MCP tool discovery for HTTP/StreamableHttp connections: added `list_mcp_tools` command and persisted discovery metadata fields (`tools`, refresh timing/status/message/error).
+- Added shared MCP response parsing for `tools/list` and tests for successful and error responses.
+- Updated MCP UI to show cached tool count, status, and a quick preview for each configured connection, plus per-row `MCP Tools` action.
+- Preserved tool cache when editing/saving existing MCP settings by carrying cached fields in the save payload.
+- Added discovery UX styles in `frontend/css/desktop.css` for status chips and tool preview readability.
+- Added dedicated MCP Tools detail window (`openMcpToolsWindow`) that opens from each MCP row, lists each tool name/description, and shows input/output schema summaries with optional raw schema expanders.
+- Added smoke/build checks: `cargo test --manifest-path backend/Cargo.toml` passes, and `node --check frontend/desktop.js` passes.
+- Added a dedicated MCP action in the start menu (`MCP Connections`) that opens the existing Network popup so users can actually reach MCP management.
 
-**Parameter Control:**
-- ✅ Temperature (0.0-2.0) - Runtime adjustable
-- ✅ Top P (0.0-1.0) - Runtime adjustable  
-- ✅ Top K (1-100) - Runtime adjustable
-- ✅ Max Tokens (256-8192) - Runtime adjustable
-- ✅ Context Length (512-32768) - Shows "Restart Required" badge
-- ✅ Repeat Penalty - Runtime adjustable
+### ✅ Build checkpoint (2026-02-25)
+- User requested packaged build verification for MCP discovery changes.
+- Executed `cargo tauri build` from `backend` and build succeeded.
+ - New executable: `backend/target/release/Arandu.exe`
+ - Bundles produced:
+     - `backend/target/release/bundle/msi/Arandu_0.5.5-1_x64_en-US.msi`
+     - `backend/target/release/bundle/nsis/Arandu_0.5.5-1_x64-setup.exe`
 
-**UI Components:**
-- ✅ Left sidebar with chat list
-- ✅ Main chat area with message bubbles
-- ✅ Auto-resizing input textarea
-- ✅ Slide-out settings panel
-- ✅ Theme integration (matches Arandu's dark theme)
-- ✅ Responsive design
+### ✅ MCP discoverability build checkpoint (2026-02-25)
+- Ran `cargo tauri build --no-bundle` after MCP start menu wiring.
+- New executable: `backend/target/release/Arandu.exe`.
+- Re-ran `cargo test --manifest-path backend/Cargo.toml -- --nocapture` and confirmed `38 passed`.
+- Full runtime MCP smoke checklist still requires manual desktop interaction (open Network widget > MCP panel > add/edit/test actions).
 
-**Integration:**
-- ✅ Third tab in terminal window (Terminal, Native Chat, Custom Chat)
-- ✅ Tab starts disabled, enables after initialization
-- ✅ Proper cleanup on window close
-- ✅ No disruption to existing Terminal/Native Chat tabs
+### ✅ MCP visibility fix in taskbar (2026-02-25)
+- Moved MCP access to the dock in the same visual style as Settings/Hugging Face/Llama.cpp: added `mcp-dock-icon` with `plug` icon and title `MCP Connections` in `frontend/index.html`.
+- Added dock click handling in `frontend/desktop.js` to call `openMcpConfigPanel()` directly.
+- Rebuilt executable with `cargo tauri build --no-bundle`; output: `backend/target/release/Arandu.exe`.
+- Static checks passed: `node --check frontend/desktop.js`.
+- Verification limitation: launch-time visual and interaction verification is still a manual GUI check and requires running the built `.exe` locally.
 
-### Files Created
+### ✅ Knowledge memory sync (2026-02-25)
+- Confirmed MCP memory locator is configured in `tools.yaml` with local server key `nowledge-mem` at `http://127.0.0.1:14242/mcp`.
+- Logged MCP discovery/build outcomes in:
+   - `docs/knowledge-base/mcp-tools-build-log-2026-02-25.md`
+   - `docs/knowledge-base/mcp-tools-memory-sync-2026-02-25.md`.
+- Updated docs index entry for the new KB item in `docs/INDEX.md`.
 
-**Backend:**
-- `backend/src/chat_models.rs` - Data structures (ChatSession, ChatMessage, ChatParameters)
-- `backend/src/chat_manager.rs` - CRUD operations for chat management
-- `backend/src/parameter_controller.rs` - Runtime parameter adjustment
+### ✅ Chat restart-contract hardening (2026-02-25)
+- Fixed chat restart message parity in `frontend/modules/terminal-manager.js`: restart-required config updates now always send a `settings-saved` response with `restartTriggered: true`.
+- Updated chat iframe handler in `frontend/llama-custom/index.html` to treat this as a completed restart signal: baseline is refreshed and connection status loading state is cleared.
+- This prevents stale `needs restart` state after a successful in-chat restart request.
+- Rebuilt executable after the restart-contract hardening: `backend/target/release/Arandu.exe`.
 
-**Frontend:**
-- `frontend/modules/chat-app.js` - Main ChatApp class (1016 lines)
-- `frontend/css/chat-app.css` - Styling (15KB)
+### Implementation outcome
+- **Backend (`backend/src/models.rs`, `backend/src/config.rs`, `backend/src/lib.rs`)**
+  - Added `McpTransport`, `McpServerConfig`, and `McpTestResult` types.
+  - Added persistent `mcp_servers` config array with migration-safe defaults.
+  - Added Tauri CRUD/test commands and wired them into command handler list.
+  - Implemented transport-aware `test_mcp_connection` for stdio and URL transports.
+  - Added `JSON` transport mode that sends `Accept: application/json` during MCP initialize tests.
+- **Frontend (`frontend/index.html`, `frontend/css/desktop.css`, `frontend/desktop.js`)**
+  - Added MCP list + form in Network popup, transport-aware field behavior, row status indicators, and save/test/delete/toggle actions.
+  - Added local MCP form and state management, including parse helpers for JSON args/env/headers.
+  - Added startup load and post-mutation refresh flow to keep UI aligned with persisted config.
 
-### Files Modified
+### Latest UI fix (MCP transport dropdown visibility)
+- Updated MCP transport select styling in `frontend/css/desktop.css` so the dropdown and option list uses dark surfaces with light text.
+- Fixed visibility issue where `JSON/HTTP/...` options were hard to read due to white-on-white contrast.
+- Change is scoped to `#mcp-transport` and its `option` items only.
 
-**Backend:**
-- `backend/src/lib.rs` - Added 7 new Tauri commands:
-  - `create_chat`
-  - `load_chat`
-  - `list_chats`
-  - `send_message`
-  - `update_chat_parameters`
-  - `delete_chat`
-  - `generate_chat_title`
+### MCP validation fix (JSON transport)
+- Updated MCP transport validation so `json` no longer requires a URL to save or update a connection.
+- Kept URL optional for JSON transport in the form layer while retaining clear runtime feedback when a JSON MCP entry is tested without a URL.
+- Added backend unit coverage: `mcp_validation_accepts_json_without_url`.
 
-**Frontend:**
-- `frontend/modules/terminal-manager.js` - Added Custom Chat tab and ChatApp integration
-- `frontend/index.html` - Added chat-app.js script include
-- `frontend/css/main.css` - Added chat-app.css import
+### Current milestone: JSON transport save behavior completed
+- `2026-02-24` — `JSON` MCP transport can now be saved/edited without a URL.
+- Backend validation now treats `json` as a valid transport without URL requirement.
+- Frontend validation now allows `json` to be saved without URL, matching backend behavior.
+- Manual test confirmation: JSON MCP connection now connects successfully in app after rebuild.
+- Rebuilt executable after fix: `backend\target\release\Arandu.exe`.
 
-### Known Issues / Current Bugs
+### ✅ Half-Context launch option added (2026-02-25)
+- Added new context menu launch action: `Load with half context`.
+- New one-shot backend command: `launch_model_with_half_context` in `backend/src/lib.rs`.
+- Launch flow uses temporary in-memory argument override and restores config after launch.
+- `--context-shift` is passed through terminal creation so UI reflects launch arguments via `openServerTerminal(..., launchArgs)`.
+- Existing preset launches and external launch flow are unchanged.
+- MCP popup and MCP commands remain untouched.
+- Files touched: `frontend/desktop.js`, `backend/src/lib.rs`.
+- Verification: `cargo check --manifest-path backend/Cargo.toml` and JS syntax checks passed.
 
-**🛑 STOPPER: Chat Tab Not Loading (REGRESSION)**
-- **Status:** ACTIVE BUG - REGRESSION FROM FIX ATTEMPT
-- **Date:** 2025-02-23
-- **Severity:** CRITICAL - Custom Chat tab no longer works at all
-- **Description:** After CSS layout fix attempt, the Custom Chat tab no longer loads/renders. The tab exists but clicking it shows nothing or breaks the interface.
-- **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
-- **Changes That Caused This:**
-  - Added `.chat-app-wrapper` CSS class with flex layout
-  - Changed `.chat-app-container` from `height: 100%` to `flex: 1; min-height: 0;`
-  - Fixed media query to preserve `--composer-padding` in responsive view
-- **Root Cause:** UNKNOWN - CSS changes may have broken the container hierarchy or JavaScript rendering
-- **Next Steps:** 
-  1. Revert CSS changes and test if chat loads
-  2. If revert fixes it, apply fixes one at a time to identify breaking change
-  3. Check browser DevTools console for JavaScript errors
-  4. Verify `.chat-app-wrapper` class is actually applied to the wrapper div
+### Validation
+- Backend checks: `cargo check` and `cargo test` succeeded in `backend`.
+- Full packaging now succeeds after version metadata fix (`0.5.5-1`):
+  - `cargo tauri build` completed and generated both `.msi` and `.exe` bundles.
+- MCP runtime smoke checklist (manual UI path) is not fully executable in this environment because GUI interaction is unavailable.
+- Added MCP command payload guard tests in `backend/src/lib.rs` (`mcp_validation_*`), covering name, timeout, and URL/transport validation paths.
+- Added explicit `JSON` transport coverage:
+  - `McpTransport::Json` deserializes from `"json"`.
+  - URL transport validation accepts JSON mode for HTTP-style endpoints.
+- Extended MCP validation coverage to cover malformed URL parsing and stdio transport command enforcement, plus explicit `StreamableHttp` acceptance case.
+- Per-request runtime smoke checks completed:
+  - Executable launch sanity check: `backend\\target\\release\\Arandu.exe` starts and exits cleanly when terminated.
+  - MCP-oriented Rust tests with `cargo test --manifest-path backend/Cargo.toml mcp -- --nocapture` passed (1 MCP-related test).
+  - New MCP validation tests now pass with `cargo test --manifest-path backend/Cargo.toml mcp_validation -- --nocapture` (9 tests).
 
-**⚠️ ORIGINAL BUG (Before Regression): Chat Input Layout Incorrect**
-- **Status:** NOT FIXED - Superseded by regression
-- **Date:** 2025-02-23
-- **Severity:** HIGH - Blocks usable chat input
-- **Description:** Chat input area sits too high and does not show 4 visible lines of text.
-- **Location:** `frontend/modules/chat-app.js`, `frontend/css/chat-app.css`
-- **Root Cause Analysis:**
-  - `.chat-app-wrapper` div had no CSS (wasn't filling parent)
-  - `.chat-app-container` used `height: 100%` which fails with flex parents
-  - Media query at line 799 removed `--composer-padding` bottom padding
-- **Fix Attempted:** Added wrapper CSS, changed to flex:1, fixed media query
-- **Result:** Fix broke chat loading entirely - REGRESSION
+### Additional hardening completed
+- Added backend-side MCP payload validation for stricter transport consistency (required command/URL checks and URL syntax validation).
+- Added focused MCP serde migration tests in `backend/src/models.rs`:
+  - legacy config without `mcp_servers` loads with empty list,
+  - `streamable_http` transport round-trips to `McpTransport::StreamableHttp`.
+- Added frontend safety hardening for model list rendering:
+  - `refreshDesktopIcons()` now sorts with null-safe arrays and tolerates missing model fields (name/path/size/arch/quantization) without breaking the desktop icon refresh path.
+- Updated MCP/network UI checks to use model-path keyed configs consistently in update-indicator flow.
+- Made the network popup content scrollable (`.network-simple-content` with `overflow-y: auto`) so MCP and Server Address sections remain reachable when content extends beyond viewport.
 
-**⚠️ Previously Reported:** Enter/Send buttons not working
-- **Status:** UNKNOWN - Cannot test due to regression
-- **Next Steps:** Re-test once chat loads again
+### Next (remaining, non-blocking to this phase)
+- Add manual runtime smoke check: create/edit/test entries (stdio + URL transport), then restart app and verify list reload.
+  - Checklist added: `docs/plans/2026-02-24-mcp-runtime-smoke-checklist.md`
+- Keep known packaging/version blockers documented in separate build-state items.
 
-### Session History (2025-02-23)
+**MCP phase milestone recorded (2026-02-24)**
 
-**What Was Done:**
-1. Investigated chat input layout issue
-2. Identified 3 root causes (missing wrapper CSS, height chain broken, media query override)
-3. Applied CSS fixes to `frontend/css/chat-app.css`:
-   - Added `.chat-app-wrapper` style
-   - Changed `.chat-app-container` to use `flex: 1`
-   - Fixed responsive padding in media query
-4. **RESULT:** Chat tab stopped loading entirely
+## 🟡 In-Flight Fix: Launch Args Persistence for Recovery/Restart
 
-**Files Modified This Session:**
-- `frontend/css/chat-app.css` (3 CSS changes that caused regression)
+**Status:** Partially complete and verified in frontend terminal state
+**Date:** 2026-02-24
+**Context:** Speculative drafting reliability and crash recovery still using stale launch parameters
 
-**Recommendation for Next Agent:**
-1. First, REVERT the CSS changes to restore chat loading
-2. Then apply fixes one at a time with testing between each
-3. The media query fix (line ~799) should be safe
-4. The `.chat-app-wrapper` and `.chat-app-container` changes need careful review
+### Current State (What we changed)
+- Added a fallback resolver in `openServerTerminal(...)` (`frontend/modules/terminal-manager.js`) to load saved `custom_args` from `get_model_settings` whenever launch args are missing at terminal creation time.
+- `launchArgs` is now normalized to a trimmed string and stored as `terminalInfo.launchArgs` before UI creation.
+- This directly aligns with existing restart logic in `terminal-manager.js`, which reads `terminalInfo.launchArgs` for:
+  - speculative flag detection (`-md`, `--model-draft`)
+  - restart request config restoration
+  - safer recovery flow when a launch path fails
 
-### Tauri Commands Reference
+### Why this matters now
+- Normal launch path from `frontend/desktop.js` still passes `openServerTerminal(...)` without an explicit arg in some flows.
+- Recovery previously saw empty terminal launch args, so speculative stripping and restart re-launch decisions could use stale/incorrect state.
+- With this patch, terminal state now consistently records the real args used for that model launch.
 
-```rust
-// Chat Management
-#[tauri::command]
-async fn create_chat(model_path: String, model_name: String) -> Result<ChatSession, String>
+### Validation
+- Backend sanity checks from earlier pass were clean in this branch: `cargo check` and `cargo test`.
+- No additional code changes were needed in `backend/` for this fix pass.
 
-#[tauri::command]
-async fn load_chat(chat_id: String) -> Result<ChatSession, String>
+## 🟢 STATUS: Advanced Parameters & Speculative Drafting Live
 
-#[tauri::command]
-async fn list_chats() -> Result<Vec<ChatSummary>, String>
+**Status:** UI ENHANCED - INTELLIGENT DRAFTING ACTIVE
+**Date:** 2025-02-23
+**Build Status:** ✅ SUCCESS (Release Build)
 
-#[tauri::command]
-async fn send_message(chat_id: String, content: String, stream: bool) -> Result<MessageResponse, String>
+### Recent Fix: Advanced Parameters & Intelligence Bridge (2025-02-23)
+**Implementation:**
+1. **Frontend (Chat UI):** Expanded the professional, scrollable sidebar to include 35+ advanced options.
+2. **Advanced Chat Features Added:**
+   - **🛑 Stop Button:** Integrated `AbortController` to immediately interrupt LLM generation and clear the queue.
+   - **📎 Multi-File Attachments:** Added a `+` button supporting Images (Vision models), PDFs, and Word docs. Includes automatic text extraction for documents using PDF.js and Mammoth.js.
+   - **🔹 Draft Highlighting:** Tokens generated by the draft model and accepted by the main model are now colored **Light Blue** in the chat stream.
+   - **📊 Performance Stats:** Every response now includes a detailed readout of Total Tokens, Main vs Draft token counts, and Time to First Token (TTFT).
+3. **Comprehensive Parameters Added:**
+   - **Sampling/Runtime:** System prompt, Temperature, Top P, Min P, Top K, Max Tokens, Repeat Penalty, Repeat Last N, Presence Penalty, Frequency Penalty, Context Window, **XTC (Exclude Top Choices), DRY (Don't Repeat Yourself), Reasoning Budget/Format.**
+   - **Launch/Hardware:** Context Size, Context Shift, GPU Layers (-ngl), CPU MoE Layers (-ncmoe), GPU Split Mode, Main GPU Index, Flash Attention, Use MMap, KV cache K/V compression types (9 types supported), **Speculative Drafting (with "Sense Model" auto-architecture detection, Draft P-Min, and Draft Max Tokens), NUMA Optimization, Use Pinned Memory, Embedded Template (Jinja),** Environment Variables.
+4. **Speculative Drafting "Sense Model":**
+   - Implemented a "Sense Compatible Models" button.
+   - The UI queries the main app to detect the current model's architecture (e.g., Llama, Qwen).
+   - Dynamically populates a scrollable dropdown of local models matching that architecture.
+   - Automatically handles `-md` path resolution in the backend for both dev and release paths.
+4. **Restart Bridge & Health Checks:**
+   - Enhanced `postMessage` bridge with robust source-window identification.
+   - **Robust Health Check:** Implemented 15 retries (30-second window) to account for slow dual-model loading during speculative drafting.
+   - **Iframe Sync:** The chat UI reloads ONLY when the server is confirmed "Healthy" (responding with 200 OK).
+5. **Flash Attention Fix:** Resolved a critical crash where `-fa` was sent without an explicit `on/off` value.
 
-#[tauri::command]
-async fn update_chat_parameters(chat_id: String, parameters: ChatParameters) -> Result<(), String>
+**Files Modified:**
+- `frontend/llama-custom/index.html`
+- `frontend/modules/terminal-manager.js`
+- `backend/src/process.rs`
 
-#[tauri::command]
-async fn delete_chat(chat_id: String) -> Result<(), String>
+### 🟢 Resolved Features & Fixes (2025-02-23)
 
-#[tauri::command]
-async fn generate_chat_title(chat_id: String) -> Result<String, String>
-```
-
-### Storage
-- **Location:** `~/.Arandu/chats/`
-- **Format:** Individual JSON files per chat (`{chat_id}.json`)
-- **Index:** `~/.Arandu/chats/index.json` for fast listing
-- **Size:** Small text files, typically 10-100KB per chat
-
-### Technical Architecture
-
-**Backend:**
-- Uses existing llama.cpp HTTP API via `llama_client.rs`
-- Parameters sent per-request for runtime-adjustable settings
-- Context length changes saved to config for next model load
-- Streaming via Tauri events (`chat-stream-{chat_id}`)
-
-**Frontend:**
-- ChatApp class manages UI state and Tauri communication
-- Auto-resizing textarea with proper event handling
-- Message grouping by date in sidebar
-- Settings panel with Material Design sliders
-- Proper cleanup on window close (prevents memory leaks)
-
-### Testing Status
-
-**Build:** ✅ SUCCESS  
-**Backend Compilation:** ✅ No errors (31 warnings - expected for new code)  
-**Release Build:** ✅ SUCCESS  
-**Integration:** ✅ Custom Chat tab appears and initializes  
-
-**Manual Testing Required:**
-- [ ] Load model and test chat functionality
-- [ ] Verify streaming responses work
-- [ ] Test parameter sliders update in real-time
-- [ ] Verify chat persistence across app restarts
-- [ ] Test auto-naming after 5 message pairs
-- [ ] Verify existing Terminal/Native Chat tabs still work
-- [ ] Test closing and reopening terminal windows
-
-### Usage Instructions
-
-1. **Load a Model:** Double-click any GGUF file on desktop
-2. **Open Custom Chat:** Click the terminal window, then click the "Custom Chat" tab (smart_toy icon)
-3. **Start Chatting:** Type in the input box and press Enter or click Send
-4. **Adjust Parameters:** Click the settings (gear) icon to open the settings panel
-5. **View History:** Previous chats appear in the left sidebar
-6. **Create New Chat:** Click "New Chat" button in sidebar
-
-### Future Enhancements (Phase 2/3)
-
-**Knowledge Base / RAG:**
-- Upload documents (PDF, Word, MD)
-- Vector storage and semantic search
-- Document context attachment to chats
-
-**MCP Integration:**
-- Support for Model Context Protocol servers
-- Tool calling in chat interface
-- External API integration
-
-**Agents System:**
-- Create specialized agents with custom system prompts
-- Per-agent conversation history
-- Quick agent switching
-
-**Image Generation:**
-- Integration with Stable Diffusion
-- Image generation within chat
-- Image display in conversation
-
-### Known Limitations
-
-1. **Context Length:** Cannot be changed at runtime - requires model restart
-2. **Auto-Naming:** Triggers after exactly 5 user-assistant pairs
-3. **Storage:** Chats are stored locally in JSON files (no cloud sync)
-4. **Markdown:** Basic text rendering (Phase 2 could add full Markdown support)
-
-### Build Information
-
-**Worktree Location:** `H:\Ardanu Fix\Arandu-maxi\.worktrees\modern-chat-interface`  
-**Build Command:** `cd backend && cargo tauri build`  
-**Output:** `backend/target/release/Arandu.exe`
+- **✅ Auto-Recovery System:** Implemented logic to automatically strip failing draft model parameters from the saved configuration. If a speculative restart fails, Arandu now cleans the `custom_args` so the main model remains launchable.
+- **✅ Performance Stats Fixed:** Enabled `stream_options: { include_usage: true }` to ensure Total, Main, and Draft token counts are received from the server.
+- **✅ Stat Readout Overhaul:** Tripled the font size (30px) of the performance statistics (Total, Main, Draft, TTFT) for high visibility.
+- **✅ Draft Highlighting Enhanced:** Improved detection of speculative tokens by checking multiple metadata flags in the JSON stream.
+- **✅ Smooth Chat Scrolling:** Fixed the chat container flex logic and scroller to ensure the window automatically stays pinned to the bottom during generation.
+- **✅ Speculative Drafting "Sense Model":** Automated compatibility checking and model selection for speed drafting.
+- **✅ Robust Health Check Logic:** Fixed "blank screen on restart" by waiting up to 30s for models to load.
+- **✅ Flash Attention Syntax:** Fixed server crash by sending `-fa on/off` explicitly.
+- **✅ Portable Build Created:** Assembled `Arandu_v0.5.5-beta_Portable_Sense.zip` containing the latest executable and resources.
+- **✅ Chat Tab (Native) Integration:** Fixed iframe loading race conditions and path resolution.
+- **✅ Parameter Panel Interaction:** Panel now starts collapsed with a floating toggle button.
+- **✅ Chat Input (Enter Key):** Fixed issue where Enter key added a newline instead of sending.
+- **✅ Chat UI (Send Button):** Fixed syntax duplication causing script crashes.
+- **✅ Splash Screen Hang:** Corrected syntax errors in `desktop.js`.
 
 ---
 
-## Overview
-Complete status update of Arandu project including recent bug fixes, new features, and current implementation state.
+## ⚠️ KNOWN BUGS (URGENT)
 
-## Recent Bug Fixes (All Resolved ✅)
-
-### 1. Network Widget - Show All Models for Configuration
-**Status:** FIXED ✅  
-**Date:** 2025-02-21  
-**Issue:** 
-- Network widget showed "No models running" even when models existed
-- User doesn't need to see running status, needs to configure network access for other computers
-
-**Root Cause:**
-- Widget only looked at `terminalManager.terminals` for running models
-- User wants to set host/port for LAN access, not monitor running status
-
-**Solution:**
-- Changed to show ALL models from `this.models` instead of just running ones
-- Simplified UI to focus on network configuration (host/port)
-- Removed running/stopped status indicators and control buttons
-- Added placeholder text "0.0.0.0 for LAN access" to guide users
-- Shows current configured address as clickable link
-
-**Files Modified:**
-- `frontend/desktop.js` - Rewrote `updateNetworkWidget()` to be async and fetch all models with their settings
-
-### 2. Disk Monitor - Only Show on Main Desktop
-**Status:** FIXED ✅  
-**Date:** 2025-02-21  
-**Issue:**
-- Disk monitor appeared as floating window over system logs and other windows
-- User couldn't close it and it was intrusive
-- Only needed on main desktop page
-
-**Root Cause:**
-- Z-index was 9998, higher than windows (which start at 1000)
-- Fixed positioning kept it on top of everything
-
-**Solution:**
-- Lowered z-index from 9998 to 100
-- Now windows (z-index 1000+) can cover it
-- Still visible on desktop but doesn't float over opened windows
-
-**Files Modified:**
-- `frontend/css/desktop.css` - Changed `z-index: 9998` to `z-index: 100` for `.desktop-disk-monitor`
-
-### 3. Search Not Finding Models
-**Status:** FIXED  
-**Issue:** Searching for "step" or any model name returned no results  
-**Root Cause:** Search only queried local database, never called HF API  
-**Solution:** Added `triggerLiveFetch()` call in `applyFilters()` to query HF API with search term  
-**Files Modified:** `frontend/modules/tracker-app.js`
-
-### 2. Tracker Filters Returning Blank
-**Status:** FIXED  
-**Issue:** Backends, Chinese only, GGUF only, and VRAM filters all returned empty results  
-**Root Cause:** SQL parameter binding bug - mixing numbered (`?1`, `?2`) with unnumbered (`?`) placeholders  
-**Solution:** Changed all SQL placeholders to use simple `?` format  
-**Files Modified:** `backend/src/tracker_manager.rs`
-
-### 3. Models Not Loading Initially
-**Status:** FIXED  
-**Issue:** Opening tracker showed "Click Refresh" indefinitely  
-**Root Cause:** `openTracker()` never called `applyFilters()` to load cached data  
-**Solution:** Added automatic data load after window opens  
-**Files Modified:** `frontend/modules/tracker-app.js`
-
-### 4. "View on HF" Button Not Working
-**Status:** FIXED  
-**Root Cause:** Command name mismatch - called `open_external_link` but command is `open_url`  
-**Solution:** Fixed command name in tracker-app.js  
-**Files Modified:** `frontend/modules/tracker-app.js`
-
-### 5. GGUF Detection (0 of 101 Files)
-**Status:** FIXED  
-**Root Cause:** HF API tree endpoint returns `path` field, code expected `name` (defaulted to empty)  
-**Solution:** Changed to use `path` field instead of `name`  
-**Files Modified:** `backend/src/tracker_scraper.rs`
-
-### 6. File Counts Not Updating on Refresh
-**Status:** FIXED  
-**Root Cause:** Database used `INSERT OR REPLACE` which kept old models forever  
-**Solution:** Added `clear_models()` method called before saving new data  
-**Files Modified:** `backend/src/tracker_manager.rs`, `backend/src/lib.rs`
-
-## New Features Implemented (2025-02-21)
-
-### 1. Network Serving Widget (Main Desktop)
-**Status:** COMPLETE ✅ (Simplified Design)
-
-**Location:** Top-left corner
-
-**Features:**
-- Simple configuration panel (not a model list)
-- Single address field for local/remote IP configuration
-- Port field with default 8080
-- Activate/Deactivate buttons with visual status indicator
-- Shows status: green dot = active, gray dot = inactive
-- Popup panel appears below the widget when clicked
-**Files Modified:**
-- `frontend/index.html` - Simplified HTML: button + popup with config fields
-- `frontend/css/desktop.css` - Clean, simple styling for single config panel
-- `frontend/desktop.js` - Methods for simple config panel:
-  - `initNetworkWidget()` - Setup click handlers for popup
-  - `toggleNetworkWidget()` - Show/hide popup panel
-  - `closeNetworkWidget()` - Close popup
-  - `activateNetworkServer()` - Handle activate button
-  - `deactivateNetworkServer()` - Handle deactivate button
-- `backend/src/lib.rs` - Added Tauri commands:
-  - `save_network_config()` - Save address/port settings
-  - `activate_network_server()` - Activate server endpoint
-  - `deactivate_network_server()` - Deactivate server endpoint
-
-**Usage:**
-1. Click "Network Serve" button in top-left
-2. Enter IP address (e.g., "0.0.0.0" for LAN or "127.0.0.1" for local)
-3. Enter port (default 8080)
-4. Click "Activate" to enable network serving
-5. Status indicator turns green when active
-6. Click "Deactivate" to stop serving
-
-**Purpose:** Simple way to configure and activate network serving for remote/lan access to models.
-
-### 2. AI Model Tracker Hybrid Search
-**Status:** COMPLETE ✅
-
-**Features:**
-- 📦 Cached + 🔍 Live badge showing model counts
-- Live search toggle with 500ms debounce
-- Instant cached display + background HF fetch
-- Smart merge with 🆕 New and ↻ Updated badges
-- File type filters (GGUF, MLX, SafeTensors, .bin, PyTorch)
-- Rate limiting (60 calls/min with warnings at 50)
-
-**Files Modified:**
-- `frontend/modules/tracker-app.js`
-- `frontend/css/tracker.css`
-- `backend/src/tracker_scraper.rs`
-- `backend/src/tracker_manager.rs`
-- `backend/src/lib.rs`
-
-### 2. "Open in File Explorer" Right-Click Option
-**Status:** COMPLETE ✅
-
-**Features:**
-- Right-click any GGUF file on desktop
-- New menu option: "📂 Open in File Explorer"
-- Opens Windows File Explorer in model's directory
-- Positioned between "Check for Updates" and "Properties"
-
-**Files Modified:**
-- `frontend/desktop.js` (menu item + handler + method)
-
-### 3. Total Disk Space Monitor (Top Right)
-**Status:** COMPLETE ✅
-
-**Features:**
-- Widget in top right corner of desktop
-- Shows total models disk space: `storage 45.23 GB` or `storage 1.24 TB`
-- Updates every second via system stats
-- Hover tooltip: "Models using XX GB of disk space (42 models)"
-- Auto-switches to TB when ≥ 1000 GB
-
-**Files Modified:**
-- `frontend/index.html` (HTML element)
-- `frontend/css/desktop.css` (styling)
-- `frontend/desktop.js` (updateDiskSpaceMonitor method)
-
-## OpenAI-Compatible API Proxy Implementation
-
-### Status: IN PROGRESS (40% complete)
-
-**Purpose:** Add OpenAI-compatible API layer so other computers can connect using standard OpenAI clients (Python openai library, curl, etc.)
-
-**Progress:**
-
-| Task | Status |
-|------|--------|
-| 1. OpenAI API Types Module | ✅ Complete |
-| 2. OpenAI Proxy Server Module | ✅ Complete |
-| 3. AppState Integration | ✅ Complete |
-| 4. Tauri Commands for Proxy Control | ✅ Complete |
-| 5. Frontend Network Widget | ⏳ Next |
-| 6. Chat Completion with Streaming | ⏳ Not Started |
-| 7. Audio Backend (whisper.cpp) | ⏳ Not Started |
-| 8. Image Backend (Stable Diffusion) | ⏳ Not Started |
-| 9. Testing | ⏳ Not Started |
-| 10. Documentation | ⏳ Not Started |
-
-**Backend Changes:**
-- Added `backend/src/openai_types.rs` - OpenAI API type definitions
-- Added `backend/src/openai_proxy.rs` - HTTP proxy server with placeholder handlers
-- Added proxy config fields to `GlobalConfig` (openai_proxy_enabled, openai_proxy_port, network_server_host, network_server_port)
-- Added `openai_proxy` field to `AppState`
-- Added Tauri commands: save_network_config, get_network_config, activate_network_server, deactivate_network_server, get_network_server_status
-- Fixed missing `rusqlite` dependency in Cargo.toml
-
-**Next Step:** Task 5 - Update Frontend Network Widget to work with new backend commands
+*(All current critical UI and logic bugs have been resolved in the latest session)*
 
 ---
 
-## Verified Working Features
+## Changes Made: Advanced Parameter Integration
 
-### "Check for Updates" Right-Click
-**Status:** VERIFIED ✅  
-**Functionality:** Three-tier detection system
-1. Explicit HF metadata from model config
-2. Auto-extract from file path (author/model-name)
-3. Manual linking via dialog
+### Phase 1: Complete Code Deletion (~2,373 lines removed)
+*(Refer to previous logs for details on the destruction of the legacy custom chat module)*
 
-**Visual Indicators:**
-- ✓ (green): Up to date
-- ✗ (red): Update available
-- ? (gray): Not linked to HF
-- ⟳ (blue): Checking in progress
+### Phase 2: Llama-Server Custom UI Implementation
+*(Refer to previous logs for the creation of the standalone `llama-custom/index.html`)*
 
-**Files Checked:** All working correctly
-- `frontend/desktop.js`
-- `backend/src/update_checker.rs`
-- `backend/src/lib.rs`
+### Phase 3: Process Integration
+- Modified `backend/src/process.rs` to dynamically resolve UI paths and handle speculative draft models.
 
-## Date Filtering Implementation
+### Summary Statistics
+- **Total Removed:** ~2,373 lines
+- **Total Added:** ~850 lines (UI + Logic + Bridge)
+- **Net change:** ~ -1,500 lines
 
-### HuggingFace Model Date Cutoff
-**Implementation:** Models must be dated on/after January 1, 2025
-**Location:** `backend/src/huggingface.rs`
-**Constant:** `MODEL_DATE_CUTOFF = "2025-01-01T00:00:00Z"`
-**Function:** `model_is_after_cutoff()` filters search results
-**Purpose:** Show only recent models, filter out old/deprecated ones
-
-## Current File Structure
-
-### Key Documentation
-- `README.md` - User-facing overview
-- `AGENTS.md` - Developer documentation
-- `WORKING_DIRECTORY_WARNING.md` - Critical working directory info
-- `docs/plans/` - Implementation plans
-
-### Build Output
-- Release: `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
-- Installer: `H:\Ardanu Fix\Arandu-maxi\backend\target\release\bundle\nsis\Arandu_0.5.5-beta_x64-setup.exe`
-
-### Config Location
-- User config: `%USERPROFILE%\.Arandu\config.json`
-
-### Default Paths
-- Models: `~/.Arandu/models`
-- Executables: `~/.Arandu/llama.cpp`
-
-## Recent Build Status
-
-**Last Build:** 2025-02-21  
-**Status:** ✅ SUCCESS (Release + Installer)  
-**Warnings:** 11 (unused imports, deprecated functions, dead code)  
-**Errors:** 0
-
-## Test Status
-
-| Feature | Test Status |
-|---------|-------------|
-| Search functionality | Needs testing |
-| Tracker filters | Needs testing |
-| Models loading initially | Needs testing |
-| View on HF button | Needs testing |
-| GGUF detection | Needs testing |
-| File counts on refresh | Needs testing |
-| Open in File Explorer | Needs testing |
-| Disk space monitor | Needs testing |
-| Check for updates | Needs testing |
-| **Chat Enter Button** | **🐛 BROKEN - Input not responding** |
-| **Chat Send Button** | **🐛 BROKEN - Click not working** |
-| **Chat New Chat Button** | **🐛 BROKEN - Click not working** |
-
-## Next Steps (Suggested)
-
-1. **Test all recent fixes and features** - Run the build and verify everything works
-2. **Update README.md** - Add new features to feature list
-3. **Update version number** - Consider bumping to 0.6.0 with all these changes
-4. **Create release notes** - Document all changes for users
-5. **Consider dark/light theme** - Disk monitor styling might need theme variants
-
-## Notes
-
-- **⚠️ ACTIVE CRITICAL BUG:** Chat interface Enter/Send buttons not working (2025-02-23)
-- Backend chat commands are all functional
-- Frontend event listeners attached but not firing
-- CSS styling appears correct but interactions blocked
-- All critical bugs have been fixed
-- Two major features added (File Explorer, Disk Monitor)
-- Tracker significantly improved with hybrid search
-- Backend command `open_model_folder` was already implemented
-- System stats already tracked `models_folder_size_gb` (just needed frontend display)
+## Build Information
+- **Executable:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+- **Portable Zip:** `H:\Ardanu Fix\Arandu-maxi\Arandu_v0.5.5-beta_Portable_Sense.zip`
 
 ---
+*Document Updated: 2025-02-23 (Advanced Drafting & Health Check Session)*
 
-*Document generated: 2025-02-21*  
-*Last Updated: 2025-02-23*  
-*Build location: H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe*
+## 🔜 FUTURE WORK PLANNED
+
+### Restart Contract + Chat Stream Hardening (2026-02-24)
+
+**Status:** Partially complete, contract parity fixed (UI + parent)
+**Date:** 2026-02-24
+**Priority:** High
+
+#### What is already done
+- Added/validated restart-impact and environment normalization logic in `frontend/modules/terminal-manager.js`.
+- Kept authoritative validation on the parent side (`TerminalManager`) with child `request-restart` contract preserved.
+- Added a small smoke test for stream parsing in `frontend/chat-stream-smoke.mjs` covering:
+  - `[DONE]` handling,
+  - trailing partial stream line processing,
+  - usage-based draft token preference,
+  - speculative signal fallback counting.
+- Built `backend/target/release/Arandu.exe` successfully with `cargo tauri build --no-bundle`.
+
+#### Remaining (not yet working)
+- Full `cargo tauri build` still fails at bundle stage with:
+  - `optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target`
+- End-to-end chat/iframe restart + stream send path still needs final UI-level smoke confirmation in a real browser-like environment.
+- Parent-side restart contract for `settings-saved` messaging in restart-required paths was parity-fixed and validated via source inspection + syntax checks.
+
+#### Planned actions (next)
+1. Add a robust JS/DOM test harness for `frontend/llama-custom/index.html` send/restart flows (message contract + stream behavior).
+2. Keep a focused smoke log for 4 restart scenarios and 3 stream edge cases before any release packaging.
+
+### Process rule to follow on every follow-up session
+- State-saving rule (new): verify and apply save/update discipline at the start and end of each task. Log meaningful milestones immediately to `THIS-PROJECTS-CURRENT-STATE.md`, and persist stable facts into `docs/knowledge-base/`.

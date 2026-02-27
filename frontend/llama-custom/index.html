@@ -1,0 +1,2361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Llama.cpp Chat</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!-- Document Parsing Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1000px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 20px;
+            position: relative;
+            min-height: 0; /* Important for flex child scrolling */
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 12px;
+            border: 1px solid #333;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            padding: 14px;
+            border-radius: 12px;
+            line-height: 1.6;
+            position: relative;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: #333;
+            margin-left: auto;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.assistant {
+            background: #222;
+            margin-right: auto;
+            border-left: 4px solid #4caf50;
+            border-bottom-left-radius: 2px;
+        }
+
+        /* Feature 3: Draft Highlighting */
+        .draft-token {
+            color: #87ceeb;
+            text-shadow: 0 0 1px rgba(135, 206, 235, 0.2);
+        }
+
+        /* Feature 4: Stats Readout - Tripled font size as requested */
+        .message-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #444;
+            font-size: 30px; /* Tripled from ~10px */
+            color: #aaa;
+            font-family: 'Consolas', monospace;
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .stat-item b {
+            color: #4caf50;
+            margin-right: 5px;
+        }
+
+        .message-label {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 6px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Input Controls */
+        .input-area-wrapper {
+            background: #2a2a2a;
+            border-radius: 12px;
+            border: 2px solid #444;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .input-area-wrapper:focus-within {
+            border-color: #4caf50;
+        }
+
+        .attachment-preview-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 0 4px;
+        }
+
+        .preview-item {
+            width: 60px;
+            height: 60px;
+            border-radius: 6px;
+            background: #333;
+            position: relative;
+            border: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .preview-item .remove-btn {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .preview-item .doc-icon {
+            font-size: 24px;
+            color: #2196f3;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        /* Feature 1 & 2: Control Buttons */
+        .control-btn {
+            background: #333;
+            color: #ccc;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .control-btn:hover {
+            background: #444;
+            color: #fff;
+        }
+
+        .attach-btn {
+            color: #2196f3;
+        }
+
+        .stop-btn-chat {
+            color: #f44336;
+            display: none; /* Only show when generating */
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            color: #e0e0e0;
+            font-size: 14px;
+            resize: none;
+            min-height: 40px;
+            max-height: 200px;
+            outline: none;
+        }
+
+        .send-button {
+            padding: 0 20px;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            background: #4caf50;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .send-button:hover {
+            background: #45a049;
+        }
+
+        .send-button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        /* Parameter Panel */
+        .parameter-panel {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #2a2a2a;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 0;
+            z-index: 1000;
+            width: 320px;
+            max-height: calc(100vh - 20px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Accessibility: Panel starts collapsed per user request */
+        .parameter-panel.collapsed {
+            transform: translateX(calc(100% + 20px));
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #444;
+            cursor: pointer;
+            background: #2a2a2a;
+            border-radius: 8px 8px 0 0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .panel-header:focus-visible {
+            outline: 2px solid #4caf50;
+            outline-offset: -2px;
+        }
+
+        .panel-content {
+            padding: 15px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .panel-section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #888;
+            margin: 15px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #333;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+
+        .panel-section-title:first-child {
+            margin-top: 0;
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #4caf50;
+        }
+
+        .toggle-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 20px;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+
+        .toggle-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .parameter {
+            margin-bottom: 15px;
+        }
+
+        .parameter-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .parameter-value {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .parameter-desc {
+            font-size: 10px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        .parameter input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #4caf50;
+        }
+
+        .parameter input[type="number"], 
+        .parameter select {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 12px;
+        }
+
+        .parameter-textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 12px;
+            resize: vertical;
+            min-height: 60px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 20px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider-round {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: .4s;
+            border-radius: 20px;
+        }
+
+        .slider-round:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider-round {
+            background-color: #4caf50;
+        }
+
+        input:checked + .slider-round:before {
+            transform: translateX(14px);
+        }
+
+        .panel-footer {
+            padding: 15px;
+            background: #222;
+            border-top: 1px solid #444;
+            border-radius: 0 0 8px 8px;
+        }
+
+        .restart-note {
+            font-size: 10px;
+            color: #ff9800;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .apply-restart-btn {
+            background: #ff9800;
+            color: #000;
+            font-weight: bold;
+            border: none;
+            padding: 10px;
+            width: 100%;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-bottom: 8px;
+            transition: opacity 0.2s;
+        }
+
+        .apply-restart-btn:hover {
+            opacity: 0.9;
+        }
+
+        .reset-btn {
+            padding: 8px;
+            width: 100%;
+            border: none;
+            border-radius: 4px;
+            background: #444;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+            margin-bottom: 8px;
+        }
+
+        .reset-btn:hover {
+            background: #555;
+        }
+
+        .clear-btn {
+            background: #c62828;
+        }
+
+        .clear-btn:hover {
+            background: #b71c1c;
+        }
+
+        .loading {
+            color: #4caf50;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+
+        .status-bar {
+            padding: 10px 20px;
+            background: #2a2a2a;
+            border-top: 1px solid #444;
+            font-size: 12px;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Sense Model UI */
+        .sense-button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+            width: 100%;
+            margin-bottom: 8px;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .sense-button:hover {
+            background: #1976d2;
+        }
+
+        .model-dropdown {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .model-dropdown.visible {
+            display: block;
+        }
+
+        .model-option {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 11px;
+            border-bottom: 1px solid #333;
+            transition: background 0.2s;
+        }
+
+        .model-option:hover {
+            background: #333;
+        }
+
+        .model-option.selected {
+            background: #4caf50;
+            color: white;
+        }
+
+        .model-option-name {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .model-option-meta {
+            color: #888;
+            font-size: 10px;
+        }
+
+        .selected-model-path {
+            font-size: 10px;
+            color: #4caf50;
+            word-break: break-all;
+            margin-top: 5px;
+            display: block;
+            padding: 4px;
+            background: rgba(76, 175, 80, 0.1);
+            border-radius: 4px;
+        }
+
+        /* Floating toggle button when panel is closed */
+        .floating-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4caf50;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .floating-toggle.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Floating toggle button for when panel is collapsed -->
+    <div class="floating-toggle" id="floatingToggle" onclick="togglePanel()" title="Open Model Options">
+        <span>⚙️</span>
+    </div>
+
+    <!-- Parameter Panel - Starts collapsed per user request -->
+    <div class="parameter-panel collapsed" id="parameterPanel" role="complementary" aria-label="Model Parameters">
+        <div class="panel-header" onclick="togglePanel()" tabindex="0" role="button" id="panelHeader" aria-expanded="false">
+            <span class="panel-title">⚙️ Model Options</span>
+            <button class="toggle-btn" id="toggleBtn" aria-label="Collapse Panel">↔</button>
+        </div>
+        
+        <div class="panel-content">
+            <!-- Section: Generation (Runtime) -->
+            <div class="panel-section-title">Generation (Runtime)</div>
+            
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="temperature">Temperature</label>
+                    <span class="parameter-value" id="tempValue">0.7</span>
+                </div>
+                <input type="range" id="temperature" min="0" max="2" step="0.01" value="0.7">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="top_p">Top P</label>
+                    <span class="parameter-value" id="topPValue">0.9</span>
+                </div>
+                <input type="range" id="top_p" min="0" max="1" step="0.01" value="0.9">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="min_p">Min P</label>
+                    <span class="parameter-value" id="minPValue">0.05</span>
+                </div>
+                <input type="range" id="min_p" min="0" max="1" step="0.01" value="0.05">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="top_k">Top K</label>
+                    <span class="parameter-value" id="topKValue">40</span>
+                </div>
+                <input type="range" id="top_k" min="0" max="100" step="1" value="40">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="max_tokens">Max Tokens</label>
+                </div>
+                <input type="number" id="max_tokens" min="-1" max="32768" value="2048">
+                <div class="parameter-desc">-1 for unlimited</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="repeat_penalty">Repeat Penalty</label>
+                    <span class="parameter-value" id="repeatValue">1.1</span>
+                </div>
+                <input type="range" id="repeat_penalty" min="1" max="2" step="0.01" value="1.1">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="repeat_last_n">Repeat Last N</label>
+                </div>
+                <input type="number" id="repeat_last_n" min="0" max="2048" value="64">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="presence_penalty">Presence Penalty</label>
+                    <span class="parameter-value" id="presenceValue">0.0</span>
+                </div>
+                <input type="range" id="presence_penalty" min="0" max="2" step="0.01" value="0.0">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="frequency_penalty">Frequency Penalty</label>
+                    <span class="parameter-value" id="frequencyValue">0.0</span>
+                </div>
+                <input type="range" id="frequency_penalty" min="0" max="2" step="0.01" value="0.0">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="history_limit">Context Window (Messages)</label>
+                    <span class="parameter-value" id="historyValue">10</span>
+                </div>
+                <input type="range" id="history_limit" min="1" max="100" step="1" value="10">
+                <div class="parameter-desc">Number of previous messages to include</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="system_prompt">System Prompt</label>
+                </div>
+                <textarea id="system_prompt" class="parameter-textarea" placeholder="You are a helpful assistant..."></textarea>
+            </div>
+
+            <!-- Section: Creativity (Samplers) -->
+            <div class="panel-section-title">Creativity (Advanced Samplers)</div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="xtc_probability">XTC Probability</label>
+                    <span class="parameter-value" id="xtcProbValue">0.0</span>
+                </div>
+                <input type="range" id="xtc_probability" min="0" max="1" step="0.01" value="0.0">
+                <div class="parameter-desc">Probability of excluding top tokens</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="xtc_threshold">XTC Threshold</label>
+                    <span class="parameter-value" id="xtcThreshValue">0.1</span>
+                </div>
+                <input type="range" id="xtc_threshold" min="0" max="1" step="0.01" value="0.1">
+                <div class="parameter-desc">Threshold for "too obvious" tokens</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="dry_multiplier">DRY Multiplier</label>
+                    <span class="parameter-value" id="dryMultValue">0.0</span>
+                </div>
+                <input type="range" id="dry_multiplier" min="0" max="5" step="0.1" value="0.0">
+                <div class="parameter-desc">Penalty for repeating sequences</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="dry_base">DRY Base</label>
+                    <span class="parameter-value" id="dryBaseValue">1.75</span>
+                </div>
+                <input type="range" id="dry_base" min="1" max="2" step="0.01" value="1.75">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="dry_allowed_length">DRY Allowed Length</label>
+                    <span class="parameter-value" id="dryLenValue">2</span>
+                </div>
+                <input type="range" id="dry_allowed_length" min="1" max="10" step="1" value="2">
+            </div>
+
+            <!-- Section: Reasoning (DeepSeek-R1) -->
+            <div class="panel-section-title">Reasoning (DeepSeek-R1)</div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="reasoning_format">Thought Tags</label></div>
+                <select id="reasoning_format">
+                    <option value="auto" selected>Auto</option>
+                    <option value="show">Show Tags</option>
+                    <option value="hide">Hide Tags</option>
+                    <option value="strip">Remove Completely</option>
+                </select>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="reasoning_budget">Thinking Budget</label>
+                </div>
+                <input type="number" id="reasoning_budget" min="-1" max="10000" step="100" value="-1">
+                <div class="parameter-desc">Max tokens for reasoning (-1 = auto)</div>
+            </div>
+
+            <!-- Section: Context & Launch (Restart Required) -->
+            <div class="panel-section-title">Context & Launch (Requires Restart)</div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_ctx_size">Context Size</label>
+                </div>
+                <input type="number" id="launch_ctx_size" min="0" max="131072" step="1024" value="2048">
+                <div class="parameter-desc">0 = model default</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_slots">Parallel Slots (-np)</label>
+                    <span class="parameter-value" id="slotsValue">1</span>
+                </div>
+                <input type="range" id="launch_slots" min="1" max="16" step="1" value="1">
+                <div class="parameter-desc">Required: 1 for Speculative Decoding</div>
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_cont_batching')">
+                <div class="parameter-label" style="margin-bottom: 0;">Continuous Batching</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_cont_batching" checked>
+                    <span class="slider-round"></span>
+                </label>
+            </div>
+
+            <!-- Section: Performance (Speculative) -->
+            <div class="panel-section-title">Speculative Drafting (Performance)</div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <span>Draft Model (-md)</span>
+                </div>
+                <button class="sense-button" onclick="requestCompatibleModels()">
+                    <span class="material-icons" style="font-size: 14px;">psychology</span>
+                    Sense Compatible Models
+                </button>
+                <div class="model-dropdown" id="draftModelDropdown">
+                    <!-- Populated via JS -->
+                </div>
+                <div id="selectedDraftModel" class="selected-model-path" style="display: none;"></div>
+                
+                <!-- Speculative Auto-Fix Button -->
+                <button class="sense-button" style="background: #ff9800; margin-top: 5px;" onclick="applySpeculativeFix()" id="specFixBtn">
+                    <span class="material-icons" style="font-size: 14px;">build</span>
+                    Auto-Fix for Speculative Mode
+                </button>
+                
+                <div class="parameter-desc">Use a small model to speed up generation</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_draft_p_min">Draft P-Min</label>
+                    <span class="parameter-value" id="draftPMinValue">0.1</span>
+                </div>
+                <input type="range" id="launch_draft_p_min" min="0" max="1" step="0.01" value="0.1">
+                <div class="parameter-desc">Min probability for draft tokens (Higher = stricter)</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_draft_max">Draft Max Tokens</label>
+                    <span class="parameter-value" id="draftMaxValue">16</span>
+                </div>
+                <input type="range" id="launch_draft_max" min="1" max="128" step="1" value="16">
+                <div class="parameter-desc">Tokens to draft per main model run</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_ngld">Draft GPU Layers</label>
+                </div>
+                <input type="number" id="launch_ngld" min="0" max="999" value="0">
+            </div>
+
+            <!-- Section: Hardware Optimization -->
+            <div class="panel-section-title">Hardware Optimization</div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_numa">NUMA Optimization</label></div>
+                <select id="launch_numa">
+                    <option value="" selected>None</option>
+                    <option value="distribute">Distribute</option>
+                    <option value="isolate">Isolate</option>
+                    <option value="numactl">Numactl</option>
+                </select>
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_pinned')">
+                <div class="parameter-label" style="margin-bottom: 0;">Pinned Memory</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_pinned" checked>
+                    <span class="slider-round"></span>
+                </label>
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_jinja')">
+                <div class="parameter-label" style="margin-bottom: 0;">Embedded Template</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_jinja" checked>
+                    <span class="slider-round"></span>
+                </label>
+                <div class="parameter-desc">Force built-in chat template</div>
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_context_shift')">
+                <div class="parameter-label" style="margin-bottom: 0;">Context Shift</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_context_shift">
+                    <span class="slider-round"></span>
+                </label>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_gpu_layers">GPU Layers (-ngl)</label></div>
+                <input type="number" id="launch_gpu_layers" min="0" max="999" value="999">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_cpu_moe_layers">CPU MoE Layers (-ncmoe)</label>
+                    <span class="parameter-value" id="cpuMoeValue">0</span>
+                </div>
+                <input type="range" id="launch_cpu_moe_layers" min="0" max="100" step="1" value="0">
+                <div class="parameter-desc">Number of MoE layers to offload to CPU</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_split_mode">GPU Split Mode</label></div>
+                <select id="launch_split_mode">
+                    <option value="none">None (Single GPU)</option>
+                    <option value="layer" selected>Layer</option>
+                    <option value="row">Row</option>
+                </select>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_main_gpu">Main GPU Index</label></div>
+                <input type="number" id="launch_main_gpu" min="0" max="8" value="0">
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_flash_attn')">
+                <div class="parameter-label" style="margin-bottom: 0;">Flash Attention</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_flash_attn" checked>
+                    <span class="slider-round"></span>
+                </label>
+            </div>
+
+            <div class="parameter toggle-row" onclick="toggleCheckbox('launch_mmap')">
+                <div class="parameter-label" style="margin-bottom: 0;">Use MMap</div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="launch_mmap" checked>
+                    <span class="slider-round"></span>
+                </label>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_cache_type_k">KV Cache K Type</label></div>
+                <select id="launch_cache_type_k">
+                    <option value="f32">f32</option>
+                    <option value="f16" selected>f16</option>
+                    <option value="bf16">bf16</option>
+                    <option value="q8_0">q8_0</option>
+                    <option value="q4_0">q4_0</option>
+                    <option value="q4_1">q4_1</option>
+                    <option value="iq4_nl">iq4_nl</option>
+                    <option value="q5_0">q5_0</option>
+                    <option value="q5_1">q5_1</option>
+                </select>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_cache_type_v">KV Cache V Type</label></div>
+                <select id="launch_cache_type_v">
+                    <option value="f32">f32</option>
+                    <option value="f16" selected>f16</option>
+                    <option value="bf16">bf16</option>
+                    <option value="q8_0">q8_0</option>
+                    <option value="q4_0">q4_0</option>
+                    <option value="q4_1">q4_1</option>
+                    <option value="iq4_nl">iq4_nl</option>
+                    <option value="q5_0">q5_0</option>
+                    <option value="q5_1">q5_1</option>
+                </select>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_rope_scaling">RoPE Scaling Method</label></div>
+                <select id="launch_rope_scaling">
+                    <option value="none" selected>None</option>
+                    <option value="linear">Linear</option>
+                    <option value="yarn">YaRN</option>
+                </select>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_rope_scale">RoPE Scale Factor</label></div>
+                <input type="number" id="launch_rope_scale" min="0" step="0.1" value="1.0">
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_rope_freq_base">RoPE Freq Base</label></div>
+                <input type="number" id="launch_rope_freq_base" min="0" value="0">
+                <div class="parameter-desc">0 = model default</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="launch_env_vars">Environment Variables</label>
+                </div>
+                <textarea id="launch_env_vars" class="parameter-textarea" placeholder="GGML_CUDA_NO_PINNED=1&#10;WHISPER_CUDA=1" style="min-height: 80px;"></textarea>
+                <div class="parameter-desc">One KEY=VALUE per line</div>
+            </div>
+        </div>
+
+        <div class="panel-footer">
+            <div id="restartWarning" style="display: none;">
+                <div class="restart-note">
+                    <span class="material-icons" style="font-size: 14px;">warning</span>
+                    Launch parameters changed
+                </div>
+                <button class="apply-restart-btn" onclick="requestRestart()">Apply & Restart Server</button>
+            </div>
+            
+            <button class="reset-btn clear-btn" onclick="clearContext()">Clear Conversation</button>
+            <button class="reset-btn" onclick="resetParameters()">Reset to Defaults</button>
+        </div>
+    </div>
+
+    <!-- Chat Container -->
+    <div class="chat-container">
+        <div class="chat-messages" id="chatMessages">
+            <div class="message system">
+                <div class="message-label">System</div>
+                <div>Welcome! Configure parameters in the top-right panel, then type your message below. You can now attach images, PDFs, and Word docs.</div>
+            </div>
+        </div>
+        
+        <div class="input-area-wrapper">
+            <!-- Feature 2: Attachment Preview -->
+            <div class="attachment-preview-area" id="attachmentPreview" style="display: none;"></div>
+            
+            <div class="input-container">
+                <!-- Feature 2: Attach Button -->
+                <button class="control-btn attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file (+)">
+                    <span class="material-icons">add_circle_outline</span>
+                </button>
+                <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileSelection(event)" accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.mp3,.wav">
+                
+                <!-- Feature 1: Stop Button -->
+                <button class="control-btn stop-btn-chat" id="stopButton" onclick="stopGeneration()" title="Stop generating">
+                    <span class="material-icons">stop_circle</span>
+                </button>
+
+                <textarea class="chat-input" id="chatInput" placeholder="Type your message here... (Enter to send, Shift+Enter for newline)" rows="1" aria-label="Chat input"></textarea>
+                
+                <button class="send-button" id="sendButton" onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <span id="connectionStatus">Connected to llama-server</span>
+        <span id="lastMessageTime"></span>
+    </div>
+
+    <script>
+        // Parameters
+        const defaultParams = {
+            // Runtime
+            temperature: 0.7,
+            top_p: 0.9,
+            min_p: 0.05,
+            top_k: 40,
+            max_tokens: 2048,
+            repeat_penalty: 1.1,
+            repeat_last_n: 64,
+            presence_penalty: 0.0,
+            frequency_penalty: 0.0,
+            history_limit: 10,
+            system_prompt: "",
+            
+            // Creativity
+            xtc_probability: 0.0,
+            xtc_threshold: 0.1,
+            dry_multiplier: 0.0,
+            dry_base: 1.75,
+            dry_allowed_length: 2,
+
+            // Reasoning
+            reasoning_format: "auto",
+            reasoning_budget: -1,
+
+            // Launch (Restart Required)
+            launch_ctx_size: 2048,
+            launch_slots: 1,
+            launch_cont_batching: true,
+            launch_context_shift: false,
+            launch_gpu_layers: 999,
+            launch_cpu_moe_layers: 0,
+            launch_split_mode: "layer",
+            launch_main_gpu: 0,
+            launch_flash_attn: true,
+            launch_mmap: true,
+            launch_cache_type_k: "f16",
+            launch_cache_type_v: "f16",
+            launch_rope_scaling: "none",
+            launch_rope_scale: 1.0,
+            launch_rope_freq_base: 0,
+            launch_model_draft: "",
+            launch_draft_p_min: 0.1,
+            launch_draft_max: 16,
+            launch_ngld: 0,
+            launch_numa: "",
+            launch_pinned: true,
+            launch_jinja: true,
+            launch_env_vars: ""
+        };
+
+        let currentParams = { ...defaultParams };
+        let messageHistory = []; // Stores the current conversation context
+        let currentAttachments = []; // Stores selected files/previews
+        let abortController = null; // Feature 1: Stop Controller
+        let currentRunningDraftModel = ''; // Track current draft model from running server
+        let currentModelPath = ''; // Track current model for chat history key
+        let launchConfigBaseline = null; // Snapshot of last-synced launch config
+
+        const launchRestartArgDefaults = {
+            launch_ctx_size: defaultParams.launch_ctx_size,
+            launch_slots: defaultParams.launch_slots,
+            launch_cont_batching: defaultParams.launch_cont_batching,
+            launch_context_shift: defaultParams.launch_context_shift,
+            launch_gpu_layers: defaultParams.launch_gpu_layers,
+            launch_cpu_moe_layers: defaultParams.launch_cpu_moe_layers,
+            launch_split_mode: defaultParams.launch_split_mode,
+            launch_main_gpu: defaultParams.launch_main_gpu,
+            launch_flash_attn: defaultParams.launch_flash_attn,
+            launch_mmap: defaultParams.launch_mmap,
+            launch_cache_type_k: defaultParams.launch_cache_type_k,
+            launch_cache_type_v: defaultParams.launch_cache_type_v,
+            launch_rope_scaling: defaultParams.launch_rope_scaling,
+            launch_rope_scale: defaultParams.launch_rope_scale,
+            launch_rope_freq_base: defaultParams.launch_rope_freq_base,
+            launch_model_draft: defaultParams.launch_model_draft,
+            launch_draft_p_min: defaultParams.launch_draft_p_min,
+            launch_draft_max: defaultParams.launch_draft_max,
+            launch_ngld: defaultParams.launch_ngld,
+            launch_numa: defaultParams.launch_numa,
+            launch_pinned: defaultParams.launch_pinned,
+            launch_jinja: defaultParams.launch_jinja,
+            launch_env_vars: defaultParams.launch_env_vars
+        };
+
+        function normalizeDraftModelPath(path) {
+            return (path || '').replace(/\\/g, '/').toLowerCase();
+        }
+
+        function normalizeEnvVars(value) {
+            if (!value) return '';
+            return value
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.length > 0)
+                .join('\n');
+        }
+
+        function parseLaunchArgInt(launchArgs, pattern, fallback) {
+            const match = launchArgs.match(pattern);
+            if (!match) return fallback;
+            const parsed = parseInt(match[1], 10);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function parseLaunchArgFloat(launchArgs, pattern, fallback) {
+            const match = launchArgs.match(pattern);
+            if (!match) return fallback;
+            const parsed = parseFloat(match[1]);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+
+        function parseLaunchArgString(launchArgs, pattern, fallback) {
+            const match = launchArgs.match(pattern);
+            if (!match) return fallback;
+            return match[1] || fallback;
+        }
+
+        function normalizeNumericFallback(value, fallback) {
+            return Number.isFinite(value) ? value : fallback;
+        }
+
+        function parseSnapshotInt(value, fallback) {
+            return normalizeNumericFallback(Number.parseInt(value, 10), fallback);
+        }
+
+        function parseSnapshotFloat(value, fallback) {
+            return normalizeNumericFallback(Number.parseFloat(value), fallback);
+        }
+
+        function getDebugStreamEnabled() {
+            try {
+                return localStorage.getItem('aranduChatStreamDebug') === '1';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        let debugChunkLogCount = 0;
+        const debugChunkLogLimit = 30;
+
+        function extractUsageDraftTokens(usage) {
+            if (!usage || typeof usage !== 'object') return null;
+
+            const candidates = [
+                'accepted_prediction_tokens',
+                'accepted_speculative_tokens',
+                'accepted_prediction_count',
+                'accepted_speculative_count',
+                'accepted_tokens',
+                'draft_tokens',
+                'speculative_tokens'
+            ];
+
+            for (let i = 0; i < candidates.length; i++) {
+                const key = candidates[i];
+                const value = usage[key];
+                if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+                    return value;
+                }
+            }
+
+            return null;
+        }
+
+        function detectDraftTokenSignal(choice, delta) {
+            const checks = [
+                ['choice.speculative', choice && choice.speculative],
+                ['choice.speculative_token', choice && choice.speculative_token],
+                ['choice.is_speculative', choice && choice.is_speculative],
+                ['choice.draft', choice && choice.draft],
+                ['choice.is_draft', choice && choice.is_draft],
+                ['delta.speculative', delta && delta.speculative],
+                ['delta.speculative_token', delta && delta.speculative_token],
+                ['delta.is_speculative', delta && delta.is_speculative],
+                ['delta.draft', delta && delta.draft],
+                ['delta.is_draft', delta && delta.is_draft],
+                ['delta.prediction', delta && delta.prediction],
+                ['delta.is_prediction', delta && delta.is_prediction],
+                ['delta.predicted', delta && delta.predicted]
+            ];
+
+            for (let i = 0; i < checks.length; i++) {
+                const label = checks[i][0];
+                const value = checks[i][1];
+
+                if (typeof value === 'boolean') {
+                    return { isDraft: value, source: label, raw: value };
+                }
+
+                if (typeof value === 'string' && value.toLowerCase() === 'draft') {
+                    return { isDraft: true, source: label, raw: value };
+                }
+            }
+
+            return { isDraft: false, source: '', raw: null };
+        }
+
+        function maybeLogStreamPayload(label, payload) {
+            if (!getDebugStreamEnabled()) {
+                return;
+            }
+
+            if (debugChunkLogCount >= debugChunkLogLimit) {
+                return;
+            }
+
+            debugChunkLogCount += 1;
+            console.log(`[ChatUI] ${label}:`, payload);
+        }
+
+        function createLaunchConfigSnapshot(params) {
+            const normalizedDraft = (params.launch_model_draft || '').trim();
+            const hasDraft = normalizedDraft.length > 0;
+
+            const snapshot = {
+                launch_ctx_size: parseSnapshotInt(params.launch_ctx_size, launchRestartArgDefaults.launch_ctx_size),
+                launch_slots: parseSnapshotInt(params.launch_slots, launchRestartArgDefaults.launch_slots),
+                launch_cont_batching: !!params.launch_cont_batching,
+                launch_context_shift: !!params.launch_context_shift,
+                launch_gpu_layers: parseSnapshotInt(params.launch_gpu_layers, launchRestartArgDefaults.launch_gpu_layers),
+                launch_cpu_moe_layers: parseSnapshotInt(params.launch_cpu_moe_layers, launchRestartArgDefaults.launch_cpu_moe_layers),
+                launch_split_mode: String(params.launch_split_mode || launchRestartArgDefaults.launch_split_mode),
+                launch_main_gpu: parseSnapshotInt(params.launch_main_gpu, launchRestartArgDefaults.launch_main_gpu),
+                launch_flash_attn: !!params.launch_flash_attn,
+                launch_mmap: !!params.launch_mmap,
+                launch_cache_type_k: String(params.launch_cache_type_k || launchRestartArgDefaults.launch_cache_type_k),
+                launch_cache_type_v: String(params.launch_cache_type_v || launchRestartArgDefaults.launch_cache_type_v),
+                launch_rope_scaling: String(params.launch_rope_scaling || launchRestartArgDefaults.launch_rope_scaling),
+                launch_rope_scale: parseSnapshotFloat(params.launch_rope_scale, launchRestartArgDefaults.launch_rope_scale),
+                launch_rope_freq_base: parseSnapshotFloat(params.launch_rope_freq_base, launchRestartArgDefaults.launch_rope_freq_base),
+                launch_model_draft: normalizeDraftModelPath(normalizedDraft),
+                launch_draft_p_min: parseSnapshotFloat(params.launch_draft_p_min, launchRestartArgDefaults.launch_draft_p_min),
+                launch_draft_max: parseSnapshotInt(params.launch_draft_max, launchRestartArgDefaults.launch_draft_max),
+                launch_ngld: parseSnapshotInt(params.launch_ngld, launchRestartArgDefaults.launch_ngld),
+                launch_numa: String(params.launch_numa || launchRestartArgDefaults.launch_numa),
+                launch_pinned: !!params.launch_pinned,
+                launch_jinja: !!params.launch_jinja,
+                launch_env_vars: normalizeEnvVars(params.launch_env_vars || '')
+            };
+
+            if (!hasDraft) {
+                snapshot.launch_draft_p_min = launchRestartArgDefaults.launch_draft_p_min;
+                snapshot.launch_draft_max = launchRestartArgDefaults.launch_draft_max;
+                snapshot.launch_ngld = launchRestartArgDefaults.launch_ngld;
+            }
+
+            return snapshot;
+        }
+
+        function launchConfigHasRestartImpact(snapA, snapB) {
+            const coreFields = [
+                'launch_ctx_size',
+                'launch_slots',
+                'launch_cont_batching',
+                'launch_context_shift',
+                'launch_gpu_layers',
+                'launch_cpu_moe_layers',
+                'launch_split_mode',
+                'launch_main_gpu',
+                'launch_flash_attn',
+                'launch_mmap',
+                'launch_cache_type_k',
+                'launch_cache_type_v',
+                'launch_rope_scaling',
+                'launch_rope_scale',
+                'launch_rope_freq_base',
+                'launch_numa',
+                'launch_pinned',
+                'launch_jinja',
+                'launch_env_vars'
+            ];
+
+            const draftFields = [
+                'launch_model_draft',
+                'launch_draft_p_min',
+                'launch_draft_max',
+                'launch_ngld'
+            ];
+
+            for (let i = 0; i < coreFields.length; i++) {
+                const key = coreFields[i];
+                if (snapA[key] !== snapB[key]) {
+                    return true;
+                }
+            }
+
+            const draftAActive = snapA.launch_model_draft.length > 0;
+            const draftBActive = snapB.launch_model_draft.length > 0;
+
+            if (draftAActive || draftBActive) {
+                for (let i = 0; i < draftFields.length; i++) {
+                    const key = draftFields[i];
+                    if (snapA[key] !== snapB[key]) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        function updateLaunchBaseline() {
+            launchConfigBaseline = createLaunchConfigSnapshot(currentParams);
+        }
+
+        function syncSpecFixButton() {
+            const specBtn = document.getElementById('specFixBtn');
+            if (!specBtn) {
+                return;
+            }
+
+            if (!currentParams.launch_model_draft.trim()) {
+                specBtn.innerHTML = '<span class="material-icons" style="font-size: 14px;">build</span> Auto-Fix for Speculative Mode';
+                specBtn.style.background = '#ff9800';
+                specBtn.style.border = 'none';
+                return;
+            }
+
+            if (!currentParams.launch_flash_attn && currentParams.launch_slots === 1 && !currentParams.launch_cont_batching) {
+                specBtn.innerHTML = '<span class="material-icons">check_circle</span> Settings Optimized!';
+                specBtn.style.background = '#4caf50';
+                specBtn.style.border = 'none';
+            } else {
+                specBtn.innerHTML = '<span class="material-icons">warning</span> Fix Required';
+                specBtn.style.background = '#ff9800';
+                specBtn.style.border = '2px solid white';
+            }
+        }
+
+        function markLaunchChange() {
+            if (!launchConfigBaseline) {
+                return;
+            }
+
+            const nextSnapshot = createLaunchConfigSnapshot(currentParams);
+            const needsRestart = launchConfigHasRestartImpact(launchConfigBaseline, nextSnapshot);
+            document.getElementById('restartWarning').style.display = needsRestart ? 'block' : 'none';
+        }
+
+        function applyLaunchArgsToParams(launchArgs) {
+            if (!launchArgs) {
+                updateLaunchBaseline();
+                return;
+            }
+
+            currentParams = {
+                ...currentParams,
+                launch_ctx_size: parseLaunchArgInt(launchArgs, /-c\s+(\d+)/, defaultParams.launch_ctx_size),
+                launch_slots: parseLaunchArgInt(launchArgs, /-np\s+(\d+)/, defaultParams.launch_slots),
+                launch_cont_batching: launchArgs.indexOf('--no-cont-batching') === -1,
+                launch_context_shift: launchArgs.indexOf('--context-shift') !== -1,
+                launch_gpu_layers: parseLaunchArgInt(launchArgs, /-ngl\s+(\d+)/, defaultParams.launch_gpu_layers),
+                launch_cpu_moe_layers: parseLaunchArgInt(launchArgs, /-ncmoe\s+(\d+)/, defaultParams.launch_cpu_moe_layers),
+                launch_split_mode: parseLaunchArgString(launchArgs, /-sm\s+(\w+)/, defaultParams.launch_split_mode),
+                launch_main_gpu: parseLaunchArgInt(launchArgs, /-mg\s+(\d+)/, defaultParams.launch_main_gpu),
+                launch_flash_attn: parseLaunchArgString(launchArgs, /-fa\s+(on|off|auto)/, defaultParams.launch_flash_attn ? 'on' : 'off') === 'on',
+                launch_mmap: launchArgs.indexOf('--no-mmap') === -1,
+                launch_cache_type_k: parseLaunchArgString(launchArgs, /-ctk\s+(\S+)/, defaultParams.launch_cache_type_k),
+                launch_cache_type_v: parseLaunchArgString(launchArgs, /-ctv\s+(\S+)/, defaultParams.launch_cache_type_v),
+                launch_rope_scaling: parseLaunchArgString(launchArgs, /--rope-scaling\s+(\w+)/, defaultParams.launch_rope_scaling),
+                launch_rope_scale: parseLaunchArgFloat(launchArgs, /--rope-scale\s+([0-9.]+)/, defaultParams.launch_rope_scale),
+                launch_rope_freq_base: parseLaunchArgFloat(launchArgs, /--rope-freq-base\s+(\d+(?:\.\d+)?)/, defaultParams.launch_rope_freq_base),
+                launch_model_draft: parseLaunchArgString(launchArgs, /-md\s+"([^"]+)"/, '') || parseLaunchArgString(launchArgs, /-md\s+(\S+)/, ''),
+                launch_draft_p_min: parseLaunchArgFloat(launchArgs, /--draft-p-min\s+([0-9.]+)/, defaultParams.launch_draft_p_min),
+                launch_draft_max: parseLaunchArgInt(launchArgs, /--draft-max\s+(\d+)/, defaultParams.launch_draft_max),
+                launch_ngld: parseLaunchArgInt(launchArgs, /-ngld\s+(\d+)/, defaultParams.launch_ngld),
+                launch_numa: parseLaunchArgString(launchArgs, /--numa\s+(\S+)/, defaultParams.launch_numa),
+                launch_pinned: launchArgs.indexOf('--no-pinned-memory') === -1,
+                launch_jinja: launchArgs.indexOf('--no-jinja') === -1,
+                launch_env_vars: currentParams.launch_env_vars
+            };
+
+            if (!currentParams.launch_model_draft) {
+                currentParams.launch_draft_p_min = defaultParams.launch_draft_p_min;
+                currentParams.launch_draft_max = defaultParams.launch_draft_max;
+                currentParams.launch_ngld = defaultParams.launch_ngld;
+            }
+
+            updateLaunchBaseline();
+        }
+
+        function buildLaunchArgsFromParams() {
+            let args = '';
+
+            if (currentParams.launch_ctx_size > 0) args += ` -c ${currentParams.launch_ctx_size}`;
+            args += ` -np ${currentParams.launch_slots}`;
+            if (!currentParams.launch_cont_batching) args += ' --no-cont-batching';
+            if (currentParams.launch_context_shift) args += ' --context-shift';
+            args += ` -ngl ${currentParams.launch_gpu_layers}`;
+            if (currentParams.launch_cpu_moe_layers > 0) args += ` -ncmoe ${currentParams.launch_cpu_moe_layers}`;
+            args += ` -sm ${currentParams.launch_split_mode}`;
+            args += ` -mg ${currentParams.launch_main_gpu}`;
+            args += ` -fa ${currentParams.launch_flash_attn ? 'on' : 'off'}`;
+            if (!currentParams.launch_mmap) args += ' --no-mmap';
+            args += ` -ctk ${currentParams.launch_cache_type_k}`;
+            args += ` -ctv ${currentParams.launch_cache_type_v}`;
+            if (currentParams.launch_rope_scaling !== 'none') args += ` --rope-scaling ${currentParams.launch_rope_scaling}`;
+            args += ` --rope-scale ${currentParams.launch_rope_scale}`;
+            if (currentParams.launch_rope_freq_base > 0) args += ` --rope-freq-base ${currentParams.launch_rope_freq_base}`;
+
+            if (currentParams.launch_model_draft.trim()) {
+                args += ` -md "${currentParams.launch_model_draft.trim()}"`;
+                if (currentParams.launch_ngld > 0) args += ` -ngld ${currentParams.launch_ngld}`;
+                if (currentParams.launch_draft_p_min > 0) args += ` --draft-p-min ${currentParams.launch_draft_p_min}`;
+                if (currentParams.launch_draft_max > 0) args += ` --draft-max ${currentParams.launch_draft_max}`;
+            }
+
+            if (currentParams.launch_numa) args += ` --numa ${currentParams.launch_numa}`;
+            if (!currentParams.launch_pinned) args += ' --no-pinned-memory';
+            if (currentParams.launch_jinja) args += ' --jinja';
+
+            return args.trim();
+        }
+
+        // --- Chat History Persistence ---
+        function getChatStorageKey() {
+            return 'arandu_chat_history_' + (currentModelPath ? currentModelPath.replace(/[\\/]/g, '_') : 'default');
+        }
+
+        function saveChatHistory() {
+            try {
+                localStorage.setItem(getChatStorageKey(), JSON.stringify(messageHistory));
+                console.log('[ChatUI] Chat history saved:', messageHistory.length, 'messages');
+            } catch (e) {
+                console.error('[ChatUI] Failed to save chat history:', e);
+            }
+        }
+
+        function loadChatHistory(modelPath) {
+            currentModelPath = modelPath || '';
+            try {
+                const saved = localStorage.getItem(getChatStorageKey());
+                if (saved) {
+                    messageHistory = JSON.parse(saved);
+                    console.log('[ChatUI] Chat history loaded:', messageHistory.length, 'messages');
+                    // Restore messages to UI
+                    restoreChatToUI();
+                } else {
+                    messageHistory = [];
+                    console.log('[ChatUI] No saved chat history found');
+                }
+            } catch (e) {
+                console.error('[ChatUI] Failed to load chat history:', e);
+                messageHistory = [];
+            }
+        }
+
+        function restoreChatToUI() {
+            const messagesDiv = document.getElementById('chatMessages');
+            messagesDiv.innerHTML = '';
+            
+            if (messageHistory.length === 0) {
+                messagesDiv.innerHTML = `
+                    <div class="message system">
+                        <div class="message-label">System</div>
+                        <div>Chat history restored. Ready to continue.</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            messageHistory.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `message ${msg.role}`;
+                msgDiv.innerHTML = `
+                    <div class="message-label">${msg.role.charAt(0).toUpperCase() + msg.role.slice(1)}</div>
+                    <div class="message-body">${msg.content.replace(/\n/g, '<br>')}</div>
+                `;
+                messagesDiv.appendChild(msgDiv);
+            });
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Request current config on load
+        window.addEventListener('load', () => {
+            console.log('[ChatUI] Requesting current config from parent...');
+            window.parent.postMessage({
+                type: 'request-current-config'
+            }, '*');
+        });
+
+        // --- Feature 2: File Handling & Parsing ---
+
+        async function handleFileSelection(event) {
+            const files = Array.from(event.target.files);
+            const previewArea = document.getElementById('attachmentPreview');
+            previewArea.style.display = 'flex';
+
+            for (const file of files) {
+                const item = {
+                    id: Date.now() + Math.random(),
+                    name: file.name,
+                    type: file.type,
+                    data: null,
+                    text: null
+                };
+
+                // Create UI Preview
+                const previewDiv = document.createElement('div');
+                previewDiv.className = 'preview-item';
+                previewDiv.id = `preview-${item.id}`;
+
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        item.data = e.target.result;
+                        previewDiv.innerHTML = `<img src="${e.target.result}"><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                    };
+                    reader.readAsDataURL(file);
+                } else if (file.type === 'application/pdf') {
+                    previewDiv.innerHTML = `<span class="material-icons doc-icon">picture_as_pdf</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                    item.text = await extractTextFromPDF(file);
+                } else if (file.name.endsWith('.docx')) {
+                    previewDiv.innerHTML = `<span class="material-icons doc-icon">description</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                    item.text = await extractTextFromDocx(file);
+                } else {
+                    previewDiv.innerHTML = `<span class="material-icons doc-icon">insert_drive_file</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                    item.text = await file.text();
+                }
+
+                previewArea.appendChild(previewDiv);
+                currentAttachments.push(item);
+            }
+            event.target.value = ''; // Reset input
+        }
+
+        function removeAttachment(id) {
+            currentAttachments = currentAttachments.filter(a => a.id != id);
+            const el = document.getElementById(`preview-${id}`);
+            if (el) el.remove();
+            if (currentAttachments.length === 0) {
+                document.getElementById('attachmentPreview').style.display = 'none';
+            }
+        }
+
+        async function extractTextFromPDF(file) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                let text = `[Content from ${file.name}]:\n`;
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const content = await page.getTextContent();
+                    text += content.items.map(s => s.str).join(' ') + '\n';
+                }
+                return text;
+            } catch (e) { console.error("PDF Parse Error", e); return ""; }
+        }
+
+        async function extractTextFromDocx(file) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await mammoth.extractRawText({ arrayBuffer });
+                return `[Content from ${file.name}]:\n${result.value}`;
+            } catch (e) { console.error("Docx Parse Error", e); return ""; }
+        }
+
+        // --- Feature 1: Stop Logic ---
+
+        function stopGeneration() {
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+                addMessage('system', 'Generation interrupted by user.');
+                document.getElementById('stopButton').style.display = 'none';
+                document.getElementById('sendButton').disabled = false;
+                document.getElementById('chatInput').disabled = false;
+            }
+        }
+
+        // Toggle panel visibility
+        function togglePanel() {
+            const panel = document.getElementById('parameterPanel');
+            const floatingToggle = document.getElementById('floatingToggle');
+            const header = document.getElementById('panelHeader');
+            
+            const isCollapsed = panel.classList.toggle('collapsed');
+            
+            // Update accessibility and visibility states
+            header.setAttribute('aria-expanded', !isCollapsed);
+            
+            if (isCollapsed) {
+                floatingToggle.classList.add('visible');
+            } else {
+                floatingToggle.classList.remove('visible');
+            }
+        }
+
+        // Accessibility: Allow toggling via keyboard
+        document.getElementById('panelHeader').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                togglePanel();
+            }
+        });
+
+        function toggleCheckbox(id) {
+            const cb = document.getElementById(id);
+            cb.checked = !cb.checked;
+            cb.dispatchEvent(new Event('change'));
+        }
+
+        // --- Sense Model / Speculative Decoding ---
+        
+        let senseTimeout = null;
+
+        function requestCompatibleModels() {
+            const dropdown = document.getElementById('draftModelDropdown');
+            dropdown.innerHTML = '<div class="model-option" style="cursor: default;">🔍 Sensing current architecture...</div>';
+            dropdown.classList.add('visible');
+            
+            console.log('[ChatUI] Requesting compatible models from parent');
+            
+            window.parent.postMessage({
+                type: 'request-compatible-models'
+            }, '*');
+
+            // Set a timeout to handle cases where the parent doesn't respond
+            if (senseTimeout) clearTimeout(senseTimeout);
+            senseTimeout = setTimeout(() => {
+                if (dropdown.classList.contains('visible') && dropdown.innerHTML.includes('Sensing')) {
+                    dropdown.innerHTML = '<div class="model-option" style="color: #f44336;">⚠️ Sensing timed out. Ensure Arandu is running.</div>';
+                    setTimeout(() => dropdown.classList.remove('visible'), 3000);
+                }
+            }, 10000);
+        }
+
+        // Listen for messages from parent
+        window.addEventListener('message', (event) => {
+            let data = event.data;
+            // Handle cases where data might be JSON stringified
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) {}
+            }
+
+            if (data && data.type === 'compatible-models-list') {
+                console.log('[ChatUI] Received compatible models list:', data.models.length, 'found');
+                if (senseTimeout) {
+                    clearTimeout(senseTimeout);
+                    senseTimeout = null;
+                }
+                renderCompatibleModels(data.models, data.currentArch);
+            }
+            
+            if (data && data.type === 'current-config') {
+                console.log('[ChatUI] Received current config:', data);
+                currentRunningDraftModel = data.draftModelPath || '';
+                console.log('[ChatUI] Current running draft model:', currentRunningDraftModel);
+                if (typeof data.env_vars === 'string') {
+                    currentParams.launch_env_vars = normalizeEnvVars(data.env_vars);
+                }
+                
+                // Parse server's actual parameters from launchArgs
+                if (data.launchArgs) {
+                    const modelMatch = data.launchArgs.match(/-m\s+"([^"]+)"/);
+                    const modelMatch2 = data.launchArgs.match(/-m\s+(\S+)/);
+                    if (modelMatch || modelMatch2) {
+                        const modelPath = modelMatch ? modelMatch[1] : modelMatch2[1];
+                        console.log('[ChatUI] Current model path:', modelPath);
+                        loadChatHistory(modelPath);
+                    }
+
+                    applyLaunchArgsToParams(data.launchArgs);
+
+                    if (data.draftModelPath) {
+                        currentParams.launch_model_draft = data.draftModelPath;
+                        updateLaunchBaseline();
+                    }
+                } else {
+                    updateLaunchBaseline();
+                }
+
+                if (!currentParams.launch_model_draft) {
+                    currentParams.launch_model_draft = currentRunningDraftModel || '';
+                }
+
+                updateParameterDisplay();
+                syncSpecFixButton();
+                markLaunchChange();
+            }
+            
+        if (data && data.type === 'settings-saved') {
+                console.log('[ChatUI] Settings saved:', data.message);
+                const isRestartCompleted = data && data.restartTriggered === true;
+
+                addMessage('system', data.message);
+
+                if (isRestartCompleted) {
+                    launchConfigBaseline = createLaunchConfigSnapshot(currentParams);
+                    const connectionStatus = document.getElementById('connectionStatus');
+                    if (connectionStatus) {
+                        connectionStatus.textContent = 'Connected to llama-server';
+                        connectionStatus.classList.remove('loading');
+                    }
+                }
+            }
+        });
+
+        function renderCompatibleModels(models, arch) {
+            const dropdown = document.getElementById('draftModelDropdown');
+            
+            if (!models || models.length === 0) {
+                dropdown.innerHTML = `
+                    <div class="model-option" style="cursor: default;">No ${arch} models found in your folders.</div>
+                    <div class="model-option" onclick="document.getElementById('draftModelDropdown').classList.remove('visible')" style="background: #333; text-align: center;">Close</div>
+                `;
+                return;
+            }
+
+            let html = models.map(model => `
+                <div class="model-option" onclick="selectDraftModel('${model.path.replace(/\\/g, '\\\\')}', '${model.name}')">
+                    <span class="model-option-name">${model.name}</span>
+                    <span class="model-option-meta">${model.architecture} • ${model.quantization} • ${(model.size_gb).toFixed(2)} GB</span>
+                </div>
+            `).join('');
+
+            // Add a close button at the bottom
+            html += `<div class="model-option" onclick="document.getElementById('draftModelDropdown').classList.remove('visible')" style="background: #333; text-align: center; font-weight: bold; border-top: 1px solid #444;">Close Dropdown</div>`;
+            
+            dropdown.innerHTML = html;
+        }
+
+function selectDraftModel(path, name) {
+    const normalizedNew = path.replace(/\\/g, '/').toLowerCase();
+    const normalizedCurrent = currentRunningDraftModel.replace(/\\/g, '/').toLowerCase();
+
+    currentParams.launch_model_draft = path;
+    
+    const display = document.getElementById('selectedDraftModel');
+    display.textContent = `Selected: ${name}`;
+    display.style.display = 'block';
+            
+            document.getElementById('draftModelDropdown').classList.remove('visible');
+            
+    // Auto-apply speculative fix when draft model is selected
+    applySpeculativeFix();
+
+    syncSpecFixButton();
+    markLaunchChange();
+
+    if (normalizedNew !== normalizedCurrent) {
+        console.log('[ChatUI] Draft model changed, restart required');
+    } else {
+        console.log('[ChatUI] Draft model unchanged');
+    }
+}
+
+function applySpeculativeFix() {
+            // Force the settings required by llama.cpp for Speculative Decoding
+            currentParams.launch_flash_attn = false; // MUST be off
+            currentParams.launch_slots = 1;          // MUST be 1
+            currentParams.launch_cont_batching = false; // Recommended off
+            currentParams.launch_context_shift = false; // Recommended off
+
+    updateParameterDisplay();
+    syncSpecFixButton();
+    markLaunchChange();
+
+    const btn = document.getElementById('specFixBtn');
+    btn.innerHTML = '<span class="material-icons">check_circle</span> Settings Optimized!';
+    btn.style.background = '#4caf50';
+    btn.style.border = 'none';
+    
+    addMessage('system', 'Speculative parameters optimized: Flash Attention disabled and Slots set to 1. These are required when using draft models.');
+}
+
+        // --- Update Displays ---
+
+        // Update parameter display values
+        function updateParameterDisplay() {
+            // Runtime
+            document.getElementById('tempValue').textContent = currentParams.temperature;
+            document.getElementById('temperature').value = currentParams.temperature;
+            
+            document.getElementById('topPValue').textContent = currentParams.top_p;
+            document.getElementById('top_p').value = currentParams.top_p;
+            
+            document.getElementById('minPValue').textContent = currentParams.min_p;
+            document.getElementById('min_p').value = currentParams.min_p;
+            
+            document.getElementById('topKValue').textContent = currentParams.top_k;
+            document.getElementById('top_k').value = currentParams.top_k;
+            
+            document.getElementById('max_tokens').value = currentParams.max_tokens;
+            
+            document.getElementById('repeatValue').textContent = currentParams.repeat_penalty;
+            document.getElementById('repeat_penalty').value = currentParams.repeat_penalty;
+            
+            document.getElementById('repeat_last_n').value = currentParams.repeat_last_n;
+            
+            document.getElementById('presenceValue').textContent = currentParams.presence_penalty;
+            document.getElementById('presence_penalty').value = currentParams.presence_penalty;
+            
+            document.getElementById('frequencyValue').textContent = currentParams.frequency_penalty;
+            document.getElementById('frequency_penalty').value = currentParams.frequency_penalty;
+            
+            document.getElementById('historyValue').textContent = currentParams.history_limit;
+            document.getElementById('history_limit').value = currentParams.history_limit;
+            
+            document.getElementById('system_prompt').value = currentParams.system_prompt;
+
+            // Creativity
+            document.getElementById('xtcProbValue').textContent = currentParams.xtc_probability;
+            document.getElementById('xtc_probability').value = currentParams.xtc_probability;
+            document.getElementById('xtcThreshValue').textContent = currentParams.xtc_threshold;
+            document.getElementById('xtc_threshold').value = currentParams.xtc_threshold;
+            document.getElementById('dryMultValue').textContent = currentParams.dry_multiplier;
+            document.getElementById('dry_multiplier').value = currentParams.dry_multiplier;
+            document.getElementById('dryBaseValue').textContent = currentParams.dry_base;
+            document.getElementById('dry_base').value = currentParams.dry_base;
+            document.getElementById('dryLenValue').textContent = currentParams.dry_allowed_length;
+            document.getElementById('dry_allowed_length').value = currentParams.dry_allowed_length;
+
+            // Reasoning
+            document.getElementById('reasoning_format').value = currentParams.reasoning_format;
+            document.getElementById('reasoning_budget').value = currentParams.reasoning_budget;
+
+            // Launch
+            document.getElementById('launch_ctx_size').value = currentParams.launch_ctx_size;
+            
+            document.getElementById('slotsValue').textContent = currentParams.launch_slots;
+            document.getElementById('launch_slots').value = currentParams.launch_slots;
+            document.getElementById('launch_cont_batching').checked = currentParams.launch_cont_batching;
+
+            document.getElementById('launch_context_shift').checked = currentParams.launch_context_shift;
+            document.getElementById('launch_gpu_layers').value = currentParams.launch_gpu_layers;
+            document.getElementById('cpuMoeValue').textContent = currentParams.launch_cpu_moe_layers;
+            document.getElementById('launch_cpu_moe_layers').value = currentParams.launch_cpu_moe_layers;
+            document.getElementById('launch_split_mode').value = currentParams.launch_split_mode;
+            document.getElementById('launch_main_gpu').value = currentParams.launch_main_gpu;
+            document.getElementById('launch_flash_attn').checked = currentParams.launch_flash_attn;
+            document.getElementById('launch_mmap').checked = currentParams.launch_mmap;
+            document.getElementById('launch_cache_type_k').value = currentParams.launch_cache_type_k;
+            document.getElementById('launch_cache_type_v').value = currentParams.launch_cache_type_v;
+            document.getElementById('launch_rope_scaling').value = currentParams.launch_rope_scaling;
+            document.getElementById('launch_rope_scale').value = currentParams.launch_rope_scale;
+            document.getElementById('launch_rope_freq_base').value = currentParams.launch_rope_freq_base;
+            
+            document.getElementById('draftPMinValue').textContent = currentParams.launch_draft_p_min;
+            document.getElementById('launch_draft_p_min').value = currentParams.launch_draft_p_min;
+            document.getElementById('draftMaxValue').textContent = currentParams.launch_draft_max;
+            document.getElementById('launch_draft_max').value = currentParams.launch_draft_max;
+
+            if (currentParams.launch_model_draft) {
+                const display = document.getElementById('selectedDraftModel');
+                display.textContent = `Selected: ${currentParams.launch_model_draft.split(/[\\\/]/).pop()}`;
+                display.style.display = 'block';
+            }
+
+            document.getElementById('launch_ngld').value = currentParams.launch_ngld;
+            document.getElementById('launch_numa').value = currentParams.launch_numa;
+            document.getElementById('launch_pinned').checked = currentParams.launch_pinned;
+            document.getElementById('launch_jinja').checked = currentParams.launch_jinja;
+            
+            document.getElementById('launch_env_vars').value = currentParams.launch_env_vars;
+        }
+
+        // Handle parameter changes
+        function setupParameterListeners() {
+            // Runtime listeners
+            const runtimeInputs = [
+                'temperature', 'top_p', 'min_p', 'top_k', 'repeat_penalty', 'presence_penalty', 'frequency_penalty', 'history_limit',
+                'xtc_probability', 'xtc_threshold', 'dry_multiplier', 'dry_base', 'dry_allowed_length'
+            ];
+            
+            runtimeInputs.forEach(id => {
+                document.getElementById(id).addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value);
+                    currentParams[id] = val;
+                    
+                    // Update specific display spans
+                    if (id === 'xtc_probability') document.getElementById('xtcProbValue').textContent = val;
+                    if (id === 'xtc_threshold') document.getElementById('xtcThreshValue').textContent = val;
+                    if (id === 'dry_multiplier') document.getElementById('dryMultValue').textContent = val;
+                    if (id === 'dry_base') document.getElementById('dryBaseValue').textContent = val;
+                    if (id === 'dry_allowed_length') document.getElementById('dryLenValue').textContent = parseInt(val);
+                    
+                    updateParameterDisplay();
+                });
+            });
+
+            document.getElementById('max_tokens').addEventListener('change', (e) => {
+                currentParams.max_tokens = parseInt(e.target.value);
+            });
+
+            document.getElementById('repeat_last_n').addEventListener('change', (e) => {
+                currentParams.repeat_last_n = parseInt(e.target.value);
+            });
+
+            document.getElementById('system_prompt').addEventListener('input', (e) => {
+                currentParams.system_prompt = e.target.value;
+            });
+
+            document.getElementById('reasoning_format').addEventListener('change', (e) => {
+                currentParams.reasoning_format = e.target.value;
+            });
+
+            document.getElementById('reasoning_budget').addEventListener('change', (e) => {
+                currentParams.reasoning_budget = parseInt(e.target.value);
+            });
+
+            // Launch listeners (show restart warning)
+            const launchInputs = [
+                'launch_ctx_size', 'launch_slots', 'launch_cont_batching', 'launch_context_shift', 'launch_gpu_layers', 'launch_cpu_moe_layers', 'launch_split_mode', 
+                'launch_main_gpu', 'launch_flash_attn', 'launch_mmap', 'launch_cache_type_k', 
+                'launch_cache_type_v', 'launch_rope_scaling', 'launch_rope_scale', 'launch_rope_freq_base',
+                'launch_draft_p_min', 'launch_draft_max',
+                'launch_ngld', 'launch_numa', 'launch_pinned', 'launch_jinja',
+                'launch_env_vars'
+            ];
+
+            launchInputs.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const eventType = el.type === 'checkbox' ? 'change' : (el.tagName === 'SELECT' ? 'change' : 'input');
+                
+                el.addEventListener(eventType, (e) => {
+                    const val = el.type === 'checkbox' ? el.checked : el.value;
+                    currentParams[id] = (el.type === 'range' || el.type === 'number') ? parseFloat(val) : val;
+                    
+                    if (id === 'launch_cpu_moe_layers') {
+                        document.getElementById('cpuMoeValue').textContent = val;
+                    }
+                    if (id === 'launch_slots') {
+                        document.getElementById('slotsValue').textContent = val;
+                    }
+                    if (id === 'launch_draft_p_min') {
+                        document.getElementById('draftPMinValue').textContent = val;
+                    }
+                    if (id === 'launch_draft_max') {
+                        document.getElementById('draftMaxValue').textContent = val;
+                    }
+                    
+                    syncSpecFixButton();
+                    markLaunchChange();
+                });
+            });
+        }
+
+        // Reset parameters to defaults
+        function resetParameters() {
+            currentParams = { ...defaultParams };
+            updateParameterDisplay();
+            syncSpecFixButton();
+            markLaunchChange();
+        }
+
+        // Request a restart from the parent Arandu app
+        function requestRestart() {
+            const args = buildLaunchArgsFromParams();
+            const normalizedEnvVars = normalizeEnvVars(currentParams.launch_env_vars || '');
+            const nextSnapshot = createLaunchConfigSnapshot(currentParams);
+            const requiresRestart = launchConfigBaseline
+                ? launchConfigHasRestartImpact(launchConfigBaseline, nextSnapshot)
+                : true;
+
+            if (requiresRestart) {
+                // Full restart required
+                addMessage('system', 'Restarting server with new parameters... This may take a moment while models are loaded.');
+                document.getElementById('connectionStatus').textContent = 'Restarting...';
+                document.getElementById('connectionStatus').classList.add('loading');
+            }
+
+            // Send to parent
+            window.parent.postMessage({
+                type: 'request-restart',
+                args: args.trim(),
+                env_vars: normalizedEnvVars,
+                requiresRestart: requiresRestart
+            }, '*');
+
+            if (!requiresRestart) {
+                launchConfigBaseline = nextSnapshot;
+            }
+
+            document.getElementById('restartWarning').style.display = 'none';
+        }
+
+        // Clear Conversation History (Context)
+        function clearContext() {
+            messageHistory = [];
+            // Clear saved history
+            try {
+                localStorage.removeItem(getChatStorageKey());
+            } catch (e) {
+                console.error('[ChatUI] Failed to clear saved chat history:', e);
+            }
+            const messagesDiv = document.getElementById('chatMessages');
+            messagesDiv.innerHTML = `
+                <div class="message system">
+                    <div class="message-label">System</div>
+                    <div>Conversation context has been cleared.</div>
+                </div>
+            `;
+        }
+
+        // Add message to chat UI
+        function addMessage(role, content, stats = null) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            let html = `<div class="message-label">${role.charAt(0).toUpperCase() + role.slice(1)}</div>`;
+            html += `<div class="message-body">${content.replace(/\n/g, '<br>')}</div>`;
+            
+            if (stats) {
+                html += `<div class="message-stats">
+                    <span class="stat-item"><b>Total:</b> ${stats.total} tokens</span>
+                    <span class="stat-item"><b>Main:</b> ${stats.main}</span>
+                    <span class="stat-item"><b>Draft:</b> ${stats.draft}</span>
+                    <span class="stat-item"><b>TTFT:</b> ${stats.ttft}ms</span>
+                </div>`;
+            }
+            
+            messageDiv.innerHTML = html;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            // Update timestamp
+            document.getElementById('lastMessageTime').textContent = new Date().toLocaleTimeString();
+            return messageDiv;
+        }
+
+        // Send message
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const messageText = input.value.trim();
+
+            if (!messageText && currentAttachments.length === 0) return;
+
+            // Feature 1: Reset Abort Controller
+            abortController = new AbortController();
+            document.getElementById('stopButton').style.display = 'flex';
+            document.getElementById('sendButton').disabled = true;
+            input.disabled = true;
+
+            // Feature 2: Prepare prompt with text attachments
+            let finalPrompt = messageText;
+            const images = [];
+            currentAttachments.forEach(att => {
+                if (att.text) finalPrompt += `\n\n${att.text}`;
+                if (att.data) images.push(att.data);
+            });
+
+            // Feature 2: Construct payload
+            const userContent = [{ type: 'text', text: finalPrompt }];
+            images.forEach(img => userContent.push({ type: 'image_url', image_url: { url: img } }));
+
+            messageHistory.push({ role: 'user', content: messageText || "Uploaded files" });
+            saveChatHistory();
+            addMessage('user', messageText || "Sent attachments");
+            
+            // Clear attachments UI
+            currentAttachments = [];
+            document.getElementById('attachmentPreview').innerHTML = '';
+            document.getElementById('attachmentPreview').style.display = 'none';
+            input.value = '';
+            input.style.height = 'auto';
+
+            // Add loading indicator
+            const messagesDiv = document.getElementById('chatMessages');
+            const assistantMsgDiv = document.createElement('div');
+            assistantMsgDiv.className = 'message assistant';
+            assistantMsgDiv.innerHTML = '<div class="message-label">Assistant</div><div class="message-body">...</div>';
+            messagesDiv.appendChild(assistantMsgDiv);
+            const bodyDiv = assistantMsgDiv.querySelector('.message-body');
+
+            // Feature 4: Performance Tracking
+            const startTime = Date.now();
+            let ttft = 0;
+            let totalTokens = 0;
+            let draftTokens = 0;
+            let draftTokensFromSignals = 0;
+            let hasUsageDraftTokens = false;
+            let fullText = "";
+
+            try {
+                const messages = [];
+                if (currentParams.system_prompt.trim()) {
+                    messages.push({ role: 'system', content: currentParams.system_prompt.trim() });
+                }
+                const historyToInclude = messageHistory.slice(-currentParams.history_limit);
+                messages.push(...historyToInclude.map(m => ({...m})));
+                
+                // Update the last message with the full content (text + docs)
+                if (messages.length > 0) {
+                    messages[messages.length-1].content = userContent;
+                }
+
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: abortController.signal,
+                    body: JSON.stringify({
+                        model: '',
+                        messages: messages,
+                        temperature: currentParams.temperature,
+                        top_p: currentParams.top_p,
+                        min_p: currentParams.min_p,
+                        top_k: currentParams.top_k,
+                        max_tokens: currentParams.max_tokens,
+                        repeat_penalty: currentParams.repeat_penalty,
+                        repeat_last_n: currentParams.repeat_last_n,
+                        presence_penalty: currentParams.presence_penalty,
+                        frequency_penalty: currentParams.frequency_penalty,
+                        xtc_probability: currentParams.xtc_probability,
+                        xtc_threshold: currentParams.xtc_threshold,
+                        dry_multiplier: currentParams.dry_multiplier,
+                        dry_base: currentParams.dry_base,
+                        dry_allowed_length: currentParams.dry_allowed_length,
+                                                reasoning_format: currentParams.reasoning_format,
+                        reasoning_budget: currentParams.reasoning_budget,
+                        stream: true,
+                        stream_options: { include_usage: true } // Required for stats in stream
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                bodyDiv.innerHTML = ""; // Clear loader
+                let streamBuffer = '';
+                let streamDone = false;
+                let streamDebugState = {
+                    usageSeen: false,
+                    draftSignalsLogged: 0
+                };
+
+                const processStreamLine = (line) => {
+                    const trimmedLine = String(line || '').trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) {
+                        return false;
+                    }
+
+                    const dataStr = trimmedLine.slice(6).trim();
+                    if (dataStr === '[DONE]') {
+                        return true;
+                    }
+
+                    try {
+                        const data = JSON.parse(dataStr);
+
+                        maybeLogStreamPayload('stream.payload', { usageOnly: !!data.usage, hasChoices: !!(data.choices && data.choices.length) });
+
+                        if (data.usage) {
+                            streamDebugState.usageSeen = true;
+                            maybeLogStreamPayload('stream.usage', data.usage);
+
+                            if (typeof data.usage.completion_tokens === 'number') {
+                                totalTokens = data.usage.completion_tokens;
+                            }
+
+                            const usageDraft = extractUsageDraftTokens(data.usage);
+                            if (typeof usageDraft === 'number') {
+                                hasUsageDraftTokens = true;
+                                draftTokens = usageDraft;
+                                if (streamDebugState.draftSignalsLogged < 5) {
+                                    maybeLogStreamPayload('stream.draft_usage_tokens', {
+                                        key: 'accepted_or_speculative',
+                                        value: draftTokens
+                                    });
+                                    streamDebugState.draftSignalsLogged += 1;
+                                }
+                            }
+                        }
+
+                        if (!data.choices || data.choices.length === 0) {
+                            return false;
+                        }
+
+                        const choice = data.choices[0];
+                        const delta = choice.delta;
+                        const draftSignal = detectDraftTokenSignal(choice, delta);
+
+                        if (draftSignal.source && draftSignal.isDraft && streamDebugState.draftSignalsLogged < 20) {
+                            maybeLogStreamPayload('stream.draft_signal', {
+                                source: draftSignal.source,
+                                value: draftSignal.raw
+                            });
+                            streamDebugState.draftSignalsLogged += 1;
+                        }
+
+                        if (delta && delta.content) {
+                            if (ttft === 0) {
+                                ttft = Date.now() - startTime;
+                            }
+
+                            const isDraft = draftSignal.isDraft === true;
+                            const content = delta.content;
+
+                            if (isDraft && !hasUsageDraftTokens) {
+                                draftTokensFromSignals += 1;
+                            }
+
+                            if (isDraft) {
+                                bodyDiv.innerHTML += `<span class="draft-token">${content.replace(/\n/g, '<br>')}</span>`;
+                            } else {
+                                bodyDiv.innerHTML += content.replace(/\n/g, '<br>');
+                            }
+                            fullText += content;
+
+                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                        }
+                    } catch (e) {
+                        // Silently ignore partial JSON or parse errors in stream
+                    }
+
+                    return false;
+                };
+                               
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    streamBuffer += chunk;
+                    const lines = streamBuffer.split(/\r?\n/);
+                    streamBuffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (processStreamLine(line)) {
+                            streamDone = true;
+                            break;
+                        }
+                    }
+
+                    if (streamDone) {
+                        break;
+                    }
+                }
+
+                if (!streamDone) {
+                    if (streamBuffer.trim()) {
+                        processStreamLine(streamBuffer);
+                    }
+                }
+
+                // Final stats readout display
+                const finalDraftTokens = hasUsageDraftTokens ? draftTokens : draftTokensFromSignals;
+                const mainTokens = Math.max(0, (totalTokens || 0) - (finalDraftTokens || 0));
+                const statsHtml = `<div class="message-stats">
+                    <span class="stat-item"><b>Total:</b> ${totalTokens || 0}</span>
+                    <span class="stat-item"><b>Main:</b> ${mainTokens || 0}</span>
+                    <span class="stat-item"><b>Draft:</b> ${finalDraftTokens || 0}</span>
+                    <span class="stat-item"><b>TTFT:</b> ${ttft}ms</span>
+                </div>`;
+
+                // Append stats to the specific message
+                assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
+
+                messageHistory.push({ role: 'assistant', content: fullText });
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    // Handled by stopGeneration
+                } else {
+                    bodyDiv.innerHTML += `<br><span style="color: #f44336;">Error: ${error.message}</span>`;
+                }
+            } finally {
+                abortController = null;
+                document.getElementById('stopButton').style.display = 'none';
+                document.getElementById('sendButton').disabled = false;
+                input.disabled = false;
+                input.focus();
+                // Save chat history after response complete
+                if (messageHistory.length > 0) {
+                    saveChatHistory();
+                }
+            }
+        }
+
+        // Handle Enter key
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Auto-resize textarea
+        document.getElementById('chatInput').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupParameterListeners();
+            updateParameterDisplay();
+            
+            // Set initial state for floating toggle
+            const panel = document.getElementById('parameterPanel');
+            const floatingToggle = document.getElementById('floatingToggle');
+            if (panel.classList.contains('collapsed')) {
+                floatingToggle.classList.add('visible');
+            }
+            
+            document.getElementById('chatInput').focus();
+        });
+    </script>
+</body>
+</html>

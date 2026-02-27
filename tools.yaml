@@ -1,0 +1,5 @@
+mcpServers:
+  nowledge-mem:
+    httpUrl: "http://127.0.0.1:14242/mcp"
+    headers:
+      APP: "Gemini"

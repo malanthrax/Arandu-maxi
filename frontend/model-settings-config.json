@@ -1135,6 +1135,29 @@
       "description": "Set process/thread priority (default: 0)"
     },
     {
+      "id": "system_prompt",
+      "name": "System Prompt",
+      "type": "text",
+      "argument": "--system-prompt",
+      "aliases": [
+        "-p"
+      ],
+      "isFlag": false,
+      "default": "",
+      "category": "Model",
+      "description": "Set a system prompt for the model"
+    },
+    {
+      "id": "system_prompt_file",
+      "name": "System Prompt File",
+      "type": "text",
+      "argument": "--system-prompt-file",
+      "isFlag": false,
+      "default": "",
+      "category": "Model",
+      "description": "Set a system prompt file to load"
+    },
+    {
       "id": "chat_template",
       "name": "Chat Template",
       "type": "select",

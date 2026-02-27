@@ -1,5 +1,5 @@
 use crate::models::*;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -217,11 +217,11 @@ fn parse_hf_datetime(value: &str) -> Option<DateTime<Utc>> {
     }
 
     if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
-        return Some(DateTime::<Utc>::from_utc(naive, Utc));
+        return Some(Utc.from_utc_datetime(&naive));
     }
 
     if let Ok(naive) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") {
-        return Some(DateTime::<Utc>::from_utc(naive, Utc));
+        return Some(Utc.from_utc_datetime(&naive));
     }
 
     None

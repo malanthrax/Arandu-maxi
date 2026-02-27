@@ -22,15 +22,18 @@ impl LlamaClient {
 
     /// Convert OpenAI format request to llama.cpp format
     pub fn convert_request(&self, openai_req: &ChatCompletionRequest) -> Value {
-        // llama.cpp uses OpenAI-compatible /v1/chat/completions endpoint
-        json!({
-            "model": &openai_req.model,
-            "messages": openai_req.messages,
-            "temperature": openai_req.temperature.unwrap_or(0.7),
-            "max_tokens": openai_req.max_tokens,
-            "stream": openai_req.stream.unwrap_or(false),
-            "top_p": openai_req.top_p,
-            "stop": openai_req.stop,
+        // Preserve all known and unknown fields so advanced parameters stay intact.
+        serde_json::to_value(openai_req).unwrap_or_else(|_| {
+            // Fallback keeps old behavior if serialization changes.
+            json!({
+                "model": &openai_req.model,
+                "messages": openai_req.messages,
+                "temperature": openai_req.temperature,
+                "max_tokens": openai_req.max_tokens,
+                "stream": openai_req.stream,
+                "top_p": openai_req.top_p,
+                "stop": openai_req.stop,
+            })
         })
     }
 

@@ -3,9 +3,14 @@
 // Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{Manager, Listener, Emitter, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
+use chrono::Utc;
+use tauri::{Manager, Listener, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
+
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use tokio::process::Command as TokioCommand;
+use tokio::time::{timeout, Duration, Instant};
 
 mod models;
 mod config;
@@ -23,9 +28,6 @@ mod tracker_manager;
 mod openai_types;
 mod openai_proxy;
 mod llama_client;
-mod chat_models;
-mod chat_manager;
-mod parameter_controller;
 
 use config::*;
 use process::*;
@@ -33,14 +35,12 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, ProcessStatus, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
 use tracker_scraper::TrackerScraper;
 use tracker_manager::TrackerManager;
-use chat_models::{ChatSession, ChatMessage, ChatSummary, ChatParameters, MessageRole};
-use chat_manager::ChatManager;
 
 // Import ProcessHandle from process module
 use process::ProcessHandle;
@@ -272,7 +272,7 @@ async fn save_config(
         models_directory, additional_models_directories, executable_folder, theme_color, background_color, theme_is_synced);
     
     // Preserve existing active executable folder and proxy/network settings
-    let (existing_active_path, existing_active_version, existing_proxy_enabled, existing_proxy_port, existing_network_host, existing_network_port) = {
+    let (existing_active_path, existing_active_version, existing_proxy_enabled, existing_proxy_port, existing_network_host, existing_network_port, existing_mcp_servers) = {
         let cfg = state.config.lock().await;
         (
             cfg.active_executable_folder.clone(),
@@ -281,6 +281,7 @@ async fn save_config(
             cfg.openai_proxy_port,
             cfg.network_server_host.clone(),
             cfg.network_server_port,
+            cfg.mcp_servers.clone(),
         )
     };
     
@@ -303,6 +304,7 @@ async fn save_config(
         openai_proxy_port: existing_proxy_port,
         network_server_host: existing_network_host,
         network_server_port: existing_network_port,
+        mcp_servers: existing_mcp_servers,
     };
     
     // Update global config
@@ -568,8 +570,8 @@ async fn launch_model_with_preset(
     preset_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // Get the preset arguments
-    let custom_args = {
+    // Get the preset arguments and env vars
+    let (custom_args, env_vars) = {
         let model_configs = state.model_configs.lock().await;
         let config = model_configs.get(&model_path)
             .cloned()
@@ -579,27 +581,35 @@ async fn launch_model_with_preset(
             // Find the preset
             config.presets.iter()
                 .find(|p| p.id == pid)
-                .map(|p| p.custom_args.clone())
-                .unwrap_or_else(|| config.custom_args.clone())
+                .map(|p| {
+                    let mut envs = config.env_vars.clone();
+                    envs.extend(p.env_vars.clone());
+                    (p.custom_args.clone(), envs)
+                })
+                .unwrap_or_else(|| (config.custom_args.clone(), config.env_vars.clone()))
         } else if let Some(default_id) = config.default_preset_id {
             // Use default preset
             config.presets.iter()
                 .find(|p| p.id == default_id)
-                .map(|p| p.custom_args.clone())
-                .unwrap_or_else(|| config.custom_args.clone())
+                .map(|p| {
+                    let mut envs = config.env_vars.clone();
+                    envs.extend(p.env_vars.clone());
+                    (p.custom_args.clone(), envs)
+                })
+                .unwrap_or_else(|| (config.custom_args.clone(), config.env_vars.clone()))
         } else {
             // Use current custom_args
-            config.custom_args.clone()
+            (config.custom_args.clone(), config.env_vars.clone())
         }
     };
     
     // Store original args for restoration
-    let original_args = {
+    let (original_args, original_env_vars) = {
         let model_configs = state.model_configs.lock().await;
         let config = model_configs.get(&model_path)
             .cloned()
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
-        config.custom_args.clone()
+        (config.custom_args.clone(), config.env_vars.clone())
     };
     
     // Temporarily update the model config with preset args
@@ -610,6 +620,7 @@ async fn launch_model_with_preset(
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
         
         config.custom_args = custom_args;
+        config.env_vars = env_vars;
         model_configs.insert(model_path.clone(), config);
     } // Release the lock here
     
@@ -624,9 +635,79 @@ async fn launch_model_with_preset(
             .cloned()
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
         config.custom_args = original_args;
+        config.env_vars = original_env_vars;
         model_configs.insert(model_path, config);
     }
     
+    Ok(serde_json::json!({
+        "success": true,
+        "process_id": result.process_id,
+        "model_name": result.model_name,
+        "server_host": result.server_host,
+        "server_port": result.server_port
+    }))
+}
+
+fn append_half_context_arg(custom_args: &str) -> String {
+    let trimmed_args = custom_args.trim();
+    if trimmed_args.is_empty() {
+        "--context-shift".to_string()
+    } else if trimmed_args
+        .split_whitespace()
+        .any(|token| token == "--context-shift")
+    {
+        trimmed_args.to_string()
+    } else {
+        format!("{} {}", trimmed_args, "--context-shift")
+    }
+}
+
+#[tauri::command]
+async fn launch_model_with_half_context(
+    model_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let custom_args_with_half_context = {
+        let model_configs = state.model_configs.lock().await;
+        let config = model_configs.get(&model_path)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
+
+        append_half_context_arg(&config.custom_args)
+    };
+
+    let (original_args, original_env_vars) = {
+        let model_configs = state.model_configs.lock().await;
+        let config = model_configs.get(&model_path)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
+        (config.custom_args.clone(), config.env_vars.clone())
+    };
+
+    {
+        let mut model_configs = state.model_configs.lock().await;
+        let mut config = model_configs.get(&model_path)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
+
+        config.custom_args = custom_args_with_half_context;
+        model_configs.insert(model_path.clone(), config);
+    }
+
+    let result = launch_model_server(model_path.clone(), &state)
+        .await
+        .map_err(|e| format!("Failed to launch model with half context: {}", e))?;
+
+    {
+        let mut model_configs = state.model_configs.lock().await;
+        let mut config = model_configs.get(&model_path)
+            .cloned()
+            .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
+        config.custom_args = original_args;
+        config.env_vars = original_env_vars;
+        model_configs.insert(model_path, config);
+    }
+
     Ok(serde_json::json!({
         "success": true,
         "process_id": result.process_id,
@@ -673,8 +754,8 @@ async fn launch_model_with_preset_external(
     preset_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    // Get the preset arguments
-    let custom_args = {
+    // Get the preset arguments and env vars
+    let (custom_args, env_vars) = {
         let model_configs = state.model_configs.lock().await;
         let config = model_configs.get(&model_path)
             .cloned()
@@ -684,27 +765,35 @@ async fn launch_model_with_preset_external(
             // Find the preset
             config.presets.iter()
                 .find(|p| p.id == pid)
-                .map(|p| p.custom_args.clone())
-                .unwrap_or_else(|| config.custom_args.clone())
+                .map(|p| {
+                    let mut envs = config.env_vars.clone();
+                    envs.extend(p.env_vars.clone());
+                    (p.custom_args.clone(), envs)
+                })
+                .unwrap_or_else(|| (config.custom_args.clone(), config.env_vars.clone()))
         } else if let Some(default_id) = config.default_preset_id {
             // Use default preset
             config.presets.iter()
                 .find(|p| p.id == default_id)
-                .map(|p| p.custom_args.clone())
-                .unwrap_or_else(|| config.custom_args.clone())
+                .map(|p| {
+                    let mut envs = config.env_vars.clone();
+                    envs.extend(p.env_vars.clone());
+                    (p.custom_args.clone(), envs)
+                })
+                .unwrap_or_else(|| (config.custom_args.clone(), config.env_vars.clone()))
         } else {
             // Use current custom_args
-            config.custom_args.clone()
+            (config.custom_args.clone(), config.env_vars.clone())
         }
     };
     
     // Store original args for restoration
-    let original_args = {
+    let (original_args, original_env_vars) = {
         let model_configs = state.model_configs.lock().await;
         let config = model_configs.get(&model_path)
             .cloned()
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
-        config.custom_args.clone()
+        (config.custom_args.clone(), config.env_vars.clone())
     };
     
     // Temporarily update the model config with preset args
@@ -715,6 +804,7 @@ async fn launch_model_with_preset_external(
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
         
         config.custom_args = custom_args;
+        config.env_vars = env_vars;
         model_configs.insert(model_path.clone(), config);
     } // Release the lock here
     
@@ -729,6 +819,7 @@ async fn launch_model_with_preset_external(
             .cloned()
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
         config.custom_args = original_args;
+        config.env_vars = original_env_vars;
         model_configs.insert(model_path, config);
     }
     
@@ -2118,7 +2209,7 @@ async fn get_network_config(
 
 #[tauri::command]
 async fn get_network_interfaces() -> Result<serde_json::Value, String> {
-    use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::net::Ipv4Addr;
     
     let mut interfaces = vec![
         serde_json::json!({
@@ -2258,137 +2349,729 @@ async fn get_network_server_status(
     }))
 }
 
-// ==================== Chat Management Commands ====================
-
 #[tauri::command]
-async fn create_chat(
-    model_path: String,
-    model_name: String,
-) -> Result<ChatSession, String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.create_chat(model_path, model_name).await
-}
-
-#[tauri::command]
-async fn load_chat(
-    chat_id: String,
-) -> Result<ChatSession, String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.load_chat(chat_id).await
-}
-
-#[tauri::command]
-async fn list_chats(model_path: Option<String>) -> Result<Vec<ChatSummary>, String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.list_chats(model_path).await
-}
-
-#[tauri::command]
-async fn send_message(
-    chat_id: String,
-    content: String,
-    stream: bool,
+async fn get_mcp_connections(
     state: tauri::State<'_, AppState>,
-    window: tauri::Window,
-) -> Result<ChatMessage, String> {
-    let chat_manager = ChatManager::new()?;
-    
-    // Load the chat session to get the model_path
-    let session = chat_manager.load_chat(chat_id.clone()).await?;
-    let model_path = session.model_path.clone();
-    
-    // Find the running process for this model
-    let running_processes = state.running_processes.lock().await;
-    let process_info = running_processes.values()
-        .find(|p| p.model_path == model_path && matches!(p.status, ProcessStatus::Running))
-        .cloned();
-    drop(running_processes);
-    
-    let process_info = process_info.ok_or_else(|| {
-        "No running server found for this model. Please start the model first.".to_string()
-    })?;
-    
-    // Build server URL
-    let server_url = format!("http://{}:{}", process_info.host, process_info.port);
-    
-    if stream {
-        // Streaming mode - send message and emit events
-        let chat_manager_clone = ChatManager::new()?;
-        let chat_id_clone = chat_id.clone();
-        let window_clone = window.clone();
-        
-        // Start the LLM request in a spawned task for streaming
-        tokio::spawn(async move {
-            match chat_manager_clone.send_message_to_llm(chat_id_clone.clone(), content, server_url).await {
-                Ok(response) => {
-                    // Emit the complete response as a stream event
-                    let _ = window_clone.emit(
-                        &format!("chat-stream-{}", chat_id_clone),
-                        serde_json::json!({
-                            "chunk": response,
-                            "done": true,
-                            "full_content": response
-                        })
-                    );
-                }
-                Err(e) => {
-                    let _ = window_clone.emit(
-                        &format!("chat-stream-{}", chat_id_clone),
-                        serde_json::json!({
-                            "error": e,
-                            "done": true
-                        })
-                    );
-                }
+) -> Result<Vec<McpServerConfig>, String> {
+    let config = state.config.lock().await;
+    Ok(config.mcp_servers.clone())
+}
+
+#[tauri::command]
+async fn save_mcp_connection(
+    mut connection: McpServerConfig,
+    state: tauri::State<'_, AppState>,
+) -> Result<McpServerConfig, String> {
+    validate_mcp_connection_payload(&connection)?;
+
+    if connection.timeout_seconds == 0 {
+        connection.timeout_seconds = 10;
+    }
+
+    if connection.id.trim().is_empty() {
+        connection.id = format!("mcp-{}", Utc::now().timestamp_micros());
+    }
+
+    if connection.last_test_status.is_none() {
+        connection.last_test_status = Some("never_tested".to_string());
+    }
+
+    let mut config = state.config.lock().await;
+
+    let position = config.mcp_servers.iter().position(|item| item.id == connection.id);
+
+    match position {
+        Some(index) => {
+            config.mcp_servers[index] = connection.clone();
+        }
+        None => {
+            config.mcp_servers.push(connection.clone());
+        }
+    }
+
+    drop(config);
+
+    if let Err(e) = save_settings(&state).await {
+        return Err(format!("Failed to save MCP connection: {}", e));
+    }
+
+    Ok(connection)
+}
+
+fn validate_mcp_connection_payload(connection: &McpServerConfig) -> Result<(), String> {
+    if connection.name.trim().is_empty() {
+        return Err("MCP connection name is required".to_string());
+    }
+
+    if connection.timeout_seconds == 0 {
+        return Err("Timeout must be a positive number".to_string());
+    }
+
+    match connection.transport {
+        McpTransport::Stdio => {
+            if connection.command.trim().is_empty() {
+                return Err("Command is required for stdio transport".to_string());
             }
-        });
-        
-        // Return a placeholder message - actual content will come via stream
-        let placeholder_message = ChatMessage {
-            id: uuid::Uuid::new_v4().to_string(),
-            role: MessageRole::Assistant,
-            content: "".to_string(),
-            created_at: chrono::Utc::now(),
-            metadata: None,
+        }
+        McpTransport::Json => {}
+        _ => {
+            let trimmed = connection.url.trim();
+            if trimmed.is_empty() {
+                return Err("URL is required for this transport".to_string());
+            }
+
+            let parsed = reqwest::Url::parse(trimmed)
+                .map_err(|_| "URL must be a valid absolute URL".to_string())?;
+
+            if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                return Err("URL must use http or https scheme".to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn default_mcp_initialize_payload() -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "arandu-test",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {
+                "roots": { "listChanged": true }
+            },
+            "clientInfo": {
+                "name": "arandu",
+                "version": APP_VERSION
+            }
+        }
+    })
+}
+
+fn mcp_test_payload(connection: &McpServerConfig) -> Result<serde_json::Value, String> {
+    if connection.transport != McpTransport::Json {
+        return Ok(default_mcp_initialize_payload());
+    }
+
+    if connection.json_payload.trim().is_empty() {
+        return Ok(default_mcp_initialize_payload());
+    }
+
+    serde_json::from_str(connection.json_payload.trim())
+        .map_err(|_| "JSON payload must be valid JSON".to_string())
+}
+
+fn parse_mcp_tools_from_response(response: &serde_json::Value) -> Result<Vec<McpToolInfo>, String> {
+    if let Some(error) = response.get("error") {
+        let details = if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
+            message.to_string()
+        } else {
+            error.to_string()
         };
-        
-        Ok(placeholder_message)
-    } else {
-        // Non-streaming mode - send message and return response directly
-        let _assistant_content = chat_manager.send_message_to_llm(chat_id.clone(), content, server_url).await?;
-        
-        // Load the updated session to get the last message
-        let updated_session = chat_manager.load_chat(chat_id).await?;
-        let assistant_message = updated_session.messages.last()
-            .ok_or_else(|| "No messages found after sending".to_string())?;
-        
-        Ok(assistant_message.clone())
+        return Err(format!("MCP tool discovery failed: {}", details));
+    }
+
+    let tools = response
+        .get("result")
+        .and_then(|result| result.get("tools"))
+        .and_then(|tools| tools.as_array())
+        .ok_or_else(|| "No tools list found in MCP response".to_string())?;
+
+    let parsed = tools
+        .iter()
+        .filter_map(|tool| {
+            let name = tool.get("name")?.as_str()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+
+            Some(McpToolInfo {
+                name: name.to_string(),
+                description: tool
+                    .get("description")
+                    .and_then(|value| value.as_str())
+                    .map(std::string::ToString::to_string),
+                input_schema: tool
+                    .get("inputSchema")
+                    .or_else(|| tool.get("input_schema"))
+                    .cloned(),
+                output_schema: tool
+                    .get("outputSchema")
+                    .or_else(|| tool.get("output_schema"))
+                    .cloned(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(parsed)
+}
+
+fn mcp_accept_header(transport: &McpTransport) -> &'static str {
+    match transport {
+        McpTransport::Json => "application/json",
+        _ => "application/json, text/event-stream",
+    }
+}
+
+async fn post_mcp_request(
+    client: &reqwest::Client,
+    transport: &McpTransport,
+    url: &str,
+    payload: serde_json::Value,
+    timeout_duration: Duration,
+) -> Result<reqwest::Response, String> {
+    let request = client
+        .post(url)
+        .header("accept", mcp_accept_header(transport))
+        .json(&payload);
+
+    timeout(timeout_duration, request.send())
+        .await
+        .map_err(|_| "MCP request timed out".to_string())?
+        .map_err(|err| err.to_string())
+}
+
+async fn run_mcp_tool_discovery(
+    transport: McpTransport,
+    url: String,
+    timeout_duration: Duration,
+) -> McpToolsResult {
+    let start_time = Instant::now();
+    let client = reqwest::Client::new();
+
+    let initialize_payload = default_mcp_initialize_payload();
+    let tools_payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "arandu-tools-list",
+        "method": "tools/list",
+        "params": {}
+    });
+
+    let initialize_response = match post_mcp_request(&client, &transport, &url, initialize_payload, timeout_duration).await {
+        Ok(resp) => resp,
+        Err(error) => {
+            return McpToolsResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Initialize request failed".to_string(),
+                tool_count: 0,
+                tools: Vec::new(),
+                status_code: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    match initialize_response.status().is_success() {
+        false => {
+            return McpToolsResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: format!(
+                    "Initialize request returned HTTP {}",
+                    initialize_response.status()
+                ),
+                tool_count: 0,
+                tools: Vec::new(),
+                status_code: Some(initialize_response.status().as_u16()),
+                error: Some("initialize_failed".to_string()),
+            };
+        }
+        true => {}
+    }
+
+    let tools_response = match post_mcp_request(&client, &transport, &url, tools_payload, timeout_duration).await {
+        Ok(resp) => resp,
+        Err(error) => {
+            return McpToolsResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Tools list request failed".to_string(),
+                tool_count: 0,
+                tools: Vec::new(),
+                status_code: None,
+                error: Some(error),
+            };
+        }
+    };
+
+    if !tools_response.status().is_success() {
+        return McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: format!("Tools list request returned HTTP {}", tools_response.status()),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: Some(tools_response.status().as_u16()),
+            error: Some("tools_list_failed".to_string()),
+        };
+    }
+
+    let tools_response_body = match tools_response
+        .json::<serde_json::Value>()
+        .await
+    {
+        Ok(body) => body,
+        Err(error) => {
+            return McpToolsResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Failed to parse tools response JSON".to_string(),
+                tool_count: 0,
+                tools: Vec::new(),
+                status_code: None,
+                error: Some(error.to_string()),
+            };
+        }
+    };
+
+    match parse_mcp_tools_from_response(&tools_response_body) {
+        Ok(tools) => {
+            let tool_count = tools.len();
+            let message = if tool_count == 0 {
+                "No tools returned by server".to_string()
+            } else {
+                format!("Found {} tool(s)", tool_count)
+            };
+
+            McpToolsResult {
+                success: true,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message,
+                tool_count,
+                tools,
+                status_code: None,
+                error: None,
+            }
+        }
+        Err(error) => McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Tools list parse failed".to_string(),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: None,
+            error: Some(error),
+        },
     }
 }
 
 #[tauri::command]
-async fn update_chat_parameters(
-    chat_id: String,
-    parameters: ChatParameters,
+async fn delete_mcp_connection(
+    id: String,
+    state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.update_chat_parameters(chat_id, parameters).await
+    let mut config = state.config.lock().await;
+    let original_len = config.mcp_servers.len();
+    config.mcp_servers.retain(|item| item.id != id);
+
+    if config.mcp_servers.len() == original_len {
+        return Err("MCP connection not found".to_string());
+    }
+
+    drop(config);
+
+    if let Err(e) = save_settings(&state).await {
+        return Err(format!("Failed to save MCP connections: {}", e));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
-async fn delete_chat(
-    chat_id: String,
-) -> Result<(), String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.delete_chat(chat_id).await
+async fn list_mcp_tools(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<McpToolsResult, String> {
+    let start_time = Instant::now();
+
+    let connection = {
+        let config = state.config.lock().await;
+        config
+            .mcp_servers
+            .iter()
+            .find(|item| item.id == id)
+            .cloned()
+            .ok_or_else(|| "MCP connection not found".to_string())?
+    };
+
+    if !connection.enabled {
+        return Ok(McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Connection is disabled. Enable it before testing.".to_string(),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: None,
+            error: Some("disabled".to_string()),
+        });
+    }
+
+    if matches!(connection.transport, McpTransport::Stdio) {
+        return Ok(McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Tool discovery is not yet available for stdio transport in this phase".to_string(),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: None,
+            error: Some("unsupported_transport".to_string()),
+        });
+    }
+
+    if matches!(connection.transport, McpTransport::Sse) {
+        return Ok(McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Tool discovery is not yet available for SSE transport in this phase".to_string(),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: None,
+            error: Some("unsupported_transport".to_string()),
+        });
+    }
+
+    if connection.url.trim().is_empty() {
+        return Ok(McpToolsResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "URL is required for tool discovery".to_string(),
+            tool_count: 0,
+            tools: Vec::new(),
+            status_code: None,
+            error: Some("missing_url".to_string()),
+        });
+    }
+
+    let url = connection.url.trim().to_string();
+    let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+
+    let result = run_mcp_tool_discovery(connection.transport.clone(), url, timeout_duration).await;
+
+    let mut config = state.config.lock().await;
+    if let Some(conn) = config.mcp_servers.iter_mut().find(|item| item.id == id) {
+        conn.tools_last_refresh_at = Some(Utc::now().to_rfc3339());
+        conn.tools_last_status = Some(if result.success { "ok".to_string() } else { "error".to_string() });
+        conn.tools_last_message = Some(result.message.clone());
+        conn.tools_last_error = result.error.clone();
+        conn.tools = result.tools.clone();
+    }
+
+    drop(config);
+    let _ = save_settings(&state).await;
+
+    Ok(result)
 }
 
 #[tauri::command]
-async fn generate_chat_title(
-    chat_id: String,
-) -> Result<String, String> {
-    let chat_manager = ChatManager::new()?;
-    chat_manager.generate_chat_title(chat_id).await
+async fn toggle_mcp_connection(
+    id: String,
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<McpServerConfig, String> {
+    let mut config = state.config.lock().await;
+
+    let connection = config
+        .mcp_servers
+        .iter_mut()
+        .find(|item| item.id == id)
+        .ok_or_else(|| "MCP connection not found".to_string())?;
+
+    connection.enabled = enabled;
+    connection.last_test_status = Some(if enabled {
+        "enabled".to_string()
+    } else {
+        "disabled".to_string()
+    });
+    connection.last_test_message = Some(if enabled {
+        "Connection enabled".to_string()
+    } else {
+        "Connection disabled".to_string()
+    });
+    connection.last_test_at = Some(Utc::now().to_rfc3339());
+
+    let connection = connection.clone();
+
+    drop(config);
+
+    if let Err(e) = save_settings(&state).await {
+        return Err(format!("Failed to save MCP connection: {}", e));
+    }
+
+    Ok(connection)
+}
+
+#[tauri::command]
+async fn test_mcp_connection(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<McpTestResult, String> {
+    let start_time = Instant::now();
+
+    let connection = {
+        let config = state.config.lock().await;
+        config
+            .mcp_servers
+            .iter()
+            .find(|item| item.id == id)
+            .cloned()
+            .ok_or_else(|| "MCP connection not found".to_string())?
+    };
+
+    if !connection.enabled {
+        return Ok(McpTestResult {
+            success: false,
+            latency_ms: 0,
+            message: "Connection is disabled. Enable it before testing.".to_string(),
+            status_code: None,
+            exit_code: None,
+            error: Some("disabled".to_string()),
+        });
+    }
+
+    let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+
+    let mut result = match connection.transport {
+        McpTransport::Stdio => {
+            match TokioCommand::new(&connection.command).args(&connection.args).spawn() {
+                Ok(mut child) => match timeout(timeout_duration, child.wait()).await {
+                    Ok(Ok(status)) => {
+                        let code = status.code();
+                        McpTestResult {
+                            success: false,
+                            latency_ms: start_time.elapsed().as_millis() as i64,
+                            message: format!(
+                                "Process exited before validation was complete: {:?}",
+                                code
+                            ),
+                            status_code: None,
+                            exit_code: code,
+                            error: Some(format!("Process exited: {:?}", status)),
+                        }
+                    }
+                    Ok(Err(err)) => McpTestResult {
+                        success: false,
+                        latency_ms: start_time.elapsed().as_millis() as i64,
+                        message: "Failed to query process status".to_string(),
+                        status_code: None,
+                        exit_code: None,
+                        error: Some(err.to_string()),
+                    },
+                    Err(_) => {
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
+                        McpTestResult {
+                            success: true,
+                            latency_ms: start_time.elapsed().as_millis() as i64,
+                            message: "Stdio transport started successfully".to_string(),
+                        status_code: None,
+                        exit_code: None,
+                        error: None,
+                    }
+                    }
+                },
+                Err(err) => McpTestResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "Failed to start stdio process".to_string(),
+                    status_code: None,
+                    exit_code: None,
+                    error: Some(err.to_string()),
+                },
+            }
+        }
+        _ => {
+        if connection.url.trim().is_empty() {
+            return Ok(McpTestResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "URL is required for transport validation. Set a URL to test this JSON MCP connection.".to_string(),
+                status_code: None,
+                exit_code: None,
+                error: Some("missing_url".to_string()),
+            });
+        }
+
+        let url = connection.url.trim().to_string();
+        let client = reqwest::Client::new();
+        let transport = connection.transport.clone();
+            let init_payload = match mcp_test_payload(&connection) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    return Ok(McpTestResult {
+                        success: false,
+                        latency_ms: start_time.elapsed().as_millis() as i64,
+                        message: error.clone(),
+                        status_code: None,
+                        exit_code: None,
+                        error: Some(error),
+                    });
+                }
+            };
+
+            let request = match transport {
+                McpTransport::Http | McpTransport::Json | McpTransport::StreamableHttp => {
+                    let mut request = client
+                        .post(url)
+                        .json(&init_payload);
+
+                    if transport == McpTransport::Json {
+                        request = request.header("accept", "application/json");
+                    } else {
+                        request = request.header("accept", "application/json, text/event-stream");
+                    }
+
+                    Some(request)
+                }
+                McpTransport::Sse => Some(client.get(url).header("accept", "text/event-stream")),
+                _ => None,
+            };
+
+            match request {
+                Some(req) => match timeout(timeout_duration, req.send()).await {
+                Ok(Ok(resp)) => {
+                    let code = resp.status().as_u16();
+                    let success = resp.status().is_success();
+                    McpTestResult {
+                        success,
+                        latency_ms: start_time.elapsed().as_millis() as i64,
+                        message: if success {
+                            "HTTP transport endpoint is reachable".to_string()
+                        } else {
+                            format!("HTTP transport returned status {}", code)
+                        },
+                    status_code: Some(code),
+                    exit_code: None,
+                    error: None,
+                }
+                }
+                Ok(Err(err)) => McpTestResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "Request failed".to_string(),
+                    status_code: None,
+                    exit_code: None,
+                    error: Some(err.to_string()),
+                },
+                Err(_) => McpTestResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "HTTP test timed out".to_string(),
+                    status_code: None,
+                    exit_code: None,
+                    error: Some("timeout".to_string()),
+                },
+                },
+                None => McpTestResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "Unsupported MCP transport for HTTP validation".to_string(),
+                    status_code: None,
+                    exit_code: None,
+                    error: Some("unsupported_transport".to_string()),
+                },
+            }
+        }
+    };
+
+    let mut config = state.config.lock().await;
+    if let Some(conn) = config.mcp_servers.iter_mut().find(|item| item.id == id) {
+        conn.last_test_at = Some(Utc::now().to_rfc3339());
+        conn.last_test_status = Some(if result.success {
+            "ok".to_string()
+        } else {
+            "error".to_string()
+        });
+        conn.last_test_message = Some(result.message.clone());
+    }
+
+    drop(config);
+    let _ = save_settings(&state).await;
+
+    if !result.success {
+        if result.message.is_empty() {
+            result.message = result.error.clone().unwrap_or_else(|| "Test failed".to_string());
+        }
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+async fn correct_mcp_json_with_active_model(
+    json_input: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let trimmed = json_input.trim();
+    if trimmed.is_empty() {
+        return Err("JSON input is required".to_string());
+    }
+
+    let running = state.running_processes.lock().await;
+    let active = running
+        .values()
+        .find(|proc| matches!(proc.status, models::ProcessStatus::Running))
+        .or_else(|| running.values().next())
+        .cloned()
+        .ok_or_else(|| "No running model found. Start a model and try again.".to_string())?;
+    drop(running);
+
+    let server_url = format!("http://{}:{}", active.host, active.port);
+    let client = reqwest::Client::new();
+
+    let prompt = format!(
+        "You are a strict JSON syntax fixer. Correct syntax only and return valid minified JSON with no explanation or markdown. Input:\n{}",
+        trimmed
+    );
+
+    let response = client
+        .post(format!("{}/v1/chat/completions", server_url))
+        .json(&serde_json::json!({
+            "messages": [
+                {"role": "system", "content": "Return only valid JSON. No prose."},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": false
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to contact model: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Model request failed with status {}",
+            response.status().as_u16()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse model response: {}", e))?;
+
+    let corrected = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "Model returned empty content".to_string())?;
+
+    let normalized: serde_json::Value = serde_json::from_str(corrected)
+        .map_err(|e| format!("Model output is not valid JSON: {}", e))?;
+
+    let corrected_json = serde_json::to_string_pretty(&normalized)
+        .map_err(|e| format!("Failed to format corrected JSON: {}", e))?;
+
+    Ok(serde_json::json!({
+        "corrected_json": corrected_json,
+        "model": active.model_name,
+        "server": server_url
+    }))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2396,11 +3079,17 @@ pub fn run() {
     // Initialize logging
     tracing_subscriber::fmt::init();
     
-    tauri::Builder::default()
+tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // When a second instance is launched, show/focus the existing window
+            let _ = app.get_webview_window("main")
+                .expect("no main window")
+                .set_focus();
+        }))
         .setup(|app| {
             // Initialize app state
             let rt = tokio::runtime::Runtime::new().unwrap();
@@ -2530,6 +3219,7 @@ pub fn run() {
             delete_model_preset,
             set_default_preset,
             launch_model_with_preset,
+            launch_model_with_half_context,
             launch_model,
             launch_model_external,
             launch_model_with_preset_external,
@@ -2586,7 +3276,7 @@ initial_scan_models,
             get_tracker_stats,
             get_tracker_config,
             update_tracker_config,
-            get_weekly_reports,
+get_weekly_reports,
             generate_weekly_report,
             save_network_config,
             get_network_config,
@@ -2594,14 +3284,228 @@ initial_scan_models,
             activate_network_server,
             deactivate_network_server,
             get_network_server_status,
-            create_chat,
-            load_chat,
-            list_chats,
-            send_message,
-            update_chat_parameters,
-            delete_chat,
-            generate_chat_title
+            get_mcp_connections,
+            save_mcp_connection,
+            delete_mcp_connection,
+            toggle_mcp_connection,
+            test_mcp_connection,
+            list_mcp_tools,
+            correct_mcp_json_with_active_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+    }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_connection() -> McpServerConfig {
+        McpServerConfig {
+            id: "mcp-1".to_string(),
+            name: "Test MCP".to_string(),
+            enabled: true,
+            transport: McpTransport::Stdio,
+            url: String::new(),
+            command: "python".to_string(),
+            json_payload: String::new(),
+            args: vec!["-m".to_string(), "server".to_string()],
+            env_vars: HashMap::new(),
+            headers: HashMap::new(),
+            timeout_seconds: 10,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_message: None,
+            tools: Vec::new(),
+            tools_last_refresh_at: None,
+            tools_last_status: None,
+            tools_last_message: None,
+            tools_last_error: None,
+        }
+    }
+
+    #[test]
+    fn mcp_validation_rejects_empty_name() {
+        let mut connection = base_connection();
+        connection.name = "".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "MCP connection name is required");
+    }
+
+    #[test]
+    fn mcp_validation_rejects_zero_timeout() {
+        let mut connection = base_connection();
+        connection.timeout_seconds = 0;
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Timeout must be a positive number");
+    }
+
+    #[test]
+    fn mcp_validation_rejects_http_without_url() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Http;
+        connection.url = "".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "URL is required for this transport");
+    }
+
+    #[test]
+    fn mcp_validation_accepts_http_with_url() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Http;
+        connection.url = "http://127.0.0.1:8080/mcp".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_accepts_json_without_url() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Json;
+        connection.url = "".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_accepts_json_with_url() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Json;
+        connection.url = "http://127.0.0.1:8080/mcp".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_rejects_non_http_scheme() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::StreamableHttp;
+        connection.url = "ftp://127.0.0.1/mcp".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "URL must use http or https scheme");
+    }
+
+    #[test]
+    fn mcp_validation_rejects_malformed_url() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Http;
+        connection.url = "http://[::1".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "URL must be a valid absolute URL");
+    }
+
+    #[test]
+    fn mcp_validation_rejects_empty_command_for_stdio() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Stdio;
+        connection.command = "".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Command is required for stdio transport");
+    }
+
+    #[test]
+    fn mcp_validation_accepts_streamable_http() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::StreamableHttp;
+        connection.url = "https://127.0.0.1:8080/mcp".to_string();
+
+        let result = validate_mcp_connection_payload(&connection);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_test_payload_returns_default_for_empty_json_payload() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Json;
+        connection.url = "https://127.0.0.1:8080/mcp".to_string();
+        connection.json_payload = "".to_string();
+
+        let payload = mcp_test_payload(&connection).expect("empty payload should fallback to default");
+        assert_eq!(payload["method"], "initialize");
+        assert_eq!(payload["jsonrpc"], "2.0");
+    }
+
+    #[test]
+    fn mcp_test_payload_parses_custom_json_payload() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Json;
+        connection.url = "https://127.0.0.1:8080/mcp".to_string();
+        connection.json_payload = r#"{"jsonrpc":"2.0","id":"custom","method":"ping"}"#.to_string();
+
+        let payload = mcp_test_payload(&connection).expect("custom payload should parse");
+        assert_eq!(payload["method"], "ping");
+        assert_eq!(payload["id"], "custom");
+    }
+
+    #[test]
+    fn mcp_test_payload_rejects_invalid_json_payload() {
+        let mut connection = base_connection();
+        connection.transport = McpTransport::Json;
+        connection.url = "https://127.0.0.1:8080/mcp".to_string();
+        connection.json_payload = "{ invalid_json".to_string();
+
+        let result = mcp_test_payload(&connection);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "JSON payload must be valid JSON");
+    }
+
+    #[test]
+    fn parse_mcp_tools_from_response_extracts_tools() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "arandu-tools-list",
+            "result": {
+                "tools": [
+                    {
+                        "name": "list_models",
+                        "description": "List available models",
+                        "inputSchema": { "type": "object" }
+                    },
+                    {
+                        "name": "load_model",
+                        "outputSchema": { "type": "object" }
+                    }
+                ]
+            }
+        });
+
+        let tools = parse_mcp_tools_from_response(&response).expect("tools should parse");
+
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "list_models");
+        assert_eq!(tools[0].description.as_deref(), Some("List available models"));
+        assert!(tools[0].input_schema.is_some());
+        assert!(tools[1].output_schema.is_some());
+    }
+
+    #[test]
+    fn parse_mcp_tools_from_response_rejects_mcp_error() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "arandu-tools-list",
+            "error": {
+                "code": -32600,
+                "message": "Invalid request"
+            }
+        });
+
+        let result = parse_mcp_tools_from_response(&response);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid request"));
+    }
 }

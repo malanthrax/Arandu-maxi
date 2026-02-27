@@ -6,15 +6,42 @@ class TerminalManager {
         this.terminals = new Map(); // Store terminal instances
         this.terminalCounter = 0;
 
-        // Initialize Tauri API access
+        // Initialize Tauri API access - will be set up when initTauriAPI is called
         this.invoke = null;
-        this.initTauriAPI();
 
         // Load auto-switch setting from localStorage (default: enabled)
-        this.autoSwitchEnabled = localStorage.getItem('terminalAutoSwitch') !== 'false';
+        try {
+            this.autoSwitchEnabled = localStorage.getItem('terminalAutoSwitch') !== 'false';
+        } catch (e) {
+            console.warn('[TerminalManager] localStorage not available, using default');
+            this.autoSwitchEnabled = true;
+        }
+        
+        // Initialize after construction (method is defined below constructor)
+        setTimeout(() => {
+            try {
+                this.initTauriAPI();
+            } catch (e) {
+                console.error('[TerminalManager] Error in initTauriAPI:', e);
+            }
+        }, 0);
     }
 
     initTauriAPI() {
+        // Add message listener for iframe communication (always, even if Tauri not ready yet)
+        window.addEventListener('message', async (event) => {
+            if (event.data && event.data.type === 'request-restart') {
+                console.log('[TerminalManager] Restart requested from chat UI:', event.data);
+                await this.handleRestartRequest(event.data, event.source);
+            } else if (event.data && event.data.type === 'request-compatible-models') {
+                console.log('[TerminalManager] Compatible models requested from chat UI');
+                await this.handleCompatibleModelsRequest(event.source);
+            } else if (event.data && event.data.type === 'request-current-config') {
+                console.log('[TerminalManager] Current config requested from chat UI');
+                await this.handleCurrentConfigRequest(event.source);
+            }
+        });
+
         try {
             if (window.__TAURI__ && window.__TAURI__.core) {
                 this.invoke = window.__TAURI__.core.invoke;
@@ -27,6 +54,496 @@ class TerminalManager {
         }
     }
 
+    parseLaunchArgSignature(launchArgs = '') {
+        const tokens = String(launchArgs || '').match(/"[^"]*"|\S+/g) || [];
+        const normalized = [];
+        const pairs = {};
+
+        const canonicalKey = {
+            '-c': 'context',
+            '-np': 'slots',
+            '--no-cont-batching': 'cont_batching',
+            '--context-shift': 'context_shift',
+            '-ngl': 'gpu_layers',
+            '-ncmoe': 'cpu_moe_layers',
+            '-sm': 'split_mode',
+            '-mg': 'main_gpu',
+            '-fa': 'flash_attention',
+            '--no-mmap': 'mmap',
+            '-ctk': 'cache_type_k',
+            '-ctv': 'cache_type_v',
+            '--rope-scaling': 'rope_scaling',
+            '--rope-scale': 'rope_scale',
+            '--rope-freq-base': 'rope_freq_base',
+            '--model-draft': 'model_draft',
+            '-md': 'model_draft',
+            '--draft-p-min': 'draft_p_min',
+            '--draft-max': 'draft_max',
+            '-ngld': 'draft_ngld',
+            '--numa': 'numa',
+            '--no-pinned-memory': 'pinned_memory',
+            '--jinja': 'jinja',
+            '--no-cont-batching=1': 'cont_batching'
+        };
+
+        for (let i = 0; i < tokens.length; i++) {
+            let token = tokens[i];
+            if (!token) {
+                continue;
+            }
+
+            if (token.startsWith('--') && token.includes('=')) {
+                const parts = token.split('=');
+                token = parts[0];
+                if (parts.length > 1) {
+                    tokens[i + 1] = parts.slice(1).join('=');
+                }
+            }
+
+            if (token.startsWith('-') && token.endsWith('"') && token.startsWith('"')) {
+                token = token.slice(1, -1);
+            }
+
+            const key = canonicalKey[token];
+            if (!key) {
+                continue;
+            }
+
+            if (
+                key === 'cont_batching' ||
+                key === 'context_shift' ||
+                key === 'mmap' ||
+                key === 'pinned_memory' ||
+                key === 'jinja'
+            ) {
+                pairs[key] = true;
+                normalized.push(token);
+                continue;
+            }
+
+            const hasValue = (i + 1 < tokens.length);
+            const rawValue = hasValue ? tokens[i + 1] : '';
+            const value = rawValue.replace(/^"|"$/g, '').toLowerCase();
+            if (hasValue) {
+                if (key === 'model_draft') {
+                    pairs[key] = value.replace(/\\/g, '/');
+                    i += 1;
+                    normalized.push(`${key}=${value}`);
+                    continue;
+                }
+
+                pairs[key] = value;
+                i += 1;
+                normalized.push(`${key}=${value}`);
+            }
+        }
+
+        // Normalize boolean flags for deterministic equality checks
+        for (const key of ['cont_batching', 'context_shift', 'mmap', 'pinned_memory', 'jinja']) {
+            if (pairs[key] === undefined) {
+                pairs[key] = false;
+            }
+        }
+
+        return { pairs, normalized };
+    }
+
+    envVarsToComparableString(rawEnvVars = '') {
+        let envMap = {};
+
+        if (typeof rawEnvVars === 'string') {
+            rawEnvVars.split('\n').forEach((line) => {
+                const trimmedLine = String(line).trim();
+                if (!trimmedLine) {
+                    return;
+                }
+
+                const equalsIndex = trimmedLine.indexOf('=');
+                if (equalsIndex <= 0) {
+                    return;
+                }
+
+                const key = trimmedLine.slice(0, equalsIndex).trim();
+                const value = trimmedLine.slice(equalsIndex + 1).trim();
+                if (key) {
+                    envMap[key] = value;
+                }
+            });
+        } else if (rawEnvVars && typeof rawEnvVars === 'object') {
+            try {
+                Object.entries(rawEnvVars).forEach(([rawKey, rawValue]) => {
+                    const key = String(rawKey || '').trim();
+                    if (key) {
+                        envMap[key] = rawValue == null ? '' : String(rawValue);
+                    }
+                });
+            } catch (error) {
+                console.warn('[TerminalManager] Failed to normalize env vars object, using fallback:', error);
+            }
+        }
+
+        return Object.keys(envMap)
+            .sort((a, b) => String(a).localeCompare(String(b)))
+            .map((key) => `${key}=${envMap[key]}`)
+            .join('\n');
+    }
+
+    parseEnvVarsToObject(rawEnvVars = '') {
+        const envVars = {};
+        const normalizedEnvString = this.envVarsToComparableString(rawEnvVars);
+
+        normalizedEnvString.split('\n').forEach((entry) => {
+            if (!entry) {
+                return;
+            }
+
+            const index = entry.indexOf('=');
+            if (index < 0) {
+                return;
+            }
+
+            const key = entry.slice(0, index).trim();
+            const value = entry.slice(index + 1);
+            if (key) {
+                envVars[key] = value;
+            }
+        });
+
+        return envVars;
+    }
+
+    hasRestartImpactArgChange(previousArgs, nextArgs, previousEnvVars, nextEnvVars) {
+        const prev = this.parseLaunchArgSignature(previousArgs).pairs;
+        const next = this.parseLaunchArgSignature(nextArgs).pairs;
+
+        const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+        for (const key of keys) {
+            if (prev[key] !== next[key]) {
+                return true;
+            }
+        }
+
+        const prevEnvSignature = this.envVarsToComparableString(previousEnvVars);
+        const nextEnvSignature = this.envVarsToComparableString(nextEnvVars);
+        if (prevEnvSignature !== nextEnvSignature) {
+            return true;
+        }
+
+        return false;
+    }
+
+    async handleCompatibleModelsRequest(sourceWindow) {
+        console.log('[TerminalManager] Finding compatible models for source window...');
+        
+        // Find which terminal this request came from by matching the iframe window
+        let sourceTerminal = null;
+        let sourceWindowId = null;
+
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (chatPanel) {
+                const iframe = chatPanel.querySelector('iframe');
+                if (iframe && iframe.contentWindow === sourceWindow) {
+                    sourceTerminal = info;
+                    sourceWindowId = windowId;
+                    console.log(`[TerminalManager] Identified source window: ${windowId} (${info.modelName})`);
+                    break;
+                }
+            }
+        }
+
+        // Fallback: If we couldn't match the window (rare), use the active window
+        if (!sourceTerminal) {
+            const activeWindow = document.querySelector('.window.active[id^="server_"]');
+            if (activeWindow) {
+                sourceWindowId = activeWindow.id;
+                sourceTerminal = this.terminals.get(sourceWindowId);
+                console.log(`[TerminalManager] Fallback used: active window ${sourceWindowId}`);
+            }
+        }
+
+        if (!sourceTerminal) {
+            console.error('[TerminalManager] Could not identify source terminal for compatible models request');
+            return;
+        }
+
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) throw new Error('Invoke not available');
+            
+            // 1. Get architecture of the current model
+            console.log(`[TerminalManager] Getting metadata for ${sourceTerminal.modelPath}`);
+            const currentMetadata = await invoke('get_model_metadata', { modelPath: sourceTerminal.modelPath });
+            const currentArch = currentMetadata.architecture;
+            console.log(`[TerminalManager] Current architecture: ${currentArch}`);
+            
+            // 2. Scan all models
+            const scanResult = await invoke('scan_models_command');
+            if (!scanResult.success) {
+                console.error('[TerminalManager] Model scan failed');
+                return;
+            }
+            
+            // 3. Filter by architecture (ignore current model)
+            const compatibleModels = scanResult.models.filter(m => 
+                m.architecture === currentArch && m.path !== sourceTerminal.modelPath
+            );
+            console.log(`[TerminalManager] Found ${compatibleModels.length} compatible models`);
+            
+            // 4. Send back to the iframe
+            sourceWindow.postMessage({
+                type: 'compatible-models-list',
+                models: compatibleModels,
+                currentArch: currentArch
+            }, '*');
+            
+        } catch (error) {
+            console.error('[TerminalManager] Error finding compatible models:', error);
+            // Send empty list on error to stop the spinner
+            sourceWindow.postMessage({
+                type: 'compatible-models-list',
+                models: [],
+                currentArch: 'unknown'
+            }, '*');
+        }
+    }
+
+    async handleCurrentConfigRequest(sourceWindow) {
+        console.log('[TerminalManager] Getting current config for source window...');
+        
+        // Find which terminal this request came from by matching the iframe window
+        let sourceTerminal = null;
+        let sourceWindowId = null;
+
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (chatPanel) {
+                const iframe = chatPanel.querySelector('iframe');
+                if (iframe && iframe.contentWindow === sourceWindow) {
+                    sourceTerminal = info;
+                    sourceWindowId = windowId;
+                    console.log(`[TerminalManager] Identified source window for config: ${windowId}`);
+                    break;
+                }
+            }
+        }
+
+        // Fallback: Use active window
+        if (!sourceTerminal) {
+            const activeWindow = document.querySelector('.window.active[id^="server_"]');
+            if (activeWindow) {
+                sourceWindowId = activeWindow.id;
+                sourceTerminal = this.terminals.get(sourceWindowId);
+                console.log(`[TerminalManager] Fallback used for config: active window ${sourceWindowId}`);
+            }
+        }
+
+        if (!sourceTerminal) {
+            console.error('[TerminalManager] Could not identify source terminal for config request');
+            sourceWindow.postMessage({
+                type: 'current-config',
+                launchArgs: '',
+                draftModelPath: '',
+                env_vars: ''
+            }, '*');
+            return;
+        }
+
+        // Extract draft model path from launchArgs
+        let draftModelPath = '';
+        if (sourceTerminal.launchArgs) {
+            const mdMatch = sourceTerminal.launchArgs.match(/-md\s+"([^"]+)"/);
+            const mdMatch2 = sourceTerminal.launchArgs.match(/-md\s+(\S+)/);
+            if (mdMatch) {
+                draftModelPath = mdMatch[1];
+            } else if (mdMatch2) {
+                draftModelPath = mdMatch2[1];
+            }
+        }
+
+        console.log(`[TerminalManager] Current draft model: ${draftModelPath}`);
+
+        let envVars = '';
+        try {
+            const invoke = this.getInvoke();
+            if (invoke) {
+                const currentConfig = await invoke('get_model_settings', { modelPath: sourceTerminal.modelPath });
+                if (currentConfig && currentConfig.env_vars) {
+                    if (typeof currentConfig.env_vars === 'string') {
+                        envVars = currentConfig.env_vars;
+                    } else {
+                        envVars = Object.entries(currentConfig.env_vars)
+                            .sort(([keyA], [keyB]) => String(keyA).localeCompare(String(keyB)))
+                            .map(([key, value]) => `${String(key)}=${String(value ?? '')}`)
+                            .join('\n');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[TerminalManager] Failed to fetch env vars for current config:', error);
+        }
+        
+        // Send config back to iframe
+        sourceWindow.postMessage({
+            type: 'current-config',
+            launchArgs: sourceTerminal.launchArgs || '',
+            draftModelPath: draftModelPath,
+            env_vars: envVars
+        }, '*');
+    }
+
+    async handleRestartRequest(data, sourceWindow) {
+        console.log('[TerminalManager] Handling restart request...');
+        
+        // Identify the terminal from the source window
+        let sourceTerminal = null;
+        let sourceWindowId = null;
+
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (chatPanel) {
+                const iframe = chatPanel.querySelector('iframe');
+                if (iframe && iframe.contentWindow === sourceWindow) {
+                    sourceTerminal = info;
+                    sourceWindowId = windowId;
+                    console.log(`[TerminalManager] Identified source window for restart: ${windowId}`);
+                    break;
+                }
+            }
+        }
+
+        // Fallback: Use active window
+        if (!sourceTerminal) {
+            const activeWindow = document.querySelector('.window.active[id^="server_"]');
+            if (activeWindow) {
+                sourceWindowId = activeWindow.id;
+                sourceTerminal = this.terminals.get(sourceWindowId);
+                console.log(`[TerminalManager] Fallback used for restart: active window ${sourceWindowId}`);
+            }
+        }
+
+        if (!sourceTerminal) {
+            console.error('[TerminalManager] Could not identify source terminal for restart request');
+            return;
+        }
+
+        const requestedArgs = typeof data?.args === 'string' ? data.args : '';
+        const requestedEnvVars = data && data.env_vars !== undefined ? data.env_vars : '';
+        const requestSaysRestart = data && data.requiresRestart === true;
+        const requestSaysNoRestart = data && data.requiresRestart === false;
+
+        const invoke = this.getInvoke();
+        if (!invoke) {
+            const message = 'Error saving settings: Invoke not available';
+            console.error('[TerminalManager] Error handling restart request:', message);
+            sourceWindow.postMessage({ type: 'settings-saved', message }, '*');
+            return;
+        }
+
+        let currentConfig = null;
+        try {
+            currentConfig = await invoke('get_model_settings', { modelPath: sourceTerminal.modelPath });
+        } catch (error) {
+            console.error('[TerminalManager] Error fetching model settings:', error);
+            sourceWindow.postMessage({
+                type: 'settings-saved',
+                message: 'Error saving settings: ' + error.message
+            }, '*');
+            return;
+        }
+
+        const baseConfig = currentConfig && typeof currentConfig === 'object' ? currentConfig : {};
+        const previousArgs = typeof baseConfig.custom_args === 'string' ? baseConfig.custom_args : sourceTerminal.launchArgs || '';
+        const previousEnvVars = baseConfig.env_vars;
+
+        const hasRestartImpact = this.hasRestartImpactArgChange(previousArgs, requestedArgs, previousEnvVars, requestedEnvVars);
+
+        // Keep safe defaults for unknown/legacy callers: restart unless the caller
+        // explicitly sends requiresRestart=false and there is no launch-impacting
+        // change in args or env vars.
+        const shouldRestart = requestSaysRestart || (requestSaysNoRestart ? hasRestartImpact : true);
+        const shouldNotRestart = !requestSaysRestart && requestSaysNoRestart;
+
+        if (requestSaysNoRestart && shouldRestart) {
+            console.warn('[TerminalManager] Restart override: child requested no restart but launch-impacting fields changed.', {
+                previous: previousArgs,
+                next: requestedArgs,
+                previousEnv: this.envVarsToComparableString(previousEnvVars),
+                nextEnv: this.envVarsToComparableString(requestedEnvVars)
+            });
+        }
+
+        const env_vars = this.parseEnvVarsToObject(requestedEnvVars);
+        const normalizedArgs = requestedArgs.trim();
+
+        if (shouldNotRestart && !shouldRestart) {
+            console.log('[TerminalManager] No restart required, just saving settings...');
+            try {
+                console.log(`[TerminalManager] Saving settings without restart for ${sourceTerminal.modelPath}`);
+                await invoke('update_model_settings', {
+                    modelPath: sourceTerminal.modelPath,
+                    config: {
+                        ...baseConfig,
+                        custom_args: normalizedArgs,
+                        env_vars: env_vars
+                    }
+                });
+
+                sourceTerminal.launchArgs = normalizedArgs;
+                this.terminals.set(sourceWindowId, sourceTerminal);
+
+                sourceWindow.postMessage({
+                    type: 'settings-saved',
+                    message: 'Settings saved. They will take effect on next server start.'
+                }, '*');
+
+                console.log('[TerminalManager] Settings saved successfully');
+            } catch (error) {
+                console.error('[TerminalManager] Error saving settings:', error);
+                sourceWindow.postMessage({
+                    type: 'settings-saved',
+                    message: 'Error saving settings: ' + error.message
+                }, '*');
+            }
+            return;
+        }
+
+        // Full restart is required
+        console.log('[TerminalManager] Full restart required');
+        try {
+            // Update model settings in backend
+            console.log(`[TerminalManager] Updating model settings for ${sourceTerminal.modelPath}`);
+            await invoke('update_model_settings', {
+                modelPath: sourceTerminal.modelPath,
+                config: {
+                    ...baseConfig,
+                    custom_args: normalizedArgs,
+                    env_vars: env_vars
+                }
+            });
+
+            // Update local terminalInfo launchArgs
+            sourceTerminal.launchArgs = normalizedArgs;
+            this.terminals.set(sourceWindowId, sourceTerminal);
+
+            sourceWindow.postMessage({
+                type: 'settings-saved',
+                message: 'Settings saved. Restarting server to apply launch changes.',
+                restartTriggered: true
+            }, '*');
+
+            // Trigger restart
+            console.log(`[TerminalManager] Triggering server restart for ${sourceWindowId}`);
+            await this.restartServer(sourceWindowId, sourceTerminal.modelPath, sourceTerminal.modelName);
+        } catch (error) {
+            console.error('[TerminalManager] Error handling restart request:', error);
+            sourceWindow.postMessage({
+                type: 'settings-saved',
+                message: 'Error saving settings: ' + error.message
+            }, '*');
+        }
+    }
+
     getInvoke() {
         if (!this.invoke) {
             this.initTauriAPI();
@@ -35,12 +552,43 @@ class TerminalManager {
     }
 
     async openServerTerminal(processId, modelName, host, port, modelPath, activeVersion, launchArgs = null) {
-        console.log('OpenServerTerminal called with:', { processId, modelName, host, port, modelPath, activeVersion, launchArgs });
+        let resolvedLaunchArgs = launchArgs;
+
+        if (resolvedLaunchArgs === null || resolvedLaunchArgs === undefined) {
+            try {
+                const invoke = this.getInvoke();
+                if (!invoke) {
+                    console.warn('[TerminalManager] Tauri invoke unavailable while resolving launch args for terminal creation.');
+                    resolvedLaunchArgs = '';
+                } else {
+                    const currentConfig = await invoke('get_model_settings', { modelPath: modelPath });
+                    resolvedLaunchArgs = currentConfig && currentConfig.custom_args ? currentConfig.custom_args : '';
+                }
+            } catch (error) {
+                console.error('[TerminalManager] Failed to resolve launch args from model settings:', error);
+                resolvedLaunchArgs = '';
+            }
+        }
+
+        if (typeof resolvedLaunchArgs !== 'string') {
+            resolvedLaunchArgs = '';
+        }
+
+        resolvedLaunchArgs = resolvedLaunchArgs.trim();
+        console.log('OpenServerTerminal called with:', {
+            processId,
+            modelName,
+            host,
+            port,
+            modelPath,
+            activeVersion,
+            launchArgs: resolvedLaunchArgs
+        });
 
         const windowId = `server_${processId}`;
         console.log('Creating terminal window with ID:', windowId);
 
-        const content = `
+const content = `
             <div class="server-terminal-container">
                 <div class="server-main-content">
                     <div class="server-tab-panel active" id="panel-terminal-${windowId}">
@@ -57,9 +605,6 @@ class TerminalManager {
                     <div class="server-tab-panel" id="panel-chat-${windowId}" style="background: white;">
                         <iframe src="http://${host}:${port}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
                     </div>
-                    <div class="server-tab-panel" id="panel-custom-${windowId}">
-                        <div id="chat-app-${windowId}" class="chat-app-wrapper"></div>
-                    </div>
                 </div>
             </div>
         `;
@@ -73,16 +618,13 @@ class TerminalManager {
             // Inject tabs into header
             const header = window.querySelector('.window-header');
             if (header) {
-                const tabsHtml = `
+const tabsHtml = `
                     <div class="server-tabs header-tabs">
                         <div class="server-tab active" id="tab-terminal-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'terminal')" title="Terminal Output">
                             <span class="material-icons">terminal</span>
                         </div>
                         <div class="server-tab" id="tab-chat-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'chat')" title="Native Chat" style="opacity: 0.5; pointer-events: none;">
                             <span class="material-icons">chat</span>
-                        </div>
-                        <div class="server-tab" id="tab-custom-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'custom')" title="Custom Chat" style="opacity: 0.5; pointer-events: none;">
-                            <span class="material-icons">smart_toy</span>
                         </div>
                     </div>
                 `;
@@ -133,7 +675,14 @@ class TerminalManager {
                                 }
                             }
                         };
-                        globalThis.addEventListener('blur', blurHandler);
+                        window.addEventListener('blur', blurHandler);
+                        
+                        // Store handler for cleanup
+                        const terminalInfo = this.terminals.get(windowId);
+                        if (terminalInfo) {
+                            terminalInfo.blurHandler = blurHandler;
+                            this.terminals.set(windowId, terminalInfo);
+                        }
                     }
                 }
             }, 100);
@@ -152,7 +701,7 @@ class TerminalManager {
             status: 'starting',
             output: [], // Store terminal output lines
             activeVersion: activeVersion,
-            launchArgs: launchArgs // Store the actual arguments used for launch
+            launchArgs: resolvedLaunchArgs // Store the actual arguments used for launch
         });
 
         console.log('Adding taskbar item...');
@@ -178,9 +727,8 @@ class TerminalManager {
 
         // Also add a status check after a few seconds to ensure we show something
         setTimeout(() => {
-            console.log('Running server health check...');
             this.checkServerHealth(windowId, host, port, modelName);
-        }, 3000);
+        }, 2000);
 
         console.log('Terminal window creation completed successfully');
         
@@ -193,12 +741,7 @@ class TerminalManager {
             
             // Now maximize
             this.desktop.maximizeWindow(windowId);
-        }, 50);
-        
-        // Initialize custom chat app after window is created and visible
-        setTimeout(() => {
-            this.initializeChatApp(windowId, processId, modelPath, modelName);
-        }, 100);
+}, 50);
         
         return window;
     }
@@ -276,6 +819,21 @@ class TerminalManager {
                     console.log(`Adding ${data.output.length} output lines to buffer`);
                     outputBuffer.push(...data.output);
 
+                    // Check for speculative decoding error
+                    const specErrorPatterns = [
+                        'speculative decoding not supported',
+                        'speculative stuff won\'t work',
+                        'target context does not support partial sequence removal'
+                    ];
+                    const hasSpecError = data.output.some(line =>
+                        line && specErrorPatterns.some(pattern => line.toString().includes(pattern))
+                    );
+                    
+                    if (hasSpecError && terminalInfo.status === 'starting') {
+                        console.warn('[TerminalManager] Speculative decoding error detected!');
+                        this.desktop.showNotification('Speculative decoding is not supported by this model architecture. The draft model will not be used.', 'warning');
+                    }
+
                     // Check for server ready message and update status
                     const serverReadyMessage = "main: server is listening on http://";
                     const hasServerReadyMessage = data.output.some(line =>
@@ -286,6 +844,21 @@ class TerminalManager {
                         console.log('Server ready message detected, updating status to running');
                         this.updateServerStatus(windowId, 'running');
                         
+                        // Force chat iframe reload to ensure it connects
+                        const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+                        if (chatPanel) {
+                            const iframe = chatPanel.querySelector('iframe');
+                            if (iframe) {
+                                console.log(`[TerminalManager] Server ready - reloading chat iframe for ${windowId}`);
+                                // Force reload by re-assigning src
+                                const currentSrc = iframe.src;
+                                iframe.src = 'about:blank';
+                                setTimeout(() => {
+                                    iframe.src = currentSrc;
+                                }, 50);
+                            }
+                        }
+
                         // Auto-switch to chat tab when server is running (if enabled)
                         if (this.autoSwitchEnabled) {
                             setTimeout(() => {
@@ -361,47 +934,156 @@ class TerminalManager {
         pollOutput();
     }
 
-    async checkServerHealth(windowId, host, port, modelName) {
+    async checkServerHealth(windowId, host, port, modelName, retryCount = 0) {
+        const outputDiv = document.getElementById(`server-output-${windowId}`);
+        if (!outputDiv) return;
+
+        const maxRetries = 15; // Increased retries for dual-model loading
+        const retryDelay = 2000; // 2 seconds between checks
+
+        try {
+            console.log(`[TerminalManager] Health check attempt ${retryCount + 1}/${maxRetries} for ${modelName}...`);
+            const response = await fetch(`http://${host}:${port}/health`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(3000)
+            });
+
+            if (response.ok) {
+                console.log(`[TerminalManager] Server ${modelName} is healthy and responding.`);
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'server-line server-success';
+                lineDiv.textContent = `Server is responding! Ready for chat.`;
+                outputDiv.appendChild(lineDiv);
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+
+                // Update server status to running
+                const terminalInfo = this.terminals.get(windowId);
+                if (terminalInfo) {
+                    terminalInfo.status = 'running';
+                    this.terminals.set(windowId, terminalInfo);
+                    this.updateServerStatus(windowId, 'running');
+                }
+
+                // IMPORTANT: Trigger the Chat Iframe reload now that we KNOW it's ready
+                this.refreshChatIframe(windowId);
+                
+                // If auto-switch is enabled, switch to chat tab
+                if (this.autoSwitchEnabled) {
+                    setTimeout(() => this.switchTab(windowId, 'chat'), 500);
+                }
+            } else {
+                throw new Error('Not ready');
+            }
+        } catch (error) {
+            if (retryCount < maxRetries) {
+                setTimeout(() => this.checkServerHealth(windowId, host, port, modelName, retryCount + 1), retryDelay);
+            } else {
+                console.error(`[TerminalManager] Health check failed for ${modelName} after ${maxRetries} attempts.`);
+                const lineDiv = document.createElement('div');
+                lineDiv.className = 'server-line server-error';
+                lineDiv.textContent = `Health check failed. The server might have failed to start or is taking too long to load.`;
+                outputDiv.appendChild(lineDiv);
+                
+                // Feature: Auto-Recovery for failing draft models
+                const terminalInfo = this.terminals.get(windowId);
+                if (terminalInfo && (terminalInfo.launchArgs || "").includes('-md')) {
+                    console.log(`[TerminalManager] Speculative drafting failure detected for ${modelName}. Attempting auto-recovery...`);
+                    await this.recoverFromDraftFailure(windowId, terminalInfo);
+                } else {
+                    lineDiv.textContent += ` Check terminal output for errors.`;
+                }
+                
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+            }
+        }
+    }
+
+    refreshChatIframe(windowId) {
+        const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+        if (!chatPanel) return;
+
+        const iframe = chatPanel.querySelector('iframe');
+        if (iframe) {
+            console.log(`[TerminalManager] Refreshing chat iframe for ${windowId}`);
+            const currentSrc = iframe.src;
+            iframe.src = 'about:blank';
+            setTimeout(() => {
+                iframe.src = currentSrc;
+            }, 100);
+        }
+    }
+
+    async recoverFromDraftFailure(windowId, terminalInfo) {
         const outputDiv = document.getElementById(`server-output-${windowId}`);
         if (!outputDiv) return;
 
         try {
-            const response = await fetch(`http://${host}:${port}/v1/models`, {
-                method: 'GET',
-                signal: AbortSignal.timeout(5000)
+            const invoke = this.getInvoke();
+            if (!invoke) return;
+
+            console.log(`[TerminalManager] Reverting draft model config for ${terminalInfo.modelName}...`);
+            
+            // 1. Get current settings
+            const currentConfig = await invoke('get_model_settings', { modelPath: terminalInfo.modelPath });
+            
+            // 2. Strip draft-specific arguments but keep everything else
+            const stableArgs = this.stripDraftArguments(currentConfig.custom_args);
+            
+            // 3. Save the "Clean" configuration
+            await invoke('update_model_settings', {
+                modelPath: terminalInfo.modelPath,
+                config: {
+                    ...currentConfig,
+                    custom_args: stableArgs
+                }
             });
 
-            if (response.ok) {
-                const models = await response.json();
-                const lineDiv = document.createElement('div');
-                lineDiv.className = 'server-line server-success';
-                lineDiv.textContent = `Server is responding! Available models: ${models.data?.length || 'Unknown'}`;
-                outputDiv.appendChild(lineDiv);
-                outputDiv.scrollTop = outputDiv.scrollHeight;
-                
-                // Update server status to running when health check succeeds
-                const terminalInfo = this.terminals.get(windowId);
-                if (terminalInfo && terminalInfo.status === 'starting') {
-                    console.log('Health check successful, updating status to running');
-                    this.updateServerStatus(windowId, 'running');
-                    
-                    // Auto-switch to chat tab when server is running (if enabled)
-                    if (this.autoSwitchEnabled) {
-                        setTimeout(() => {
-                            this.switchTab(windowId, 'chat');
-                        }, 500);
-                    }
-                }
-            } else {
-                throw new Error(`Server responded with status ${response.status}`);
-            }
-        } catch (error) {
-            const lineDiv = document.createElement('div');
-            lineDiv.className = 'server-line server-warning';
-            lineDiv.textContent = `Warning: Server health check failed: ${error.message}`;
-            outputDiv.appendChild(lineDiv);
+            // 4. Update local state
+            terminalInfo.launchArgs = stableArgs;
+            this.terminals.set(windowId, terminalInfo);
+
+            // 5. Inform user
+            const recoveryDiv = document.createElement('div');
+            recoveryDiv.className = 'server-line server-warning';
+            recoveryDiv.style.color = '#ff9800';
+            recoveryDiv.style.fontWeight = 'bold';
+            recoveryDiv.style.marginTop = '10px';
+            recoveryDiv.textContent = `⚠️ AUTO-RECOVERY: The draft model failed to load. Speculative drafting has been disabled in your settings to restore stability. You can now start the model normally.`;
+            outputDiv.appendChild(recoveryDiv);
             outputDiv.scrollTop = outputDiv.scrollHeight;
+
+        } catch (error) {
+            console.error('[TerminalManager] Failed to execute auto-recovery:', error);
         }
+    }
+
+    stripDraftArguments(args) {
+        if (!args) return "";
+        // Removes draft-specific arguments AND forces -fa off and -np 1
+        // for stable recovery after draft model failure
+        let cleaned = args
+            .replace(/--model-draft\s+"[^"]*"/g, '')
+            .replace(/--model-draft\s+\S+/g, '')
+            .replace(/-md\s+"[^"]*"/g, '')
+            .replace(/-md\s+\S+/g, '')
+            .replace(/--ngld\s+\d+/g, '')
+            .replace(/-ngld\s+\d+/g, '')
+            .replace(/--draft-p-min\s+\d+(\.\d+)?/g, '')
+            .replace(/--draft-max\s+\d+/g, '')
+            .replace(/-fa\s+(on|off|auto)/g, '-fa off')
+            .replace(/-np\s+\d+/g, '-np 1')
+            .replace(/\s+/g, ' ')
+            .trim();
+        
+        // Ensure -fa off and -np 1 are present
+        if (!cleaned.includes('-fa off')) {
+            cleaned += ' -fa off';
+        }
+        if (!cleaned.includes('-np 1')) {
+            cleaned += ' -np 1';
+        }
+        
+        return cleaned;
     }
 
     updateServerStatus(windowId, status, returnCode = null) {
@@ -409,6 +1091,23 @@ class TerminalManager {
         const terminalInfo = this.terminals.get(windowId);
 
         if (window && terminalInfo) {
+            // Feature: Immediate Recovery for Crashes (Code 1)
+            // Only trigger if:
+            // 1. Process has an actual crash code (not -1 which is polling error)
+            // 2. Process was in 'starting' status (not already running)
+            // 3. Has draft model in args
+            const isPollingError = (returnCode === -1 || returnCode === null);
+            const wasStarting = (terminalInfo.status === 'starting');
+            
+            if (status === 'stopped' && !isPollingError && wasStarting && (terminalInfo.launchArgs || "").includes('-md')) {
+                console.log(`[TerminalManager] Actual crash (code ${returnCode}) detected during startup for draft model. Triggering recovery...`);
+                this.recoverFromDraftFailure(windowId, terminalInfo);
+            } else if (status === 'stopped' && isPollingError && wasStarting && (terminalInfo.launchArgs || "").includes('-md')) {
+                console.log(`[TerminalManager] Polling error during startup for draft model - NOT triggering auto-recovery (was starting, polling may have failed)`);
+            } else if (status === 'stopped' && (terminalInfo.launchArgs || "").includes('-md')) {
+                console.log(`[TerminalManager] Server stopped but was already running - NOT triggering auto-recovery (may be normal shutdown or polling issue)`);
+            }
+
             const statusElement = window.querySelector('.server-status');
             const stopBtn = window.querySelector('.stop-btn');
 
@@ -453,7 +1152,7 @@ class TerminalManager {
             }
         }
 
-        // Update chat icon state based on server status
+// Update chat icon state based on server status
         const chatTab = document.getElementById(`tab-chat-${windowId}`);
         if (chatTab) {
             const icon = chatTab.querySelector('.material-icons');
@@ -472,22 +1171,6 @@ class TerminalManager {
                 if (chatTab.classList.contains('active')) {
                     this.switchTab(windowId, 'terminal');
                 }
-            }
-        }
-
-        // Update custom chat tab state based on server status
-        // Note: Custom tab is enabled when ChatApp initialization is complete
-        // and the server is running
-        if (status !== 'running') {
-            const customTab = document.getElementById(`tab-custom-${windowId}`);
-            if (customTab && !customTab.dataset.initialized) {
-                customTab.style.opacity = '0.5';
-                customTab.style.pointerEvents = 'none';
-            }
-            
-            // If we are currently on the custom tab and server stops, switch to terminal
-            if (customTab?.classList.contains('active')) {
-                this.switchTab(windowId, 'terminal');
             }
         }
     }
@@ -629,28 +1312,10 @@ class TerminalManager {
                 // Start polling for new output
                 this.startServerOutputPolling(result.process_id, windowId);
                 
-                // Set up health check after restart
+                // Set up health check after restart (integrated retries handle slow loading)
                 setTimeout(() => {
-                    console.log('Running server health check after restart...');
                     this.checkServerHealth(windowId, result.server_host, result.server_port, modelName);
-                    
-                    // Also refresh the chat iframe after health check to ensure it connects to the new server
-                    setTimeout(() => {
-                        const chatPanel = document.getElementById(`panel-chat-${windowId}`);
-                        if (chatPanel) {
-                            const iframe = chatPanel.querySelector('iframe');
-                            if (iframe) {
-                                console.log('Refreshing chat iframe after health check');
-                                // Force reload the iframe by setting src again
-                                const currentSrc = iframe.src;
-                                iframe.src = 'about:blank';
-                                setTimeout(() => {
-                                    iframe.src = currentSrc;
-                                }, 100);
-                            }
-                        }
-                    }, 1000); // Wait 1 second after health check
-                }, 3000);
+                }, 2000);
                 
                 // this.desktop.showNotification(`${modelName} restarted`, 'success');
             } else {
@@ -701,21 +1366,17 @@ class TerminalManager {
         }
     }
 
-    switchTab(windowId, tabName) {
+switchTab(windowId, tabName) {
         const terminalTab = document.getElementById(`tab-terminal-${windowId}`);
         const chatTab = document.getElementById(`tab-chat-${windowId}`);
-        const customTab = document.getElementById(`tab-custom-${windowId}`);
         const terminalPanel = document.getElementById(`panel-terminal-${windowId}`);
         const chatPanel = document.getElementById(`panel-chat-${windowId}`);
-        const customPanel = document.getElementById(`panel-custom-${windowId}`);
 
         // Remove active class from all tabs and panels
         terminalTab?.classList.remove('active');
         chatTab?.classList.remove('active');
-        customTab?.classList.remove('active');
         terminalPanel?.classList.remove('active');
         chatPanel?.classList.remove('active');
-        customPanel?.classList.remove('active');
 
         if (tabName === 'terminal') {
             terminalTab?.classList.add('active');
@@ -732,49 +1393,6 @@ class TerminalManager {
         } else if (tabName === 'chat') {
             chatTab?.classList.add('active');
             chatPanel?.classList.add('active');
-        } else if (tabName === 'custom') {
-            customTab?.classList.add('active');
-            customPanel?.classList.add('active');
-            
-            // Trigger a resize event to ensure chat app layout is correct
-            window.dispatchEvent(new Event('resize'));
-        }
-    }
-
-    initializeChatApp(windowId, processId, modelPath, modelName) {
-        console.log('Initializing chat app for window:', windowId);
-        
-        try {
-            // Check if ChatApp class is available
-            if (typeof ChatApp === 'undefined') {
-                console.error('ChatApp class not available. Make sure chat-app.js is loaded.');
-                return;
-            }
-            
-            const chatApp = new ChatApp(this, processId, modelPath, modelName);
-            this.chatApps = this.chatApps || new Map();
-            this.chatApps.set(windowId, chatApp);
-            
-            chatApp.init().then(() => {
-                const container = document.getElementById(`chat-app-${windowId}`);
-                if (container) {
-                    container.innerHTML = chatApp.render();
-                    chatApp.attachEventListeners();
-                    
-                    // Enable the custom chat tab
-                    const customTab = document.getElementById(`tab-custom-${windowId}`);
-                    if (customTab) {
-                        customTab.style.opacity = '1';
-                        customTab.style.pointerEvents = 'auto';
-                    }
-                    
-                    console.log('Chat app initialized successfully for window:', windowId);
-                }
-            }).catch(error => {
-                console.error('Failed to initialize chat app:', error);
-            });
-        } catch (error) {
-            console.error('Error creating ChatApp:', error);
         }
     }
 
@@ -927,6 +1545,13 @@ class TerminalManager {
     // Close a specific terminal and its process
     async closeTerminal(windowId) {
         const terminalInfo = this.terminals.get(windowId);
+
+        // Remove blur event listener if it exists
+        if (terminalInfo && terminalInfo.blurHandler) {
+            window.removeEventListener('blur', terminalInfo.blurHandler);
+            terminalInfo.blurHandler = null;
+        }
+
         if (terminalInfo && terminalInfo.processId && (terminalInfo.status === 'running' || terminalInfo.status === 'starting')) {
             console.log(`📺 Closing terminal ${windowId} with process ${terminalInfo.processId}`);
             try {
@@ -939,21 +1564,7 @@ class TerminalManager {
                 console.error(`❌ Failed to close terminal ${windowId}:`, error);
             }
         }
-        this.terminals.delete(windowId);
-        
-        // Clean up chat app if exists
-        if (this.chatApps?.has(windowId)) {
-            const chatApp = this.chatApps.get(windowId);
-            if (chatApp && typeof chatApp.destroy === 'function') {
-                try {
-                    chatApp.destroy();
-                    console.log(`Chat app cleaned up for window: ${windowId}`);
-                } catch (error) {
-                    console.error(`Error destroying chat app for window ${windowId}:`, error);
-                }
-            }
-            this.chatApps.delete(windowId);
-        }
+this.terminals.delete(windowId);
     }
 
     // Method to open URL in default browser

@@ -1,8 +1,7 @@
-use crate::models::{TrackerConfig, TrackerModel, TrackerStats};
+use crate::models::TrackerModel;
 use chrono::Utc;
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
 
 pub struct TrackerScraper {
     client: Client,
@@ -14,38 +13,20 @@ struct HFSearchResponse {
     author: String,
     #[serde(default, rename = "modelId")]
     model_id: String,
-    #[serde(default)]
-    sha: String,
     #[serde(default, rename = "lastModified")]
     last_modified: String,
-    #[serde(default)]
-    private: bool,
     downloads: u64,
     likes: u64,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default, rename = "pipeline_tag")]
-    pipeline_tag: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct HFModelDetails {
-    id: String,
-    author: String,
-    #[serde(default)]
-    sha: String,
-    #[serde(default, rename = "lastModified")]
-    last_modified: String,
-    #[serde(default)]
-    private: bool,
-    downloads: u64,
-    likes: u64,
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default, rename = "pipeline_tag")]
     pipeline_tag: Option<String>,
-    #[serde(default)]
-    siblings: Vec<HFFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,8 +41,6 @@ struct HFFile {
 struct HFTreeItem {
     #[serde(default)]
     path: String,
-    #[serde(default)]
-    name: String,
     #[serde(default)]
     size: i64,
     #[serde(default)]
@@ -261,7 +240,7 @@ impl TrackerScraper {
         Ok(tracker_models)
     }
 
-    pub async fn fetch_model_details(&self, model_id: &str) -> Result<HFModelDetails, String> {
+    async fn fetch_model_details(&self, model_id: &str) -> Result<HFModelDetails, String> {
         let url = format!("https://huggingface.co/api/models/{}", model_id);
 
         let response = self.client
@@ -279,7 +258,7 @@ impl TrackerScraper {
         Ok(details)
     }
 
-    pub async fn fetch_model_files(&self, model_id: &str) -> Result<Vec<HFFile>, String> {
+    async fn fetch_model_files(&self, model_id: &str) -> Result<Vec<HFFile>, String> {
         let url = format!("https://huggingface.co/api/models/{}/tree/main", model_id);
 
         let response = self.client
@@ -306,7 +285,7 @@ impl TrackerScraper {
         Ok(files)
     }
 
-    pub fn detect_quantizations(files: &[HFFile]) -> Vec<String> {
+    fn detect_quantizations(files: &[HFFile]) -> Vec<String> {
         let mut quants = Vec::new();
         
         for file in files {

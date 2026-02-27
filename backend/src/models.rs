@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -25,6 +26,218 @@ pub struct GlobalConfig {
     pub network_server_host: String,
     #[serde(default)]
     pub network_server_port: u16,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTransport {
+    Stdio,
+    Sse,
+    Http,
+    Json,
+    #[serde(rename = "streamable_http")]
+    StreamableHttp,
+}
+
+impl Default for McpTransport {
+    fn default() -> Self {
+        McpTransport::Sse
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpServerConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub transport: McpTransport,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub json_payload: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env_vars: HashMap<String, String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub timeout_seconds: u64,
+    #[serde(default)]
+    pub last_test_at: Option<String>,
+    #[serde(default)]
+    pub last_test_status: Option<String>,
+    #[serde(default)]
+    pub last_test_message: Option<String>,
+    #[serde(default)]
+    pub tools: Vec<McpToolInfo>,
+    #[serde(default)]
+    pub tools_last_refresh_at: Option<String>,
+    #[serde(default)]
+    pub tools_last_status: Option<String>,
+    #[serde(default)]
+    pub tools_last_message: Option<String>,
+    #[serde(default)]
+    pub tools_last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpToolInfo {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default, rename = "inputSchema")]
+    pub input_schema: Option<Value>,
+    #[serde(default, rename = "outputSchema")]
+    pub output_schema: Option<Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_config_deserializes_without_mcp_servers() {
+        let legacy_payload = r#"{
+            "models_directory": "C:/tmp/models",
+            "additional_models_directories": [],
+            "executable_folder": "C:/tmp/llama",
+            "theme_color": "dark-gray",
+            "theme_is_synced": true,
+            "openai_proxy_enabled": false,
+            "openai_proxy_port": 8081,
+            "network_server_host": "127.0.0.1",
+            "network_server_port": 8080
+        }"#;
+
+        let config: GlobalConfig = serde_json::from_str(legacy_payload)
+            .expect("legacy config should deserialize");
+
+        assert_eq!(config.mcp_servers.len(), 0);
+    }
+
+    #[test]
+    fn streamable_http_transport_alias_deserializes() {
+        let payload = r#"{
+            "id": "mcp-1",
+            "name": "Test",
+            "transport": "streamable_http"
+        }"#;
+
+        let connection: McpServerConfig = serde_json::from_str(payload)
+            .expect("streamable_http transport should deserialize");
+
+        assert_eq!(connection.transport, McpTransport::StreamableHttp);
+    }
+
+    #[test]
+    fn json_transport_deserializes() {
+        let payload = r#"{
+            "id": "mcp-1",
+            "name": "Test",
+            "transport": "json"
+        }"#;
+
+        let connection: McpServerConfig = serde_json::from_str(payload)
+            .expect("json transport should deserialize");
+
+        assert_eq!(connection.transport, McpTransport::Json);
+    }
+
+    #[test]
+    fn mcp_tools_fields_deserialize_defaults() {
+        let payload = r#"{
+            "id": "mcp-1",
+            "name": "Test"
+        }"#;
+
+        let connection: McpServerConfig = serde_json::from_str(payload)
+            .expect("tool fields should default when missing");
+
+        assert_eq!(connection.tools.len(), 0);
+        assert!(connection.tools_last_status.is_none());
+        assert!(connection.tools_last_message.is_none());
+        assert!(connection.tools_last_error.is_none());
+        assert!(connection.tools_last_refresh_at.is_none());
+    }
+
+    #[test]
+    fn mcp_tool_info_deserializes_optional_fields() {
+        let payload = r#"{
+            "name": "list_models",
+            "description": "List models",
+            "inputSchema": {"type":"object"},
+            "outputSchema": {"type":"object"}
+        }"#;
+
+        let tool: McpToolInfo = serde_json::from_str(payload)
+            .expect("tool info should deserialize");
+
+        assert_eq!(tool.name, "list_models");
+        assert_eq!(tool.description.as_deref(), Some("List models"));
+        assert!(tool.input_schema.is_some());
+        assert!(tool.output_schema.is_some());
+    }
+}
+
+impl McpServerConfig {
+    pub fn new_blank(name: String) -> Self {
+        Self {
+            id: String::new(),
+            name,
+            enabled: true,
+            transport: McpTransport::Sse,
+            url: String::new(),
+            command: String::new(),
+            json_payload: String::new(),
+            args: Vec::new(),
+            env_vars: HashMap::new(),
+            headers: HashMap::new(),
+            timeout_seconds: 10,
+            last_test_at: None,
+            last_test_status: None,
+            last_test_message: None,
+            tools: Vec::new(),
+            tools_last_refresh_at: None,
+            tools_last_status: None,
+            tools_last_message: None,
+            tools_last_error: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpTestResult {
+    pub success: bool,
+    pub latency_ms: i64,
+    pub message: String,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolsResult {
+    pub success: bool,
+    pub latency_ms: i64,
+    pub message: String,
+    #[serde(default)]
+    pub tool_count: usize,
+    #[serde(default)]
+    pub tools: Vec<McpToolInfo>,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 fn default_background_color() -> String {
@@ -55,6 +268,7 @@ impl Default for GlobalConfig {
             openai_proxy_port: 8081,
             network_server_host: "127.0.0.1".to_string(),
             network_server_port: 8080,
+            mcp_servers: Vec::new(),
         }
     }
 }
@@ -65,6 +279,8 @@ pub struct ModelPreset {
     pub name: String,
     pub custom_args: String,
     pub is_default: bool,
+    #[serde(default)]
+    pub env_vars: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +292,9 @@ pub struct ModelConfig {
     #[serde(default)]
     pub presets: Vec<ModelPreset>,
     #[serde(default)]
-pub default_preset_id: Option<String>,
+    pub default_preset_id: Option<String>,
+    #[serde(default)]
+    pub env_vars: HashMap<String, String>,
     
     // HF Update tracking fields
     #[serde(default)]
@@ -107,7 +325,8 @@ pub fn new(model_path: String) -> Self {
             server_port: 8080,
             model_path,
             presets: Vec::new(),
-default_preset_id: None,
+            default_preset_id: None,
+            env_vars: HashMap::new(),
             hf_model_id: None,
             hf_link_source: None,
             local_file_modified: None,

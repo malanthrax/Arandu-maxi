@@ -259,6 +259,7 @@ fn format_bytes(bytes: u64) -> String {
 
 /// Extract filename from a direct file URL
 /// e.g., "https://huggingface.co/author/model/blob/main/file.gguf" -> "file.gguf"
+#[allow(dead_code)]
 pub fn extract_filename_from_url(url: &str) -> Option<String> {
     // Pattern for blob/resolve URLs
     let blob_pattern = Regex::new(r"/blob/[^/]+/(.+)$").unwrap();

@@ -58,12 +58,10 @@
         })();
     </script>
     <script src="modules/search-history.js" defer></script>
+    <script src="modules/terminal-manager.js" defer></script>
     <script src="desktop.js" defer></script>
     <script src="modules/modal-dialog.js" defer></script>
-
     <script src="modules/huggingface-app.js" defer></script>
-    <script src="modules/chat-app.js" defer></script>
-    <script src="modules/terminal-manager.js" defer></script>
     <script src="modules/properties-manager.js" defer></script>
     <script src="modules/download-manager.js" defer></script>
     <script src="modules/llamacpp-manager.js" defer></script>
@@ -88,11 +86,24 @@
         <!-- Model Info Hint -->
         <div class="model-hint hidden" id="model-hint"></div>
 
-        <!-- Disk Space Monitor - Top Right -->
-        <div class="desktop-disk-monitor" id="desktop-disk-monitor" title="Total Models Disk Space">
-            <div class="disk-info">
-                <span class="material-icons">storage</span>
-                <span class="disk-text" id="disk-usage-text">--</span>
+        <!-- Top Right Controls -->
+        <div class="desktop-top-right-controls">
+            <!-- Disk Space Monitor -->
+            <div class="desktop-disk-monitor" id="desktop-disk-monitor" title="Total Models Disk Space">
+                <div class="disk-info">
+                    <span class="material-icons">storage</span>
+                    <span class="disk-text" id="disk-usage-text">--</span>
+                </div>
+            </div>
+
+            <!-- View Toggle - Model Display Style -->
+            <div class="desktop-view-toggle" id="desktop-view-toggle" title="Toggle between icon and list view">
+                <button class="view-toggle-btn active" id="view-icon-btn" title="Icon View">
+                    <span class="material-icons">grid_view</span>
+                </button>
+                <button class="view-toggle-btn" id="view-list-btn" title="List View (sorted by size)">
+                    <span class="material-icons">view_list</span>
+                </button>
             </div>
         </div>
 
@@ -111,9 +122,12 @@
                 <div class="network-config-section">
                     <div class="network-config-label">Server Address</div>
                     <select class="network-config-input" id="network-address-input" style="cursor: pointer;">
+                        <option value="0.0.0.0" selected>0.0.0.0 (All interfaces - LAN)</option>
                         <option value="127.0.0.1">127.0.0.1 (Local only)</option>
-                        <option value="0.0.0.0">0.0.0.0 (All interfaces - LAN)</option>
                     </select>
+                    <div style="font-size: 11px; color: #22c55e; margin-top: 6px;" id="current-lan-ip">
+                        Your LAN IP: Detecting...
+                    </div>
                     <div id="network-interfaces-loading" style="font-size: 11px; color: #888; margin-top: 4px; display: none;">
                         Loading network interfaces...
                     </div>
@@ -158,6 +172,104 @@
                 <div class="network-info" id="network-info">
                     Configure address and port, then click Activate to serve on network
                 </div>
+
+                <div class="network-divider"></div>
+
+                <div class="mcp-section" id="mcp-section">
+                    <div class="mcp-header">
+                        <span class="mcp-title">MCP Connections</span>
+                        <button class="network-action-btn mini-btn" id="mcp-refresh-btn" type="button">
+                            <span class="material-icons">refresh</span>
+                            Refresh
+                        </button>
+                    </div>
+
+                    <div class="mcp-list" id="mcp-connections-list">
+                        <div class="mcp-empty">No MCP servers yet. Add one below.</div>
+                    </div>
+
+                    <div class="mcp-form-title">Add or edit connection</div>
+
+                    <div class="mcp-form">
+                        <input type="hidden" id="mcp-edit-id" value="">
+
+                        <div class="network-config-section">
+                            <div class="network-config-label">Name</div>
+                            <input type="text" class="network-config-input" id="mcp-name" placeholder="My MCP Server">
+                        </div>
+
+                        <div class="network-config-section">
+                            <div class="network-config-label">Transport</div>
+                            <select class="network-config-input" id="mcp-transport">
+                                <option value="stdio">Stdio</option>
+                                <option value="sse">SSE</option>
+                                <option value="http">HTTP</option>
+                                <option value="json">JSON</option>
+                                <option value="streamable_http">Streamable HTTP</option>
+                            </select>
+                        </div>
+
+                        <div class="network-config-section mcp-transport-field" id="mcp-url-field">
+                            <div class="network-config-label">URL</div>
+                            <input type="text" class="network-config-input" id="mcp-url" placeholder="https://host:port/mcp">
+                        </div>
+
+                        <div class="network-config-section mcp-transport-field" id="mcp-command-field">
+                            <div class="network-config-label">Command</div>
+                            <input type="text" class="network-config-input" id="mcp-command" placeholder="uvx, node, python, etc.">
+                        </div>
+
+                        <div class="network-config-section mcp-transport-field" id="mcp-json-field">
+                            <div class="network-config-label">JSON Payload</div>
+                            <textarea id="mcp-json-payload" class="network-config-textarea" rows="5" placeholder='Paste MCP JSON payload (optional when using MCP JSON transport)'></textarea>
+                        </div>
+
+                        <div class="network-config-section">
+                            <div class="network-label-row">
+                                <div class="network-config-label">Arguments</div>
+                                <button class="mcp-add-row-btn" id="mcp-add-arg-btn" type="button" title="Add argument">+ Add</button>
+                            </div>
+                            <div class="mcp-pair-list" id="mcp-args-list"></div>
+                        </div>
+
+                        <div class="network-config-section">
+                            <div class="network-label-row">
+                                <div class="network-config-label">Env Vars</div>
+                                <button class="mcp-add-row-btn" id="mcp-add-env-btn" type="button" title="Add environment variable">+ Add</button>
+                            </div>
+                            <div class="mcp-pair-list" id="mcp-env-vars-list"></div>
+                        </div>
+
+                        <div class="network-config-section">
+                            <div class="network-label-row">
+                                <div class="network-config-label">Headers</div>
+                                <button class="mcp-add-row-btn" id="mcp-add-header-btn" type="button" title="Add header">+ Add</button>
+                            </div>
+                            <div class="mcp-pair-list" id="mcp-headers-list"></div>
+                        </div>
+
+                        <div class="network-config-section">
+                            <div class="network-config-label">Timeout (seconds)</div>
+                            <input type="number" class="network-config-input" id="mcp-timeout" min="1" max="120" value="10">
+                        </div>
+
+                        <label class="mcp-toggle-label">
+                            <input type="checkbox" id="mcp-enabled" checked>
+                            <span>Enabled</span>
+                        </label>
+
+                        <div class="network-actions mcp-actions">
+                            <button class="network-action-btn activate-btn" id="mcp-save-btn" type="button">
+                                <span class="material-icons">save</span>
+                                Save
+                            </button>
+                            <button class="network-action-btn deactivate-btn" id="mcp-reset-btn" type="button">
+                                <span class="material-icons">clear</span>
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -198,6 +310,9 @@
             <button class="dock-item permanent" id="huggingface-dock-icon" title="Hugging Face Models" data-app="huggingface">
                 <span class="material-icons">cloud_download</span>
             </button>
+            <button class="dock-item permanent" id="mcp-dock-icon" title="MCP Connections" data-app="mcp">
+                <span class="material-icons">device_hub</span>
+            </button>
             <button class="dock-item permanent" id="llamacpp-dock-icon" title="Llama.cpp Releases" data-app="llamacpp">
                 <span class="material-icons">build</span>
             </button>
@@ -229,6 +344,10 @@
             <div class="start-menu-item" data-action="llamacpp-manager">
                 <span class="material-icons">build</span>
                 <span class="start-menu-text">Llama.cpp Releases</span>
+            </div>
+            <div class="start-menu-item" data-action="mcp">
+                <span class="material-icons">plug</span>
+                <span class="start-menu-text">MCP Connections</span>
             </div>
             <div class="start-menu-item" data-action="restart">
                 <span class="material-icons">restart_alt</span>
