@@ -639,6 +639,18 @@ class TerminalManager {
 
     getInvoke() {
         if (!this.invoke) {
+            try {
+                if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
+                    this.invoke = window.__TAURI__.core.invoke;
+                } else if (window.__TAURI__ && window.__TAURI__.tauri && typeof window.__TAURI__.tauri.invoke === 'function') {
+                    this.invoke = window.__TAURI__.tauri.invoke;
+                }
+            } catch (error) {
+                console.warn('[TerminalManager] getInvoke lazy init failed:', error);
+            }
+        }
+
+        if (!this.invoke) {
             this.initTauriAPI();
         }
         return this.invoke;

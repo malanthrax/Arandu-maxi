@@ -1623,6 +1623,10 @@
                 }
             } catch (error) {
                 console.error('[ChatUI] Failed to refresh chat list:', error);
+                const list = document.getElementById('chatHistoryList');
+                if (list) {
+                    list.innerHTML = `<div class="chat-history-meta" style="color:#f87171;">Failed to load chats: ${String(error.message || error)}</div>`;
+                }
             }
         }
 
@@ -2606,6 +2610,11 @@ function applySpeculativeFix() {
             }
 
             refreshChatHistoryList();
+            setTimeout(async () => {
+                if (!activeChatId) {
+                    await startNewChat();
+                }
+            }, 600);
             
             // Set initial state for floating toggle
             const panel = document.getElementById('parameterPanel');
