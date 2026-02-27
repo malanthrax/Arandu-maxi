@@ -86,9 +86,14 @@ fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
 
         // Backward compatibility: map keyed by chat_id
         let mut values: Vec<serde_json::Value> = obj
-            .values()
-            .filter(|v| v.is_object())
-            .cloned()
+            .iter()
+            .filter_map(|(key, value)| {
+                let mut item = value.as_object()?.clone();
+                if !item.contains_key("chat_id") {
+                    item.insert("chat_id".to_string(), serde_json::json!(key));
+                }
+                Some(serde_json::Value::Object(item))
+            })
             .collect();
 
         values.sort_by(|a, b| {

@@ -1643,11 +1643,13 @@
                 const title = session.title || 'Untitled Chat';
                 const lastUsed = session.last_used_at ? new Date(session.last_used_at).toLocaleString() : 'Unknown';
                 const count = session.message_count || 0;
+                const modelUsed = session.last_model || 'Unknown model';
                 const activeClass = id === activeChatId ? 'active' : '';
                 return `
                     <div class="chat-history-item ${activeClass}" data-chat-id="${id}">
                         <div class="chat-history-title">${title}</div>
                         <div class="chat-history-meta">${count} msgs · ${lastUsed}</div>
+                        <div class="chat-history-meta">Model: ${modelUsed}</div>
                     </div>
                 `;
             }).join('');
@@ -1655,6 +1657,7 @@
             list.querySelectorAll('.chat-history-item').forEach((item) => {
                 item.addEventListener('click', async () => {
                     const chatId = item.getAttribute('data-chat-id');
+                    if (!chatId) return;
                     await loadChatById(chatId);
                 });
             });
@@ -1690,7 +1693,7 @@
         async function maybeAutoGenerateTitle() {
             if (!activeChatId || autoTitleDone) return;
             const turns = messageHistory.filter((m) => m.role === 'user' || m.role === 'assistant').length;
-            if (turns < 6) return;
+            if (turns < 4) return;
 
             try {
                 const context = messageHistory
@@ -1713,7 +1716,13 @@
                     })
                 });
                 const data = await resp.json();
-                const title = data?.choices?.[0]?.message?.content?.trim();
+                let title = data?.choices?.[0]?.message?.content?.trim();
+                if (!title) {
+                    const firstUser = messageHistory.find((m) => m.role === 'user' && m.content);
+                    if (firstUser && firstUser.content) {
+                        title = String(firstUser.content).split(/\s+/).slice(0, 8).join(' ');
+                    }
+                }
                 if (title) {
                     await requestChatLogs('rename', { chatId: activeChatId, title });
                     autoTitleDone = true;
@@ -1721,6 +1730,17 @@
                 }
             } catch (error) {
                 console.warn('[ChatUI] Auto-title failed:', error);
+                const firstUser = messageHistory.find((m) => m.role === 'user' && m.content);
+                if (firstUser && firstUser.content) {
+                    try {
+                        const fallbackTitle = String(firstUser.content).split(/\s+/).slice(0, 8).join(' ');
+                        if (fallbackTitle) {
+                            await requestChatLogs('rename', { chatId: activeChatId, title: fallbackTitle });
+                            autoTitleDone = true;
+                            await refreshChatHistoryList();
+                        }
+                    } catch (_) {}
+                }
             }
         }
 
