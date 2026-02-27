@@ -4013,7 +4013,11 @@ this.showProperties(this.selectedIcon);
             const modelQuantization = model && model.quantization ? model.quantization : '';
             const modelSizeGb = Number(model && model.size_gb) || 0;
             const modelSizeLabel = `${modelSizeGb.toFixed(2)} GB`;
+            const isMmprojModel = /^mmproj/i.test(modelName);
             iconElement.className = 'desktop-icon';
+            if (isMmprojModel) {
+                iconElement.classList.add('mmproj-highlight');
+            }
             iconElement.setAttribute('data-path', modelPath);
             iconElement.setAttribute('data-name', modelName);
             iconElement.setAttribute('data-size', modelSizeGb);

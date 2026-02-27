@@ -1795,6 +1795,16 @@ body.has-maximized-window .dock.visible {
 	border-color: var(--theme-primary);
 }
 
+.desktop-icons.list-view .desktop-icon.mmproj-highlight {
+	background: rgba(248, 113, 113, 0.16);
+	border-color: rgba(248, 113, 113, 0.5);
+}
+
+.desktop-icons.list-view .desktop-icon.mmproj-highlight:hover {
+	background: rgba(248, 113, 113, 0.24);
+	border-color: rgba(248, 113, 113, 0.7);
+}
+
 /* Hide architecture label in list view */
 .desktop-icons.list-view .architecture-label {
 	display: none;
