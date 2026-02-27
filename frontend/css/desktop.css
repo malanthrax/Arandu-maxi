@@ -429,8 +429,10 @@ body.has-maximized-window #dock-trigger {
 	flex-direction: column;
 	gap: 8px;
 	max-height: 300px;
+	min-height: 140px;
 	overflow-y: auto;
 	padding-right: 4px;
+	resize: vertical;
 }
 
 .mcp-empty {
