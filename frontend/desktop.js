@@ -4012,11 +4012,13 @@ this.showProperties(this.selectedIcon);
             const modelPath = model && model.path ? model.path : '';
             const modelQuantization = model && model.quantization ? model.quantization : '';
             const modelSizeGb = Number(model && model.size_gb) || 0;
-            const modelDateRaw = model && model.date ? String(model.date) : '';
-            const modelDateParsed = modelDateRaw ? new Date(modelDateRaw) : null;
+            const modelEpochSeconds = Number(model && model.date);
+            const modelDateParsed = Number.isFinite(modelEpochSeconds) && modelEpochSeconds > 0
+                ? new Date(modelEpochSeconds * 1000)
+                : null;
             const modelDateLabel = (modelDateParsed && !Number.isNaN(modelDateParsed.getTime()))
                 ? modelDateParsed.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
-                : (modelDateRaw || 'Unknown date');
+                : 'Unknown date';
             const modelMetaLabel = `${modelSizeGb.toFixed(2)} GB, ${modelDateLabel}`;
             const isMmprojModel = /^mmproj/i.test(modelName);
             iconElement.className = 'desktop-icon';
