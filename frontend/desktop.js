@@ -4012,7 +4012,8 @@ this.showProperties(this.selectedIcon);
             const modelPath = model && model.path ? model.path : '';
             const modelQuantization = model && model.quantization ? model.quantization : '';
             const modelSizeGb = Number(model && model.size_gb) || 0;
-            const modelSizeLabel = `${modelSizeGb.toFixed(2)} GB`;
+            const modelDateLabel = model && model.date ? String(model.date) : 'Unknown date';
+            const modelMetaLabel = `${modelSizeGb.toFixed(2)} GB, ${modelDateLabel}`;
             const isMmprojModel = /^mmproj/i.test(modelName);
             iconElement.className = 'desktop-icon';
             if (isMmprojModel) {
@@ -4056,7 +4057,7 @@ this.showProperties(this.selectedIcon);
                 iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
                     <div class="icon-info">
-                        <div class="icon-label">${modelName} GGUF (${modelSizeLabel})</div>
+                        <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
                         <div class="model-path" title="${modelPath}">${modelPath}</div>
                     </div>
                     <div class="model-quant">${modelQuantization}</div>
@@ -4077,7 +4078,7 @@ this.showProperties(this.selectedIcon);
                             ${indicatorContent}
                         </div>
                     </div>
-                    <div class="icon-label">${modelName} GGUF (${modelSizeLabel})</div>
+                    <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
                 `;
             }
 
