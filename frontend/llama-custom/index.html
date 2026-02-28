@@ -89,16 +89,70 @@
         }
 
         .chat-history-item {
+            width: 100%;
+            color: inherit;
+            text-align: left;
+            font: inherit;
+            font-family: inherit;
             background: #2f2f2f;
             border: 1px solid #444;
             border-radius: 8px;
             padding: 8px;
             cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            position: relative;
+            gap: 0;
+        }
+
+        .chat-history-item:hover {
+            background: #343434;
         }
 
         .chat-history-item.active {
             border-color: #4caf50;
             background: #2d3a2d;
+        }
+
+        .chat-history-item-body {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .chat-history-item-text {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .chat-history-delete {
+            width: 24px;
+            min-width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #f28b82;
+            background: transparent;
+        }
+
+        .chat-history-delete:hover {
+            background: #3a2424;
+            color: #ffb4ab;
+        }
+
+        .chat-history-delete:focus-visible {
+            outline: 1px solid #90caf9;
+            outline-offset: 1px;
         }
 
         .chat-history-title {
@@ -1103,15 +1157,17 @@
         </div>
     </div>
 
-    <!-- Chat Container -->
-    <div class="chat-container">
-        <aside class="chat-history-sidebar">
-            <div class="chat-history-header">
-                <input id="chatHistorySearch" class="chat-history-search" type="text" placeholder="Search chats...">
-                <button id="newChatButton" class="chat-new-btn" type="button">New</button>
-            </div>
-            <div id="chatHistoryList" class="chat-history-list"></div>
-        </aside>
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <aside class="chat-history-sidebar">
+                <div class="chat-history-header">
+                    <input id="chatHistorySearch" class="chat-history-search" type="text" placeholder="Search chats" aria-label="Search chats">
+                    <button id="newChatButton" class="chat-new-btn" type="button" title="Start new chat">New</button>
+                </div>
+                <div id="chatHistoryList" class="chat-history-list">
+                    <div class="chat-history-meta">Loading chat history...</div>
+                </div>
+            </aside>
 
         <div class="chat-main">
             <div class="chat-messages" id="chatMessages">
@@ -1130,7 +1186,7 @@
                 <button class="control-btn attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file (+)">
                     <span class="material-icons">add_circle_outline</span>
                 </button>
-                <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileSelection(event)" accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.mp3,.wav">
+                <input type="file" id="fileInput" multiple style="display: none;" onchange="handleFileSelection(event)" accept=".pdf,.docx,.doc,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp,.mp3,.wav">
                 
                 <!-- Feature 1: Stop Button -->
                 <button class="control-btn stop-btn-chat" id="stopButton" onclick="stopGeneration()" title="Stop generating">
@@ -1213,9 +1269,58 @@
         let launchConfigBaseline = null; // Snapshot of last-synced launch config
         let activeChatId = '';
         let chatSessions = [];
+        let chatPersistedMessageCounts = {};
         let autoTitleDone = false;
+        let autoTitleGenerating = false;
+        const CHAT_HISTORY_ENABLED = true;
         let chatReqCounter = 0;
+        let chatHistoryRequestSeq = 0;
+        let chatSearchDebounceTimer = null;
         const pendingChatRequests = new Map();
+        const ATTACHMENT_TEXT_CHAR_LIMIT = 12000;
+
+        function getFileKind(file) {
+            const name = String(file.name || '').toLowerCase();
+            const type = String(file.type || '').toLowerCase();
+
+            if (type.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].some((ext) => name.endsWith(ext))) return 'image';
+            if (type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+            if (type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || type === 'application/msword' || name.endsWith('.docx') || name.endsWith('.doc')) return 'docx';
+            if (type.startsWith('text/') || ['.txt', '.md', '.json', '.csv', '.log', '.yaml', '.yml', '.ini', '.toml', '.xml'].some((ext) => name.endsWith(ext))) return 'text';
+            return 'unsupported';
+        }
+
+        function sanitizeAttachmentText(text) {
+            const normalized = String(text || '').replace(/\u0000/g, '').trim();
+            if (!normalized) return '';
+
+            if (normalized.length <= ATTACHMENT_TEXT_CHAR_LIMIT) return normalized;
+
+            return `${normalized.slice(0, ATTACHMENT_TEXT_CHAR_LIMIT)}\n[... truncated after ${ATTACHMENT_TEXT_CHAR_LIMIT} chars]`;
+        }
+
+        function buildAttachmentPreviewMarkup(kind, item, isError) {
+            if (kind === 'image' && item.data) {
+                if (isError) {
+                    return `<span class="material-icons doc-icon">broken_image</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                }
+                return `<img src="${item.data}" alt="${item.name || 'attachment'}"><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+            }
+
+            if (kind === 'pdf') {
+                return `<span class="material-icons doc-icon">picture_as_pdf</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+            }
+
+            if (kind === 'docx') {
+                return `<span class="material-icons doc-icon">description</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+            }
+
+            if (isError || kind === 'unsupported') {
+                return `<span class="material-icons doc-icon">disabled_by_default</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+            }
+
+            return `<span class="material-icons doc-icon">insert_drive_file</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+        }
 
         const launchRestartArgDefaults = {
             launch_ctx_size: defaultParams.launch_ctx_size,
@@ -1245,6 +1350,46 @@
 
         function normalizeDraftModelPath(path) {
             return (path || '').replace(/\\/g, '/').toLowerCase();
+        }
+
+        function sanitizeAutoTitle(raw) {
+            const text = String(raw || '').replace(/[\r\n]+/g, ' ').trim();
+            const words = text
+                .replace(/[\"'`]/g, '')
+                .replace(/\s+/g, ' ')
+                .split(' ')
+                .filter(Boolean)
+                .slice(0, 8);
+
+            if (words.length === 0) return '';
+            const title = words.join(' ');
+            return title.length > 80 ? title.slice(0, 80).trim() : title;
+        }
+
+        function escapeHtml(value) {
+            const text = String(value || '');
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/`/g, '&#96;');
+        }
+
+        function sanitizeAttributeValue(value) {
+            return escapeHtml(value);
+        }
+
+        function getFirstUserMessageText() {
+            const firstUser = messageHistory.find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.trim());
+            if (!firstUser) return '';
+            return firstUser.content;
+        }
+
+        function normalizeChatId(value) {
+            const text = String(value || '').trim();
+            return text;
         }
 
         function normalizeEnvVars(value) {
@@ -1286,6 +1431,130 @@
 
         function parseSnapshotFloat(value, fallback) {
             return normalizeNumericFallback(Number.parseFloat(value), fallback);
+        }
+
+        function parseChatHistoryDate(rawDate) {
+            const date = new Date(rawDate || '');
+            if (Number.isNaN(date.getTime())) {
+                return 'Unknown';
+            }
+
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = String(date.getFullYear());
+            return `${day},${month},${year}`;
+        }
+
+        function getSessionModelLabel(session) {
+            const lastModel = String(session?.last_model || '').trim();
+            if (lastModel) {
+                return lastModel;
+            }
+
+            if (Array.isArray(session?.models_used) && session.models_used.length > 0) {
+                const fallbackModel = String(session.models_used[0] || '').trim();
+                if (fallbackModel) {
+                    return fallbackModel;
+                }
+            }
+
+            return 'Unknown';
+        }
+
+        function getChatDisplayId(session) {
+            const direct = session?.chat_id || session?.id || session?.file_path || '';
+            const directId = normalizeChatId(direct);
+            if (directId) {
+                return directId;
+            }
+
+            const filePath = typeof session?.file_path === 'string' ? session.file_path : '';
+            if (!filePath) {
+                return '';
+            }
+
+            const candidate = filePath
+                .split('\\')
+                .pop()
+                .split('/')
+                .pop()
+                .replace(/\.json$/i, '')
+                .replace(/\.md$/i, '')
+                .trim();
+
+            return normalizeChatId(candidate);
+        }
+
+        function getPersistedMessageCount(chatId) {
+            const normalized = normalizeChatId(chatId);
+            if (!normalized) return 0;
+            const current = Number(chatPersistedMessageCounts[normalized]);
+            return Number.isFinite(current) && current >= 0 ? Math.trunc(current) : 0;
+        }
+
+        function setPersistedMessageCount(chatId, value) {
+            const normalized = normalizeChatId(chatId);
+            if (!normalized) return;
+
+            const next = Number(value);
+            chatPersistedMessageCounts[normalized] = Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0;
+        }
+
+        async function persistUnsavedMessages() {
+            if (!CHAT_HISTORY_ENABLED || !activeChatId) return;
+
+            const normalizedChatId = normalizeChatId(activeChatId);
+            if (!normalizedChatId) return;
+
+            const savedCount = getPersistedMessageCount(normalizedChatId);
+            if (messageHistory.length <= savedCount) {
+                return;
+            }
+
+            const unsaved = messageHistory.slice(savedCount);
+            const allowedRoles = new Set(['user', 'assistant', 'system']);
+            let persistedCount = savedCount;
+
+            for (let i = 0; i < unsaved.length; i += 1) {
+                const item = unsaved[i] || {};
+                const role = String(item.role || '').trim().toLowerCase();
+                if (!allowedRoles.has(role)) continue;
+
+                const content = typeof item.content === 'string' ? item.content : String(item.content || '');
+                try {
+                    await requestChatLogs('append', {
+                        chat_id: normalizedChatId,
+                        role,
+                        content,
+                        model: currentModelPath || ''
+                    });
+                    persistedCount += 1;
+                } catch (error) {
+                    console.warn('[ChatUI] Failed to persist unsaved message:', error);
+                    break;
+                }
+            }
+
+            setPersistedMessageCount(normalizedChatId, persistedCount);
+        }
+
+        async function appendChatHistoryMessage(chatId, role, content) {
+            const normalizedChatId = normalizeChatId(chatId);
+            if (!CHAT_HISTORY_ENABLED || !normalizedChatId) return;
+
+            try {
+                await requestChatLogs('append', {
+                    chat_id: normalizedChatId,
+                    role,
+                    content,
+                    model: currentModelPath || ''
+                });
+
+                const currentCount = getPersistedMessageCount(normalizedChatId);
+                setPersistedMessageCount(normalizedChatId, currentCount + 1);
+            } catch (error) {
+                console.warn('[ChatUI] Failed to persist chat message:', error);
+            }
         }
 
         function getDebugStreamEnabled() {
@@ -1575,6 +1844,10 @@
 
         // --- Chat History Persistence (Markdown files via parent/backend) ---
         function requestChatLogs(op, payload = {}) {
+            if (!CHAT_HISTORY_ENABLED) {
+                return Promise.reject(new Error('Legacy chat history is disabled'));
+            }
+
             return new Promise((resolve, reject) => {
                 chatReqCounter += 1;
                 const requestId = `chatreq_${Date.now()}_${chatReqCounter}`;
@@ -1613,14 +1886,33 @@
         }
 
         async function refreshChatHistoryList(searchTerm = '') {
-            try {
-                chatSessions = searchTerm
-                    ? await requestChatLogs('search', { term: searchTerm })
-                    : await requestChatLogs('list');
-                renderChatHistoryList();
-                if (!searchTerm && !activeChatId && Array.isArray(chatSessions) && chatSessions.length > 0) {
-                    await loadChatById(chatSessions[0].chat_id);
+            if (!CHAT_HISTORY_ENABLED) {
+                const list = document.getElementById('chatHistoryList');
+                if (list) {
+                    list.innerHTML = '<div class="chat-history-meta">Chat history is disabled in this build.</div>';
                 }
+                return;
+            }
+
+            const requestSeq = ++chatHistoryRequestSeq;
+            const normalizedTerm = String(searchTerm || '').trim();
+            try {
+                chatSessions = normalizedTerm
+                    ? await requestChatLogs('search', { term: normalizedTerm })
+                    : await requestChatLogs('list');
+
+                if (requestSeq !== chatHistoryRequestSeq) return;
+
+                renderChatHistoryList();
+                if (!normalizedTerm && !activeChatId && Array.isArray(chatSessions) && chatSessions.length > 0) {
+                    const latest = normalizeChatId(
+                        chatSessions[0].chat_id || chatSessions[0].id || chatSessions[0].file_path
+                    );
+                    if (latest) {
+                        await loadChatById(latest);
+                    }
+                }
+                if (requestSeq !== chatHistoryRequestSeq) return;
             } catch (error) {
                 console.error('[ChatUI] Failed to refresh chat list:', error);
                 const list = document.getElementById('chatHistoryList');
@@ -1631,6 +1923,8 @@
         }
 
         function renderChatHistoryList() {
+            if (!CHAT_HISTORY_ENABLED) return;
+
             const list = document.getElementById('chatHistoryList');
             if (!list) return;
             if (!Array.isArray(chatSessions) || chatSessions.length === 0) {
@@ -1639,35 +1933,50 @@
             }
 
             list.innerHTML = chatSessions.map((session) => {
-                const id = session.chat_id || '';
-                const title = session.title || 'Untitled Chat';
-                const lastUsed = session.last_used_at ? new Date(session.last_used_at).toLocaleString() : 'Unknown';
-                const count = session.message_count || 0;
-                const modelUsed = session.last_model || 'Unknown model';
+                const id = getChatDisplayId(session);
+                if (!id) return '';
+                const rawTitle = session.title || 'Untitled Chat';
+                const title = escapeHtml(rawTitle);
+                const lastUsed = escapeHtml(parseChatHistoryDate(session.last_used_at));
+                const count = Number(session.message_count || 0);
+                const modelLabel = escapeHtml(getSessionModelLabel(session));
                 const activeClass = id === activeChatId ? 'active' : '';
+                const filePath = session && typeof session.file_path === 'string' ? session.file_path : '';
+                const safeId = sanitizeAttributeValue(id);
+                const safeFilePath = sanitizeAttributeValue(filePath);
                 return `
-                    <div class="chat-history-item ${activeClass}" data-chat-id="${id}">
-                        <div class="chat-history-title">${title}</div>
-                        <div class="chat-history-meta">${count} msgs · ${lastUsed}</div>
-                        <div class="chat-history-meta">Model: ${modelUsed}</div>
+                    <div class="chat-history-item ${activeClass}" data-chat-id="${safeId}" data-chat-file-path="${safeFilePath}" title="${title}" role="button" tabindex="0" data-action="open">
+                        <div class="chat-history-item-body">
+                            <div class="chat-history-item-text">
+                                <div class="chat-history-title">${title}</div>
+                                <div class="chat-history-meta">${modelLabel} · ${lastUsed} · ${Number.isFinite(count) ? count : 0} msgs</div>
+                            </div>
+                            <button type="button" class="chat-history-delete" data-chat-id="${safeId}" data-action="delete" title="Delete chat" aria-label="Delete chat">
+                                <span class="material-icons">delete</span>
+                            </button>
+                        </div>
                     </div>
                 `;
-            }).join('');
-
-            list.querySelectorAll('.chat-history-item').forEach((item) => {
-                item.addEventListener('click', async () => {
-                    const chatId = item.getAttribute('data-chat-id');
-                    if (!chatId) return;
-                    await loadChatById(chatId);
-                });
-            });
+            }).filter(Boolean).join('');
         }
 
         async function startNewChat() {
+            if (!CHAT_HISTORY_ENABLED) {
+                activeChatId = '';
+                messageHistory = [];
+                autoTitleDone = false;
+                restoreChatToUI();
+                await refreshChatHistoryList();
+                return;
+            }
+
             try {
-                const created = await requestChatLogs('create');
+                await persistUnsavedMessages();
+
+                const created = await requestChatLogs('create', { model: currentModelPath || '' });
                 activeChatId = created.chat_id;
                 messageHistory = [];
+                setPersistedMessageCount(activeChatId, 0);
                 autoTitleDone = false;
                 restoreChatToUI();
                 await refreshChatHistoryList();
@@ -1677,11 +1986,24 @@
         }
 
         async function loadChatById(chatId) {
-            if (!chatId) return;
+            if (!CHAT_HISTORY_ENABLED) {
+                return;
+            }
+
+            const normalizedChatId = normalizeChatId(chatId);
+            if (!normalizedChatId) return;
+
+            await persistUnsavedMessages();
+
             try {
-                const result = await requestChatLogs('load', { chatId });
-                activeChatId = chatId;
+                const result = await requestChatLogs('load', { chat_id: normalizedChatId });
+                activeChatId = normalizedChatId;
                 messageHistory = parseChatMarkdown(result.markdown);
+                const loadedCount = Number(result?.entry?.message_count);
+                setPersistedMessageCount(
+                    normalizedChatId,
+                    Number.isFinite(loadedCount) ? loadedCount : messageHistory.length
+                );
                 autoTitleDone = !!(result.entry && result.entry.title && !String(result.entry.title).startsWith('Chat '));
                 restoreChatToUI();
                 renderChatHistoryList();
@@ -1690,10 +2012,61 @@
             }
         }
 
+        async function deleteChatById(chatId) {
+            if (!CHAT_HISTORY_ENABLED) return;
+
+            const normalizedChatId = normalizeChatId(chatId);
+            if (!normalizedChatId) return;
+
+            const session = (Array.isArray(chatSessions) ? chatSessions : []).find((item) => {
+                const candidateId = getChatDisplayId(item);
+                return candidateId === normalizedChatId;
+            });
+            const confirmMessage = session && session.title
+                ? `Delete "${session.title}"? This action cannot be undone.`
+                : 'Delete this chat? This action cannot be undone.';
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            try {
+                await requestChatLogs('delete', { chat_id: normalizedChatId });
+                if (chatPersistedMessageCounts[normalizedChatId] !== undefined) {
+                    delete chatPersistedMessageCounts[normalizedChatId];
+                }
+
+                chatSessions = chatSessions.filter((item) => {
+                    const candidateId = getChatDisplayId(item);
+                    return candidateId !== normalizedChatId;
+                });
+
+                if (activeChatId === normalizedChatId) {
+                    activeChatId = '';
+                    messageHistory = [];
+                    autoTitleDone = false;
+                    restoreChatToUI();
+                    await startNewChat();
+                    return;
+                }
+
+                const searchTerm = document.getElementById('chatHistorySearch')?.value || '';
+                await refreshChatHistoryList(searchTerm);
+            } catch (error) {
+                console.error('[ChatUI] Failed to delete chat:', error);
+            }
+        }
+
         async function maybeAutoGenerateTitle() {
-            if (!activeChatId || autoTitleDone) return;
+            if (!CHAT_HISTORY_ENABLED) return;
+
+            if (!activeChatId || autoTitleDone || autoTitleGenerating) return;
+
             const turns = messageHistory.filter((m) => m.role === 'user' || m.role === 'assistant').length;
             if (turns < 4) return;
+
+            const currentTargetChatId = activeChatId;
+            autoTitleGenerating = true;
 
             try {
                 const context = messageHistory
@@ -1701,6 +2074,9 @@
                     .map((m) => `${m.role}: ${m.content}`)
                     .join('\n\n')
                     .slice(0, 2500);
+
+                if (!context) return;
+
                 const resp = await fetch('/v1/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1715,32 +2091,56 @@
                         ]
                     })
                 });
+
+                if (!resp.ok) {
+                    throw new Error(`Title generation failed (${resp.status} ${resp.statusText})`);
+                }
+
                 const data = await resp.json();
-                let title = data?.choices?.[0]?.message?.content?.trim();
+                let title = sanitizeAutoTitle(data?.choices?.[0]?.message?.content);
+
                 if (!title) {
-                    const firstUser = messageHistory.find((m) => m.role === 'user' && m.content);
-                    if (firstUser && firstUser.content) {
-                        title = String(firstUser.content).split(/\s+/).slice(0, 8).join(' ');
-                    }
+                    title = sanitizeAutoTitle(getFirstUserMessageText());
                 }
-                if (title) {
-                    await requestChatLogs('rename', { chatId: activeChatId, title });
-                    autoTitleDone = true;
-                    await refreshChatHistoryList();
+
+                if (!title || String(title).toLowerCase() === 'untitled chat') {
+                    return;
                 }
+
+                if (currentTargetChatId !== activeChatId) return;
+
+                await requestChatLogs('rename', {
+                    chat_id: currentTargetChatId,
+                    title
+                });
+
+                if (currentTargetChatId !== activeChatId) return;
+
+                autoTitleDone = true;
+                await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
             } catch (error) {
                 console.warn('[ChatUI] Auto-title failed:', error);
-                const firstUser = messageHistory.find((m) => m.role === 'user' && m.content);
-                if (firstUser && firstUser.content) {
-                    try {
-                        const fallbackTitle = String(firstUser.content).split(/\s+/).slice(0, 8).join(' ');
-                        if (fallbackTitle) {
-                            await requestChatLogs('rename', { chatId: activeChatId, title: fallbackTitle });
-                            autoTitleDone = true;
-                            await refreshChatHistoryList();
-                        }
-                    } catch (_) {}
+
+                const fallbackTitle = sanitizeAutoTitle(getFirstUserMessageText());
+                if (!fallbackTitle) return;
+                if (String(fallbackTitle).toLowerCase() === 'untitled chat') return;
+                if (currentTargetChatId !== activeChatId) return;
+
+                try {
+                    await requestChatLogs('rename', {
+                        chat_id: currentTargetChatId,
+                        title: fallbackTitle
+                    });
+
+                    if (currentTargetChatId === activeChatId) {
+                        autoTitleDone = true;
+                        await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
+                    }
+                } catch (_) {
+                    // Ignore fallback rename failure to avoid UI loops
                 }
+            } finally {
+                autoTitleGenerating = false;
             }
         }
 
@@ -1786,12 +2186,16 @@
             previewArea.style.display = 'flex';
 
             for (const file of files) {
+                const kind = getFileKind(file);
                 const item = {
                     id: Date.now() + Math.random(),
                     name: file.name,
                     type: file.type,
+                    kind,
                     data: null,
-                    text: null
+                    text: null,
+                    error: null,
+                    processingFailed: false
                 };
 
                 // Create UI Preview
@@ -1799,22 +2203,30 @@
                 previewDiv.className = 'preview-item';
                 previewDiv.id = `preview-${item.id}`;
 
-                if (file.type.startsWith('image/')) {
+                if (kind === 'image') {
                     const reader = new FileReader();
                     reader.onload = (e) => {
                         item.data = e.target.result;
-                        previewDiv.innerHTML = `<img src="${e.target.result}"><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                        item.processingFailed = false;
+                        item.error = null;
+                        previewDiv.innerHTML = buildAttachmentPreviewMarkup(kind, item);
+                    };
+                    reader.onerror = () => {
+                        item.processingFailed = true;
+                        item.error = 'Could not read image attachment';
+                        previewDiv.innerHTML = buildAttachmentPreviewMarkup('unsupported', item, true);
                     };
                     reader.readAsDataURL(file);
-                } else if (file.type === 'application/pdf') {
-                    previewDiv.innerHTML = `<span class="material-icons doc-icon">picture_as_pdf</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
-                    item.text = await extractTextFromPDF(file);
-                } else if (file.name.endsWith('.docx')) {
-                    previewDiv.innerHTML = `<span class="material-icons doc-icon">description</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
-                    item.text = await extractTextFromDocx(file);
                 } else {
-                    previewDiv.innerHTML = `<span class="material-icons doc-icon">insert_drive_file</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
-                    item.text = await file.text();
+                    const parseResult = await parseAttachmentText(file, kind);
+                    item.text = parseResult.text;
+                    item.error = parseResult.error;
+                    item.processingFailed = Boolean(parseResult.error);
+
+                    previewDiv.innerHTML = buildAttachmentPreviewMarkup(kind, item, item.processingFailed);
+                    if (item.error) {
+                        previewDiv.title = `${file.name}: ${item.error}`;
+                    }
                 }
 
                 previewArea.appendChild(previewDiv);
@@ -1833,6 +2245,10 @@
         }
 
         async function extractTextFromPDF(file) {
+            if (typeof pdfjsLib === 'undefined' || !pdfjsLib.getDocument) {
+                throw new Error('PDF parser not available');
+            }
+
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -1840,18 +2256,54 @@
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const content = await page.getTextContent();
-                    text += content.items.map(s => s.str).join(' ') + '\n';
+                    const pageText = content.items
+                        .map((s) => s.str)
+                        .filter((str) => typeof str === 'string' && str.trim())
+                        .join(' ')
+                        .trim();
+                    if (pageText) {
+                        text += `${pageText}\n`;
+                    }
                 }
-                return text;
-            } catch (e) { console.error("PDF Parse Error", e); return ""; }
+
+                return sanitizeAttachmentText(text);
+            } catch (e) { console.error("PDF Parse Error", e); throw e; }
         }
 
         async function extractTextFromDocx(file) {
+            if (typeof mammoth === 'undefined' || !mammoth.extractRawText) {
+                throw new Error('DOCX parser not available');
+            }
+
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const result = await mammoth.extractRawText({ arrayBuffer });
-                return `[Content from ${file.name}]:\n${result.value}`;
-            } catch (e) { console.error("Docx Parse Error", e); return ""; }
+                return sanitizeAttachmentText(`[Content from ${file.name}]:\n${result.value || ''}`);
+            } catch (e) { console.error("Docx Parse Error", e); throw e; }
+        }
+
+        async function parseTextAttachment(file) {
+            const content = await file.text();
+            return sanitizeAttachmentText(`[Content from ${file.name}]:\n${content || ''}`);
+        }
+
+        async function parseAttachmentText(file, kind) {
+            try {
+                if (kind === 'pdf') return { text: await extractTextFromPDF(file) };
+                if (kind === 'docx') return { text: await extractTextFromDocx(file) };
+                if (kind === 'text') return { text: await parseTextAttachment(file) };
+                if (kind === 'unsupported') return {
+                    text: null,
+                    error: 'Unsupported attachment type. Sent by filename only.'
+                };
+
+                return { text: null };
+            } catch (error) {
+                return {
+                    text: null,
+                    error: `Could not parse attachment: ${error && error.message ? error.message : 'Unknown parsing error'}`
+                };
+            }
         }
 
         // --- Feature 1: Stop Logic ---
@@ -1932,6 +2384,20 @@
                 try { data = JSON.parse(data); } catch (e) {}
             }
 
+            if (data && data.type === 'chat-logs-response') {
+                const requestId = data.request_id;
+                const pending = requestId ? pendingChatRequests.get(requestId) : null;
+                if (!pending) return;
+
+                pendingChatRequests.delete(requestId);
+                if (data.ok) {
+                    pending.resolve(data.result);
+                } else {
+                    pending.reject(new Error(data.error || 'Chat logs request failed'));
+                }
+                return;
+            }
+
             if (data && data.type === 'compatible-models-list') {
                 console.log('[ChatUI] Received compatible models list:', data.models.length, 'found');
                 if (senseTimeout) {
@@ -1941,18 +2407,6 @@
                 renderCompatibleModels(data.models, data.currentArch);
             }
 
-            if (data && data.type === 'chat-logs-response' && data.request_id) {
-                const pending = pendingChatRequests.get(data.request_id);
-                if (pending) {
-                    pendingChatRequests.delete(data.request_id);
-                    if (data.ok) {
-                        pending.resolve(data.result);
-                    } else {
-                        pending.reject(new Error(data.error || 'Unknown chat logs error'));
-                    }
-                }
-            }
-            
             if (data && data.type === 'current-config') {
                 console.log('[ChatUI] Received current config:', data);
                 currentRunningDraftModel = data.draftModelPath || '';
@@ -1989,8 +2443,8 @@
                 syncSpecFixButton();
                 markLaunchChange();
             }
-            
-        if (data && data.type === 'settings-saved') {
+
+            if (data && data.type === 'settings-saved') {
                 console.log('[ChatUI] Settings saved:', data.message);
                 const isRestartCompleted = data && data.restartTriggered === true;
 
@@ -2334,7 +2788,11 @@ function applySpeculativeFix() {
             if (!messageText && currentAttachments.length === 0) return;
 
             if (!activeChatId) {
-                await startNewChat();
+                if (!CHAT_HISTORY_ENABLED) {
+                    activeChatId = 'ephemeral-chat';
+                } else {
+                    await startNewChat();
+                }
             }
 
             // Feature 1: Reset Abort Controller
@@ -2344,30 +2802,55 @@ function applySpeculativeFix() {
             input.disabled = true;
 
             // Feature 2: Prepare prompt with text attachments
-            let finalPrompt = messageText;
+            const attachmentNames = [];
+            const promptParts = [];
+            if (messageText) {
+                promptParts.push(messageText);
+            }
+
             const images = [];
             currentAttachments.forEach(att => {
-                if (att.text) finalPrompt += `\n\n${att.text}`;
+                if (att.name) {
+                    attachmentNames.push(att.name);
+                }
+
+                if (att.text) {
+                    const text = String(att.text).trim();
+                    if (text) {
+                        promptParts.push(`[${att.name || 'attachment'}]\n${text}`);
+                    }
+                } else if (att.error) {
+                    const errorText = String(att.error || '').trim();
+                    promptParts.push(`[${att.name || 'attachment'}]\n${errorText || 'Could not parse attachment content'}`);
+                } else {
+                    promptParts.push(`[${att.name || 'attachment'}]`);
+                }
+
                 if (att.data) images.push(att.data);
             });
 
+            let requestPrompt = promptParts.join('\n\n').trim();
+            if (!requestPrompt) {
+                requestPrompt = attachmentNames.length > 0
+                    ? `Sent attachments: ${attachmentNames.join(', ')}`
+                    : 'Uploaded files';
+            }
+
+            const requestSafeHistoryContent = requestPrompt.replace(/^##\s+/gm, '# # ');
+
             // Feature 2: Construct payload
-            const userContent = [{ type: 'text', text: finalPrompt }];
+            const userContent = [{ type: 'text', text: requestPrompt }];
             images.forEach(img => userContent.push({ type: 'image_url', image_url: { url: img } }));
 
-            messageHistory.push({ role: 'user', content: messageText || "Uploaded files" });
-            if (activeChatId) {
-                try {
-                    await requestChatLogs('append', {
-                        chatId: activeChatId,
-                        role: 'user',
-                        content: messageText || 'Uploaded files'
-                    });
-                } catch (error) {
-                    console.warn('[ChatUI] Failed to persist user message:', error);
-                }
+            messageHistory.push({ role: 'user', content: requestSafeHistoryContent });
+            if (CHAT_HISTORY_ENABLED && activeChatId) {
+                await appendChatHistoryMessage(
+                    activeChatId,
+                    'user',
+                    requestSafeHistoryContent
+                );
             }
-            addMessage('user', messageText || "Sent attachments");
+            addMessage('user', messageText || `Sent attachments: ${attachmentNames.join(', ') || 'files'}`);
             
             // Clear attachments UI
             currentAttachments = [];
@@ -2567,16 +3050,8 @@ function applySpeculativeFix() {
                 assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
 
                 messageHistory.push({ role: 'assistant', content: fullText });
-                if (activeChatId) {
-                    try {
-                        await requestChatLogs('append', {
-                            chatId: activeChatId,
-                            role: 'assistant',
-                            content: fullText
-                        });
-                    } catch (error) {
-                        console.warn('[ChatUI] Failed to persist assistant message:', error);
-                    }
+                if (CHAT_HISTORY_ENABLED && activeChatId) {
+                    await appendChatHistoryMessage(activeChatId, 'assistant', fullText);
                 }
                 await maybeAutoGenerateTitle();
                 await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
@@ -2616,25 +3091,53 @@ function applySpeculativeFix() {
             updateParameterDisplay();
 
             const searchInput = document.getElementById('chatHistorySearch');
-            if (searchInput) {
+            if (CHAT_HISTORY_ENABLED && searchInput) {
                 searchInput.addEventListener('input', () => {
-                    refreshChatHistoryList(searchInput.value || '');
+                    if (chatSearchDebounceTimer) {
+                        clearTimeout(chatSearchDebounceTimer);
+                    }
+
+                    const term = searchInput.value || '';
+                    chatSearchDebounceTimer = setTimeout(() => {
+                        refreshChatHistoryList(term);
+                    }, 150);
+                });
+            }
+
+            const chatList = document.getElementById('chatHistoryList');
+            if (CHAT_HISTORY_ENABLED && chatList) {
+                chatList.addEventListener('click', async (event) => {
+                    const deleteButton = event.target.closest('[data-action="delete"]');
+                    if (deleteButton) {
+                        event.stopPropagation();
+                        const chatId = deleteButton.getAttribute('data-chat-id');
+                        if (chatId) {
+                            await deleteChatById(chatId);
+                        }
+                        return;
+                    }
+
+                    const item = event.target.closest('.chat-history-item');
+                    if (!item || !chatList.contains(item)) return;
+
+                    const chatIdFromAttr = item.getAttribute('data-chat-id');
+                    const filePathFromAttr = item.getAttribute('data-chat-file-path');
+                    const chatId = normalizeChatId(chatIdFromAttr) || normalizeChatId(filePathFromAttr);
+                    if (!chatId) return;
+
+                    await loadChatById(chatId);
                 });
             }
 
             const newBtn = document.getElementById('newChatButton');
-            if (newBtn) {
+            if (CHAT_HISTORY_ENABLED && newBtn) {
                 newBtn.addEventListener('click', async () => {
                     await startNewChat();
                 });
             }
 
             refreshChatHistoryList();
-            setTimeout(async () => {
-                if (!activeChatId) {
-                    await startNewChat();
-                }
-            }, 600);
+            startNewChat();
             
             // Set initial state for floating toggle
             const panel = document.getElementById('parameterPanel');
