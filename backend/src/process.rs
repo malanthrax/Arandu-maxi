@@ -213,16 +213,16 @@ pub async fn launch_model_server(
         path
     };
 
-    println!("Using custom UI path: {:?}", custom_ui_path);
+println!("Using custom UI path: {:?}", custom_ui_path);
     cmd.args(["--path", custom_ui_path.to_str().unwrap_or("")]);
 
-cmd.args(["-m", &model_config.model_path])
-       .args(["--host", &model_config.server_host])
-       .args(["--port", &final_port.to_string()])
-       .args(["--cors"])
-       .stdout(Stdio::piped())
-       .stderr(Stdio::piped())
-       .kill_on_drop(true); // Ensure child process is killed when dropped
+    cmd.args(["-m", &model_config.model_path])
+        .args(["--host", &model_config.server_host])
+        .args(["--port", &final_port.to_string()])
+        .args(["--cors"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true); // Ensure child process is killed when dropped
 
     // Apply environment variables
     for (key, value) in &model_config.env_vars {
@@ -344,10 +344,10 @@ pub async fn launch_model_external(
         actual_port
     } else {
         requested_port
-    };
-    
-    // For external launch, spawn in a new terminal window
-let mut cmd_args = vec![
+};
+
+// For external launch, spawn in a new terminal window
+    let mut cmd_args = vec![
         "-m".to_string(),
         model_config.model_path.clone(),
         "--host".to_string(),
