@@ -715,6 +715,8 @@ mod tests {
             instance_id.clone(),
             "TestInstance".to_string(),
             "http://127.0.0.1:8081".to_string(),
+            8081,
+            8080,
             None,
         );
 
