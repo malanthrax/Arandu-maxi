@@ -216,9 +216,10 @@ pub async fn launch_model_server(
     println!("Using custom UI path: {:?}", custom_ui_path);
     cmd.args(["--path", custom_ui_path.to_str().unwrap_or("")]);
 
-    cmd.args(["-m", &model_config.model_path])
+cmd.args(["-m", &model_config.model_path])
        .args(["--host", &model_config.server_host])
        .args(["--port", &final_port.to_string()])
+       .args(["--cors"])
        .stdout(Stdio::piped())
        .stderr(Stdio::piped())
        .kill_on_drop(true); // Ensure child process is killed when dropped
@@ -346,13 +347,14 @@ pub async fn launch_model_external(
     };
     
     // For external launch, spawn in a new terminal window
-    let mut cmd_args = vec![
+let mut cmd_args = vec![
         "-m".to_string(),
         model_config.model_path.clone(),
         "--host".to_string(),
         model_config.server_host.clone(),
         "--port".to_string(),
         final_port.to_string(),
+        "--cors".to_string(),
     ];
     
     // Add custom arguments if present

@@ -18,9 +18,21 @@ class DesktopManager {
         this.restorationInProgress = false; // Flag to prevent duplicate restoration
         this.updateCheckCache = new Map(); // Cache for update check results
         this.updateComparisonData = null; // Store comparison context for HF search
+        this.lastUsedModel = null; // { modelPath, modelName, launchMode, presetId, launchedAt }
         this.mcpConnections = [];
         this.editingMcpConnectionId = null;
         this.mcpManagerScope = null;
+        this.lastUsedModelStorageKey = 'Arandu-last-used-model';
+
+        // Discovery-related properties
+        this.discoveryEnabled = false;
+        this.discoveredPeers = [];
+        this.discoveryPollInterval = null;
+        this.discoveryStatus = {};
+        
+        // Debug logging properties
+        this.debugLogWindowOpen = false;
+        this.debugLogEntries = [];
 
         this.init();
     }
@@ -36,6 +48,8 @@ class DesktopManager {
         // Initialize network serving widget
         this.initNetworkWidget();
         this.initMcpManager();
+        this.initDiscovery();
+        this.initDiscoveryDebugButton();
 
         // Wait for DOM to be fully loaded before showing content
         if (document.readyState === 'loading') {
@@ -242,6 +256,9 @@ class DesktopManager {
         // Load models and populate desktop
         await this.loadModels();
 
+        // Restore last used model state from storage
+        this.loadLastUsedModelFromStorage();
+
         // Initialize view toggle
         this.initViewToggle();
 
@@ -254,6 +271,7 @@ class DesktopManager {
     initViewToggle() {
         const iconBtn = document.getElementById('view-icon-btn');
         const listBtn = document.getElementById('view-list-btn');
+        const remoteBtn = document.getElementById('view-remote-btn');
 
         if (iconBtn && listBtn) {
             iconBtn.addEventListener('click', () => {
@@ -262,10 +280,196 @@ class DesktopManager {
             listBtn.addEventListener('click', () => {
                 this.setDesktopView('list');
             });
+        }
 
-            // Load saved preference
-            const savedView = localStorage.getItem('desktop-model-view') || 'icon';
-            this.setDesktopView(savedView);
+        if (remoteBtn) {
+            remoteBtn.addEventListener('click', () => {
+                this.setDesktopView('remote');
+            });
+        }
+
+        // Load saved preference
+        const savedView = localStorage.getItem('desktop-model-view') || 'icon';
+        this.setDesktopView(savedView);
+
+        const launchLastModelBtn = document.getElementById('launch-last-model-btn');
+        if (launchLastModelBtn) {
+            launchLastModelBtn.addEventListener('click', () => {
+                this.launchLastUsedModel();
+            });
+        }
+
+        this.updateLaunchLastModelButton();
+    }
+
+    getModelIconByPath(modelPath) {
+        if (!modelPath) return null;
+        const icons = document.querySelectorAll('.desktop-icon[data-path]');
+        for (const icon of icons) {
+            if (icon.dataset.path === modelPath) {
+                return icon;
+            }
+        }
+        return null;
+    }
+
+    getLastUsedModelStorageState() {
+        try {
+            const raw = localStorage.getItem(this.lastUsedModelStorageKey);
+            if (!raw) return null;
+
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && typeof parsed.modelPath === 'string' && parsed.modelPath.trim()) {
+                return {
+                    modelPath: parsed.modelPath,
+                    modelName: typeof parsed.modelName === 'string' ? parsed.modelName : '',
+                    launchMode: parsed.launchMode || 'default',
+                    presetId: parsed.presetId || null,
+                    launchedAt: parsed.launchedAt || null
+                };
+            }
+        } catch (error) {
+            console.error('Failed to read last used model from storage:', error);
+        }
+
+        return null;
+    }
+
+    loadLastUsedModelFromStorage() {
+        const stored = this.getLastUsedModelStorageState();
+        this.lastUsedModel = stored;
+        this.updateLaunchLastModelButton();
+    }
+
+    saveLastUsedModelToStorage() {
+        if (!this.lastUsedModel || !this.lastUsedModel.modelPath) {
+            return;
+        }
+
+        try {
+            localStorage.setItem(this.lastUsedModelStorageKey, JSON.stringify(this.lastUsedModel));
+        } catch (error) {
+            console.error('Failed to save last used model state:', error);
+        }
+    }
+
+    setLastUsedModel({ modelPath, modelName, launchMode = 'default', presetId = null }) {
+        if (!modelPath) return;
+
+        this.lastUsedModel = {
+            modelPath,
+            modelName: modelName || 'Unknown model',
+            launchMode,
+            presetId,
+            launchedAt: new Date().toISOString()
+        };
+
+        this.saveLastUsedModelToStorage();
+        this.updateLaunchLastModelButton();
+    }
+
+    clearLastUsedModel() {
+        this.lastUsedModel = null;
+        localStorage.removeItem(this.lastUsedModelStorageKey);
+        this.updateLaunchLastModelButton();
+    }
+
+    updateLaunchLastModelButton() {
+        const launchLastModelBtn = document.getElementById('launch-last-model-btn');
+        const launchLastModelText = document.getElementById('launch-last-model-text');
+        if (!launchLastModelBtn || !launchLastModelText) return;
+
+        const modelPath = this.lastUsedModel?.modelPath;
+        if (!modelPath) {
+            launchLastModelBtn.classList.remove('has-model');
+            launchLastModelBtn.disabled = true;
+            launchLastModelText.textContent = 'No last model';
+            launchLastModelBtn.title = 'Launch last used model';
+            return;
+        }
+
+        const icon = this.getModelIconByPath(modelPath);
+        if (!icon) {
+            launchLastModelBtn.classList.remove('has-model');
+            launchLastModelBtn.disabled = true;
+            launchLastModelText.textContent = this.lastUsedModel.modelName || 'Model unavailable';
+            launchLastModelBtn.title = 'Last used model not available';
+            return;
+        }
+
+        launchLastModelBtn.classList.add('has-model');
+        launchLastModelBtn.disabled = false;
+        launchLastModelText.textContent = this.lastUsedModel.modelName || icon.dataset.name || 'Last model';
+        launchLastModelBtn.title = `Launch last used model: ${this.lastUsedModel.modelName || icon.dataset.name}`;
+    }
+
+    async launchLastUsedModel() {
+        if (!this.lastUsedModel || !this.lastUsedModel.modelPath) {
+            this.showNotification('No last used model to launch yet', 'info');
+            return;
+        }
+
+        const icon = this.getModelIconByPath(this.lastUsedModel.modelPath);
+        if (!icon) {
+            this.showNotification(`Last model not found: ${this.lastUsedModel.modelPath}`, 'error');
+            this.clearLastUsedModel();
+            return;
+        }
+
+        const launchMode = this.lastUsedModel.launchMode || 'default';
+        const presetId = this.lastUsedModel.presetId;
+
+        try {
+            if (launchMode === 'preset' && presetId) {
+                const presets = await invoke('get_model_presets', { modelPath: this.lastUsedModel.modelPath });
+                if (Array.isArray(presets) && presets.some((preset) => preset.id === presetId)) {
+                    await this.launchModelWithPreset(icon, presetId);
+                    return;
+                }
+
+                this.showNotification(`Saved preset no longer exists. Launching with default mode.`, 'info');
+                this.setLastUsedModel({
+                    modelPath: this.lastUsedModel.modelPath,
+                    modelName: this.lastUsedModel.modelName,
+                    launchMode: 'default',
+                    presetId: null
+                });
+                await this.launchModel(icon);
+                return;
+            }
+
+            if (launchMode === 'preset-external' && presetId) {
+                const presets = await invoke('get_model_presets', { modelPath: this.lastUsedModel.modelPath });
+                if (Array.isArray(presets) && presets.some((preset) => preset.id === presetId)) {
+                    await this.launchModelWithPresetExternal(icon, presetId);
+                    return;
+                }
+
+                this.showNotification(`Saved preset no longer exists. Launching external default mode.`, 'info');
+                this.setLastUsedModel({
+                    modelPath: this.lastUsedModel.modelPath,
+                    modelName: this.lastUsedModel.modelName,
+                    launchMode: 'external',
+                    presetId: null
+                });
+                await this.launchModelExternal(icon);
+                return;
+            }
+
+            if (launchMode === 'half-context') {
+                await this.launchModelWithHalfContext(icon);
+                return;
+            }
+
+            if (launchMode === 'external') {
+                await this.launchModelExternal(icon);
+                return;
+            }
+
+            await this.launchModel(icon);
+        } catch (error) {
+            console.error('Failed to launch last used model:', error);
+            this.showNotification('Failed to launch last used model', 'error');
         }
     }
 
@@ -273,20 +477,34 @@ class DesktopManager {
         const desktopIcons = document.getElementById('desktop-icons');
         const iconBtn = document.getElementById('view-icon-btn');
         const listBtn = document.getElementById('view-list-btn');
+        const remoteBtn = document.getElementById('view-remote-btn');
 
         if (!desktopIcons) return;
 
+        // Remove all view-specific classes
+        desktopIcons.classList.remove('list-view', 'remote-view');
+
+        // Remove active from all buttons
+        if (iconBtn) iconBtn.classList.remove('active');
+        if (listBtn) listBtn.classList.remove('active');
+        if (remoteBtn) remoteBtn.classList.remove('active');
+
         if (view === 'list') {
             desktopIcons.classList.add('list-view');
-            if (iconBtn) iconBtn.classList.remove('active');
             if (listBtn) listBtn.classList.add('active');
+        } else if (view === 'remote') {
+            desktopIcons.classList.add('list-view'); // Use same list styling
+            desktopIcons.classList.add('remote-view'); // Mark as remote view
+            if (remoteBtn) remoteBtn.classList.add('active');
         } else {
-            desktopIcons.classList.remove('list-view');
+            // icon view (default)
             if (iconBtn) iconBtn.classList.add('active');
-            if (listBtn) listBtn.classList.remove('active');
         }
 
         localStorage.setItem('desktop-model-view', view);
+        
+        // Refresh the display based on new view
+        this.loadModels(false);
     }
 
     async loadConfiguration() {
@@ -509,7 +727,70 @@ class DesktopManager {
             }
         }
         
-        this.deselectAllIcons();
+        	this.deselectAllIcons();
+    }
+
+    isRemoteModelIcon(icon) {
+        return !!(
+            icon &&
+            icon.classList &&
+            (icon.classList.contains('remote-model-item') ||
+                (icon.dataset && typeof icon.dataset.remoteModel === 'string' && icon.dataset.remoteModel.trim() !== ''))
+        );
+    }
+
+    getRemoteModelInfoFromIcon(icon) {
+        if (!this.isRemoteModelIcon(icon) || !icon.dataset || !icon.dataset.remoteModel) {
+            return null;
+        }
+
+        try {
+            const remoteData = JSON.parse(icon.dataset.remoteModel);
+            const peerIp = remoteData.peer_ip || remoteData.peerIp;
+
+            if (!peerIp) {
+                return null;
+            }
+
+            return {
+                modelName: remoteData.name || icon.dataset.name || 'Unknown model',
+                peerIp,
+                peerPort: remoteData.peer_api_port || remoteData.peerPort || remoteData.api_port || (this.discoveryStatus && this.discoveryStatus.api_port) || 8081,
+                peerHostname: remoteData.peer || remoteData.peer_hostname || remoteData.peerHostname || 'Unknown Host'
+            };
+        } catch (error) {
+            return null;
+        }
+    }
+
+    async launchRemoteModelFromIcon(icon) {
+        const remoteInfo = this.getRemoteModelInfoFromIcon(icon);
+
+        if (!remoteInfo) {
+            this.showNotification('Remote model metadata missing', 'error');
+            return false;
+        }
+
+        const terminalManagerReady = await this.ensureTerminalManager();
+
+        if (!terminalManagerReady || !terminalManager || !terminalManager.openNativeChatForServer) {
+            this.showNotification('Remote chat launcher unavailable', 'error');
+            return false;
+        }
+
+        terminalManager.openNativeChatForServer(
+            remoteInfo.modelName,
+            remoteInfo.peerIp,
+            remoteInfo.peerPort,
+            remoteInfo.modelPath
+        );
+
+        this.showNotification(
+            `Connecting to ${remoteInfo.modelName} on ${remoteInfo.peerHostname} (${remoteInfo.peerIp}:${remoteInfo.peerPort})`,
+            'success'
+        );
+
+        return true;
     }
 
     setupEventListeners() {
@@ -612,6 +893,11 @@ class DesktopManager {
             iconsContainer.addEventListener('dblclick', async (e) => {
                 const icon = e.target.closest('.desktop-icon');
                 if (icon) {
+                    if (this.isRemoteModelIcon(icon)) {
+                        this.launchRemoteModelFromIcon(icon);
+                        return;
+                    }
+
                     // Check if we have presets and use default/single preset
                     const modelPath = icon.dataset.path;
                     try {
@@ -658,70 +944,84 @@ class DesktopManager {
             contextMenu.addEventListener('click', async (e) => {
                 const actionElement = e.target.closest('[data-action]');
                 const action = actionElement?.dataset.action;
+                const selectedIcon = this.selectedIcon;
+                const isRemoteIcon = this.isRemoteModelIcon(selectedIcon);
                 
                 if (action) {
+                    if (isRemoteIcon && action !== 'open') {
+                        this.showNotification('Remote model actions are disabled', 'info');
+                        this.hideContextMenu();
+                        return;
+                    }
+
                     // Don't trigger action if clicking on a menu item with submenu (unless it's a submenu item itself)
                     const hasSubmenu = actionElement?.classList.contains('has-submenu');
                     const isSubmenuItem = actionElement?.closest('.context-menu-submenu');
                     
-                    if (action === 'open' && this.selectedIcon) {
+                    if (action === 'open' && selectedIcon) {
+                        if (isRemoteIcon) {
+                            this.launchRemoteModelFromIcon(selectedIcon);
+                            this.hideContextMenu();
+                            return;
+                        }
+
                         if (!hasSubmenu || isSubmenuItem) {
                             // Check if we have exactly one preset and should use it
-                            const modelPath = this.selectedIcon.dataset.path;
+                            const modelPath = selectedIcon.dataset.path;
                             try {
                                 const presets = await invoke('get_model_presets', { modelPath: modelPath });
                                 if (presets && presets.length === 1) {
                                     // Single preset - launch with it
-                                    await this.launchModelWithPreset(this.selectedIcon, presets[0].id);
+                                    await this.launchModelWithPreset(selectedIcon, presets[0].id);
                                 } else {
                                     // No presets or multiple presets - use default launch
-                                    this.launchModel(this.selectedIcon);
+                                    this.launchModel(selectedIcon);
                                 }
                             } catch (error) {
                                 console.error('Error loading presets for launch:', error);
                                 // Fallback to default launch
-                                this.launchModel(this.selectedIcon);
+                                this.launchModel(selectedIcon);
                             }
                         } else {
                             // Just show submenu, don't hide context menu
                             return;
                         }
-                    } else if (action === 'launch-preset' && this.selectedIcon) {
+                    } else if (action === 'launch-preset' && selectedIcon) {
                         const presetId = e.target.closest('[data-preset-id]')?.dataset.presetId;
-                        await this.launchModelWithPreset(this.selectedIcon, presetId);
-                    } else if (action === 'launch-half-context' && this.selectedIcon) {
-                        await this.launchModelWithHalfContext(this.selectedIcon);
-                    } else if (action === 'launch-external' && this.selectedIcon) {
+                        await this.launchModelWithPreset(selectedIcon, presetId);
+                    } else if (action === 'launch-half-context' && selectedIcon) {
+                        await this.launchModelWithHalfContext(selectedIcon);
+                    } else if (action === 'launch-external' && selectedIcon) {
                         if (!hasSubmenu || isSubmenuItem) {
                             // Check if we have exactly one preset and should use it
-                            const modelPath = this.selectedIcon.dataset.path;
+                            const modelPath = selectedIcon.dataset.path;
                             try {
                                 const presets = await invoke('get_model_presets', { modelPath: modelPath });
                                 if (presets && presets.length === 1) {
                                     // Single preset - launch with it
-                                    await this.launchModelWithPresetExternal(this.selectedIcon, presets[0].id);
+                                    await this.launchModelWithPresetExternal(selectedIcon, presets[0].id);
                                 } else {
                                     // No presets or multiple presets - use default launch
-                                    this.launchModelExternal(this.selectedIcon);
+                                    this.launchModelExternal(selectedIcon);
                                 }
                             } catch (error) {
                                 console.error('Error loading presets for external launch:', error);
                                 // Fallback to default launch
-                                this.launchModelExternal(this.selectedIcon);
+                                this.launchModelExternal(selectedIcon);
                             }
                         } else {
                             // Just show submenu, don't hide context menu
                             return;
                         }
-                    } else if (action === 'launch-preset-external' && this.selectedIcon) {
+                    } else if (action === 'launch-preset-external' && selectedIcon) {
                         const presetId = e.target.closest('[data-preset-id]')?.dataset.presetId;
-                        await this.launchModelWithPresetExternal(this.selectedIcon, presetId);
-                    } else if (action === 'properties' && this.selectedIcon) {
-this.showProperties(this.selectedIcon);
-                    } else if (action === 'check-update' && this.selectedIcon) {
-                        await this.handleCheckUpdate(this.selectedIcon.dataset.path);
-                    } else if (action === 'open-folder' && this.selectedIcon) {
-                        await this.openModelFolder(this.selectedIcon.dataset.path);
+                        await this.launchModelWithPresetExternal(selectedIcon, presetId);
+                    } else if (action === 'properties' && selectedIcon) {
+                        this.showProperties(selectedIcon);
+                    } else if (action === 'check-update' && selectedIcon) {
+                        await this.handleCheckUpdate(selectedIcon.dataset.path);
+                    } else if (action === 'open-folder' && selectedIcon) {
+                        await this.openModelFolder(selectedIcon.dataset.path);
                     } else if (action === 'refresh') {
                         this.refreshDesktop();
                     } else if (action.startsWith('sort-')) {
@@ -997,7 +1297,11 @@ this.showProperties(this.selectedIcon);
                 this.hideDockContextMenu();
             }
             if (e.key === 'Enter' && this.selectedIcon) {
-                this.launchModel(this.selectedIcon);
+                if (this.isRemoteModelIcon(this.selectedIcon)) {
+                    this.launchRemoteModelFromIcon(this.selectedIcon);
+                } else {
+                    this.launchModel(this.selectedIcon);
+                }
             }
         });
     }
@@ -1055,6 +1359,16 @@ this.showProperties(this.selectedIcon);
                 <div class="context-menu-item" data-action="refresh"><span class="material-icons">refresh</span> Refresh Desktop</div>
             `;
         } else { // 'icon'
+            if (this.selectedIcon && this.isRemoteModelIcon(this.selectedIcon)) {
+                menuItems = `
+                    <div class="context-menu-item" data-action="open">
+                        <div class="menu-item-content">
+                            <span class="material-icons">wifi</span>
+                            <span>Open Remote Chat</span>
+                        </div>
+                    </div>
+                `;
+            } else {
             // Get presets for this model
             let presetsHTML = '';
             let presetsHTMLExternal = '';
@@ -1125,6 +1439,7 @@ this.showProperties(this.selectedIcon);
                     </div>
                 </div>
             `;
+            }
         }
         contextMenu.innerHTML = menuItems;
 
@@ -1354,11 +1669,14 @@ this.showProperties(this.selectedIcon);
             const hint = document.getElementById('model-hint');
             if (!hint) return;
 
-            const name = icon.dataset.name.replace('.gguf', '');
+            const name = (icon.dataset.name || 'Unknown').replace('.gguf', '');
             const sizeRaw = icon.dataset.size;
-            const arch = icon.dataset.architecture;
-            const quant = icon.dataset.quantization;
-            const dateTime = new Date(parseFloat(icon.dataset.date) * 1000).toLocaleString(undefined, { hour12: false });
+            const arch = icon.dataset.architecture || 'Unknown';
+            const quant = icon.dataset.quantization || 'Unknown';
+            const dateRaw = parseFloat(icon.dataset.date);
+            const dateTime = !isNaN(dateRaw) && dateRaw > 0
+                ? new Date(dateRaw * 1000).toLocaleString(undefined, { hour12: false })
+                : 'Unknown';
 
             // Format the size properly - round to 2 decimal places and ensure it's a number
             const sizeGB = parseFloat(sizeRaw);
@@ -2005,12 +2323,8 @@ this.showProperties(this.selectedIcon);
                 windowElement.style.zIndex = ++this.windowZIndex;
                 // Update focused state
                 this.updateDockFocusedState('settings-window');
-                // Center the window if it's the first time opening
-                if (!windowElement.style.left || windowElement.style.left === 'auto') {
-                    windowElement.style.left = '50%';
-                    windowElement.style.top = '50%';
-                    windowElement.style.transform = 'translate(-50%, -50%)';
-                }
+                // Always center and constrain the window within viewport
+                this.centerAndConstrainWindow(windowElement);
 
                 // Fetch and display app version
                 this.updateAppVersion();
@@ -2034,6 +2348,9 @@ this.showProperties(this.selectedIcon);
                 if (settingsDockIcon) {
                     settingsDockIcon.classList.add('active');
                 }
+
+                // Load discovery settings
+                this.loadDiscoverySettings();
 
                 // Don't add to taskbar - use permanent dock icon instead
             } else {
@@ -2087,6 +2404,41 @@ this.showProperties(this.selectedIcon);
         }
     }
 
+    centerAndConstrainWindow(windowElement) {
+        // Get viewport dimensions
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        
+        // Get window dimensions
+        const windowWidth = windowElement.offsetWidth || 750;
+        const windowHeight = windowElement.offsetHeight || 464;
+        
+        // Calculate maximum allowed dimensions (90% of viewport)
+        const maxWidth = Math.min(750, viewportWidth * 0.9);
+        const maxHeight = Math.min(600, viewportHeight * 0.9);
+        
+        // Apply max dimensions
+        windowElement.style.maxWidth = `${maxWidth}px`;
+        windowElement.style.maxHeight = `${maxHeight}px`;
+        
+        // Calculate centered position
+        let left = (viewportWidth - Math.min(windowWidth, maxWidth)) / 2;
+        let top = (viewportHeight - Math.min(windowHeight, maxHeight)) / 2;
+        
+        // Ensure window stays within viewport bounds with padding
+        const padding = 20;
+        left = Math.max(padding, Math.min(left, viewportWidth - maxWidth - padding));
+        top = Math.max(padding, Math.min(top, viewportHeight - maxHeight - padding));
+        
+        // Apply position
+        windowElement.style.left = `${left}px`;
+        windowElement.style.top = `${top}px`;
+        windowElement.style.transform = 'none';
+        
+        // Ensure window is visible
+        windowElement.style.display = 'flex';
+    }
+
     async updateAppVersion() {
         const versionBadge = document.getElementById('app-version-badge');
         if (!versionBadge) return;
@@ -2100,7 +2452,7 @@ this.showProperties(this.selectedIcon);
         }
     }
 
-    async ensureTerminalManager() {
+async ensureTerminalManager() {
         if (terminalManager) {
             console.log('Terminal manager already available');
             return true;
@@ -2110,15 +2462,33 @@ this.showProperties(this.selectedIcon);
 
         // Check if TerminalManager class is available
         if (typeof TerminalManager === 'undefined') {
-            console.error('TerminalManager class not loaded! Checking script loading...');
+            console.error('TerminalManager class not loaded! Attempting to load script manually...');
 
-            // Wait for scripts to load
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            if (typeof TerminalManager === 'undefined') {
-                console.error('TerminalManager class still not available after waiting');
+            try {
+                // Try to load the script dynamically
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'modules/terminal-manager.js';
+                    script.onload = () => {
+                        console.log('TerminalManager script loaded successfully');
+                        resolve();
+                    };
+                    script.onerror = (error) => {
+                        console.error('Failed to load TerminalManager script:', error);
+                        reject(error);
+                    };
+                    document.head.appendChild(script);
+                });
+            } catch (error) {
+                console.error('Failed to load TerminalManager script:', error);
+                alert('Failed to load terminal-manager.js. Please refresh the page and check console for errors.');
                 return false;
             }
+        }
+
+        if (typeof TerminalManager === 'undefined') {
+            console.error('TerminalManager class still not available after manual load attempt');
+            return false;
         }
 
         // Force immediate initialization attempts with more aggressive retry
@@ -2159,6 +2529,11 @@ this.showProperties(this.selectedIcon);
     async launchModel(icon) {
         const modelPath = icon.dataset.path;
         const modelName = icon.dataset.name;
+
+        if (!modelPath) {
+            this.showNotification('Cannot launch: no local model path', 'error');
+            return;
+        }
 
         console.log('=== Launch Model Started ===');
         console.log('Model details:', { modelPath, modelName });
@@ -2207,6 +2582,7 @@ this.showProperties(this.selectedIcon);
                 const taskbarItem = document.getElementById(`taskbar-${windowId}`);
                 if (taskbarItem) taskbarItem.classList.add('active');
                 this.showNotification(`${modelName} terminal already open`, 'info');
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'default', presetId: null });
                 return;
             }
         }
@@ -2221,6 +2597,7 @@ this.showProperties(this.selectedIcon);
             console.log('Launch model result:', result);
 
             if (result.success) {
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'default', presetId: null });
                 console.log('Opening server terminal...');
                 console.log('Terminal manager methods:', Object.getOwnPropertyNames(terminalManager.__proto__));
 
@@ -2308,6 +2685,11 @@ this.showProperties(this.selectedIcon);
         const modelPath = icon.dataset.path;
         const modelName = icon.dataset.name;
 
+        if (!modelPath) {
+            this.showNotification('Cannot launch with half context: no local model path', 'error');
+            return;
+        }
+
         const buildHalfContextArgs = (baseArgs) => {
             const normalized = String(baseArgs || '').trim();
             const tokens = normalized
@@ -2350,6 +2732,7 @@ this.showProperties(this.selectedIcon);
                 const taskbarItem = document.getElementById(`taskbar-${windowId}`);
                 if (taskbarItem) taskbarItem.classList.add('active');
                 this.showNotification(`${modelName} terminal already open`, 'info');
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'half-context', presetId: null });
                 return;
             }
         }
@@ -2358,6 +2741,7 @@ this.showProperties(this.selectedIcon);
             const result = await invoke('launch_model_with_half_context', { modelPath: modelPath });
 
             if (result.success) {
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'half-context', presetId: null });
                 const config = await invoke('get_config');
                 let activeVersion = 'N/A';
                 if (config.active_executable_folder) {
@@ -2573,10 +2957,16 @@ this.showProperties(this.selectedIcon);
         const modelPath = icon.dataset.path;
         const modelName = icon.dataset.name;
 
+        if (!modelPath) {
+            this.showNotification('Cannot launch externally: no local model path', 'error');
+            return;
+        }
+
         try {
             const result = await invoke('launch_model_external', { modelPath: modelPath });
 
             if (result.success) {
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'external', presetId: null });
                 // this.showNotification(`${modelName} launched in external terminal`, 'success');
             } else {
                 throw new Error(result.error);
@@ -2589,6 +2979,11 @@ this.showProperties(this.selectedIcon);
     async launchModelWithPreset(icon, presetId) {
         const modelPath = icon.dataset.path;
         const modelName = icon.dataset.name;
+
+        if (!modelPath) {
+            this.showNotification('Cannot launch with preset: no local model path', 'error');
+            return;
+        }
 
         console.log('=== Launch Model With Preset Started ===');
         console.log('Model details:', { modelPath, modelName, presetId });
@@ -2624,6 +3019,7 @@ this.showProperties(this.selectedIcon);
                 const taskbarItem = document.getElementById(`taskbar-${windowId}`);
                 if (taskbarItem) taskbarItem.classList.add('active');
                 this.showNotification(`${modelName} terminal already open`, 'info');
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'preset', presetId });
                 return;
             }
         }
@@ -2638,6 +3034,7 @@ this.showProperties(this.selectedIcon);
             console.log('Launch model with preset result:', result);
 
             if (result.success) {
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'preset', presetId });
                 console.log('Opening server terminal...');
 
                 // Get active llama.cpp version
@@ -2709,6 +3106,11 @@ this.showProperties(this.selectedIcon);
         const modelPath = icon.dataset.path;
         const modelName = icon.dataset.name;
 
+        if (!modelPath) {
+            this.showNotification('Cannot launch external preset: no local model path', 'error');
+            return;
+        }
+
         try {
             const result = await invoke('launch_model_with_preset_external', { 
                 modelPath: modelPath,
@@ -2716,6 +3118,7 @@ this.showProperties(this.selectedIcon);
             });
 
             if (result.success) {
+                this.setLastUsedModel({ modelPath, modelName, launchMode: 'preset-external', presetId });
                 // this.showNotification(`${modelName} launched in external terminal`, 'success');
             } else {
                 throw new Error(result.error);
@@ -3993,14 +4396,21 @@ this.showProperties(this.selectedIcon);
 
         const safeModels = Array.isArray(models) ? models : [];
 
+        // Check current view mode
+        const isListView = desktopIcons.classList.contains('list-view');
+        const isRemoteView = desktopIcons.classList.contains('remote-view');
+
+        // If in remote view, render remote models only
+        if (isRemoteView) {
+            this.renderRemoteModelsList();
+            return;
+        }
+
         // Clear existing icons
         desktopIcons.innerHTML = '';
 
         // Sort models by size (largest first)
         const sortedModels = [...safeModels].sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
-
-        // Check current view mode
-        const isListView = desktopIcons.classList.contains('list-view');
 
         // Fetch model configs to get update status
         const modelConfigs = await this.fetchModelConfigs();
@@ -4060,11 +4470,13 @@ this.showProperties(this.selectedIcon);
             // Render differently based on view mode
             if (isListView) {
                 // List view - vertical scrolling list (file manager style)
+                // Truncate path to last 30 characters if too long
+                const displayPath = modelPath.length > 30 ? '...' + modelPath.slice(-30) : modelPath;
                 iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
                     <div class="icon-info">
                         <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
-                        <div class="model-path" title="${modelPath}">${modelPath}</div>
+                        <div class="model-path" title="${modelPath}">${displayPath}</div>
                     </div>
                     <div class="model-quant">${modelQuantization}</div>
                     <div class="update-indicator ${indicatorClass}"
@@ -4204,6 +4616,8 @@ this.showProperties(this.selectedIcon);
             this.updateCustomArgsIndicators();
         }, 150);
 
+        this.updateLaunchLastModelButton();
+
         //this.showNotification(`Desktop refreshed with ${models.length} model(s)`, 'success');
     }
 
@@ -4226,6 +4640,462 @@ this.showProperties(this.selectedIcon);
             this.showNotification('Error refreshing desktop: ' + error.message, 'error');
         }
     }
+
+    // ==================== DISCOVERY FEATURE ====================
+
+    initDiscovery() {
+        console.log('Initializing discovery service...');
+        this.loadDiscoveryStatus();
+    }
+
+    async loadDiscoveryStatus() {
+        try {
+            const result = await invoke('get_discovery_status');
+            if (result) {
+                this.discoveryEnabled = result.enabled || false;
+                this.discoveryStatus = result;
+                
+                if (this.discoveryEnabled) {
+                    this.startDiscoveryPolling();
+                }
+            }
+        } catch (error) {
+            console.log('Discovery service not available:', error);
+        }
+    }
+
+    async startDiscoveryPolling() {
+        // Clear any existing interval
+        if (this.discoveryPollInterval) {
+            clearInterval(this.discoveryPollInterval);
+        }
+
+        // Poll immediately
+        await this.pollDiscoveredPeers();
+
+        // Then poll every 5 seconds
+        this.discoveryPollInterval = setInterval(() => {
+            this.pollDiscoveredPeers();
+        }, 5000);
+
+        console.log('Discovery polling started');
+    }
+
+    stopDiscoveryPolling() {
+        if (this.discoveryPollInterval) {
+            clearInterval(this.discoveryPollInterval);
+            this.discoveryPollInterval = null;
+            console.log('Discovery polling stopped');
+        }
+    }
+
+    async pollDiscoveredPeers() {
+        try {
+            const result = await invoke('get_discovered_peers');
+            console.log('Got discovered peers:', result);
+            if (result && Array.isArray(result)) {
+                this.discoveredPeers = result;
+                
+                // If we're in list view, refresh the display to show discovered peers
+                const desktopIcons = document.getElementById('desktop-icons');
+                if (desktopIcons && desktopIcons.classList.contains('list-view')) {
+                    // Get current local models
+                    const localModels = Array.from(desktopIcons.querySelectorAll('.desktop-icon'))
+                        .map(icon => ({
+                            name: icon.dataset.name,
+                            path: icon.dataset.path,
+                            size_gb: icon.dataset.size,
+                            architecture: icon.dataset.architecture,
+                            quantization: icon.dataset.quantization,
+                            date: icon.dataset.date
+                        }));
+                    
+                    // Note: Split view has been removed. Use the Remote LLMS button to view remote models.
+                    // Local models in list view are handled by normal refresh
+                }
+            }
+        } catch (error) {
+            console.error('Error polling discovered peers:', error);
+        }
+    }
+
+async enableDiscovery(port, apiPort, name, chatPort) {
+        try {
+            await invoke('enable_discovery', {
+                port: port,
+                apiPort: apiPort,
+                name: name,
+                chatPort: chatPort
+            });
+            this.showNotification('Network discovery enabled', 'success');
+        } catch (error) {
+            console.error('Failed to enable discovery:', error);
+            this.showNotification('Failed to enable discovery: ' + error, 'error');
+        }
+    }
+
+    async disableDiscovery() {
+        try {
+            // Disable discovery first
+            const result = await invoke('disable_discovery');
+            if (result && result.success) {
+                this.discoveryEnabled = false;
+                this.discoveredPeers = [];
+                this.stopDiscoveryPolling();
+                
+                // Also deactivate the network server
+                try {
+                    await invoke('deactivate_network_server');
+                    console.log('Network server deactivated');
+                } catch (netError) {
+                    console.warn('Warning: Failed to deactivate network server:', netError);
+                }
+                
+                this.showNotification('Discovery and Network Server disabled', 'info');
+                
+                // Update status indicator immediately
+                const statusIndicator = document.getElementById('discovery-status-indicator');
+                if (statusIndicator) {
+                    statusIndicator.textContent = 'Stopped';
+                    statusIndicator.style.background = 'var(--theme-bg-medium)';
+                    statusIndicator.style.color = 'var(--theme-text-muted)';
+                }
+                
+                // Refresh to show normal view
+                await this.refreshDesktop();
+                return true;
+            } else {
+                throw new Error(result.error || 'Failed to disable discovery');
+            }
+        } catch (error) {
+            console.error('Error disabling discovery:', error);
+            this.showNotification(`Failed to disable discovery: ${error.message}`, 'error');
+            return false;
+        }
+    }
+
+    // Discovery Debug Log Methods
+    initDiscoveryDebugButton() {
+        const dockIcon = document.getElementById('discovery-debug-dock-icon');
+        if (dockIcon) {
+            dockIcon.addEventListener('click', () => this.toggleDebugLogWindow());
+        }
+        
+        // Listen for backend debug events
+        if (window.__TAURI__ && window.__TAURI__.event) {
+            window.__TAURI__.event.listen('discovery-debug-log', (event) => {
+                const { direction, ip, data, type } = event.payload;
+                this.addDebugLogEntry(direction, ip, data, type);
+            });
+        }
+    }
+
+    toggleDebugLogWindow() {
+        const existingWindow = document.getElementById('discovery-debug-window');
+        const dockIcon = document.getElementById('discovery-debug-dock-icon');
+        
+        if (existingWindow) {
+            existingWindow.remove();
+            dockIcon?.classList.remove('active');
+            this.debugLogWindowOpen = false;
+        } else {
+            this.createDebugLogWindow();
+            dockIcon?.classList.add('active');
+            this.debugLogWindowOpen = true;
+            this.addDebugLogEntry('INFO', 'SYSTEM', 'Discovery debug log opened', 'info');
+        }
+    }
+
+    createDebugLogWindow() {
+        const windowEl = document.createElement('div');
+        windowEl.id = 'discovery-debug-window';
+        windowEl.className = 'debug-log-window';
+        windowEl.innerHTML = `
+            <div class="debug-log-header">
+                <span class="material-icons">network_check</span>
+                <span>Discovery Debug Log</span>
+                <button class="close-btn" onclick="desktop.toggleDebugLogWindow()">×</button>
+            </div>
+            <div class="debug-log-content" id="debug-log-content">
+                <div class="log-entry info">
+                    <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+                    <span class="direction">[INFO]</span>
+                    <span class="data">Debug log initialized. Waiting for discovery events...</span>
+                </div>
+            </div>
+            <div class="debug-log-controls">
+                <button onclick="desktop.clearDebugLog()">
+                    <span class="material-icons">clear_all</span> Clear
+                </button>
+                <button onclick="desktop.exportDebugLog()">
+                    <span class="material-icons">download</span> Export
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(windowEl);
+    }
+
+    addDebugLogEntry(direction, ip, data, type = 'info') {
+        const content = document.getElementById('debug-log-content');
+        if (!content) return;
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerHTML = `
+            <span class="timestamp">${timestamp}</span>
+            <span class="direction">[${direction}]</span>
+            <span class="ip">${ip}</span>
+            <span class="data">${data}</span>
+        `;
+        
+        content.appendChild(entry);
+        content.scrollTop = content.scrollHeight;
+        
+        // Keep only last 100 entries
+        const entries = content.querySelectorAll('.log-entry');
+        if (entries.length > 100) {
+            entries[0].remove();
+        }
+    }
+
+    clearDebugLog() {
+        const content = document.getElementById('debug-log-content');
+        if (content) {
+            content.innerHTML = `
+                <div class="log-entry info">
+                    <span class="timestamp">${new Date().toLocaleTimeString()}</span>
+                    <span class="direction">[INFO]</span>
+                    <span class="data">Log cleared.</span>
+                </div>
+            `;
+        }
+    }
+
+    exportDebugLog() {
+        const content = document.getElementById('debug-log-content');
+        if (!content) return;
+        
+        const entries = content.querySelectorAll('.log-entry');
+        let logText = 'Arandu Discovery Debug Log\n';
+        logText += '=========================\n\n';
+        logText += `Export Time: ${new Date().toISOString()}\n\n`;
+        
+        entries.forEach(entry => {
+            logText += entry.textContent + '\n';
+        });
+        
+        const blob = new Blob([logText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `discovery-debug-${Date.now()}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    renderRemoteModelsList() {
+        const desktopIcons = document.getElementById('desktop-icons');
+        if (!desktopIcons) return;
+
+        // Ensure proper classes are set on the parent container
+        desktopIcons.classList.add('list-view');
+        desktopIcons.classList.add('remote-view');
+
+        // Clear existing content
+        desktopIcons.innerHTML = '';
+
+        // Create header for remote models view
+        const header = document.createElement('div');
+        header.className = 'remote-view-header';
+        header.style.cssText = `
+            padding: 12px 20px;
+            background: var(--theme-surface-light);
+            border-bottom: 1px solid var(--theme-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-shrink: 0;
+        `;
+        
+        const totalRemoteModels = this.discoveredPeers.reduce((acc, peer) => acc + (peer.models?.length || 0), 0);
+        const totalPeers = this.discoveredPeers.length;
+        
+        header.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span class="material-icons" style="color: var(--theme-primary); font-size: 24px;">cloud</span>
+                <span style="font-weight: 600; color: var(--theme-text); font-size: 16px;">Remote LLMs</span>
+            </div>
+            <span style="color: var(--theme-text-muted); font-size: 12px;">${totalPeers} peers, ${totalRemoteModels} models</span>
+        `;
+        
+        desktopIcons.appendChild(header);
+
+        // If no peers discovered, show message
+        if (!this.discoveredPeers || this.discoveredPeers.length === 0) {
+            const noPeersMsg = document.createElement('div');
+            noPeersMsg.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 300px;
+                color: var(--theme-text-muted);
+                text-align: center;
+            `;
+            noPeersMsg.innerHTML = `
+                <span class="material-icons" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;">cloud_off</span>
+                <p style="font-size: 16px; margin-bottom: 8px;">No remote LLMs discovered</p>
+                <p style="font-size: 12px; opacity: 0.7;">Enable discovery to find models on other PCs</p>
+            `;
+            desktopIcons.appendChild(noPeersMsg);
+            return;
+        }
+
+        // Flatten all remote models from all peers into a single list
+        let allRemoteModels = [];
+        this.discoveredPeers.forEach((peer) => {
+            if (peer.models && peer.models.length > 0) {
+                peer.models.forEach((model) => {
+                    allRemoteModels.push({
+                        ...model,
+                        peer_hostname: peer.hostname,
+                        peer_ip: peer.ip_address,
+                        peer: peer
+                    });
+                });
+            }
+        });
+
+        // Sort by size (largest first)
+        allRemoteModels.sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
+
+        // Render each remote model directly into desktopIcons
+        allRemoteModels.forEach((model) => {
+            const modelElement = this.createRemoteModelListElement(model);
+            modelElement.classList.add('fade-in'); // Make visible immediately
+            desktopIcons.appendChild(modelElement);
+        });
+    }
+
+    createRemoteModelListElement(model) {
+        const modelElement = document.createElement('div');
+        const modelName = (model.name || '').replace('.gguf', '');
+        const modelQuantization = model.quantization || '';
+        const modelSizeGb = Number(model.size_gb) || 0;
+        const modelDate = model.date ? new Date(model.date * 1000).toLocaleDateString() : 'Unknown';
+        const peerHostname = model.peer_hostname || 'Unknown Host';
+
+        modelElement.className = 'desktop-icon remote-model-item';
+        // Set individual data attributes for hover tooltip compatibility
+        modelElement.setAttribute('data-name', model.name || '');
+        modelElement.setAttribute('data-size', modelSizeGb);
+        modelElement.setAttribute('data-quantization', modelQuantization);
+        modelElement.setAttribute('data-architecture', model.architecture || 'Remote');
+        modelElement.setAttribute('data-date', model.date || Date.now() / 1000);
+        modelElement.setAttribute('data-remote-model', JSON.stringify({
+            name: model.name,
+            quantization: modelQuantization,
+            size_gb: modelSizeGb,
+            peer: peerHostname,
+            peer_ip: model.peer_ip,
+            peer_api_port: model.peer?.api_port || model.peer_api_port || (this.discoveryStatus && this.discoveryStatus.api_port) || 8081,
+            peer_chat_port: model.peer?.chat_port || 8080
+        }));
+
+        const quantColorClass = this.getQuantizationColorClass(modelQuantization);
+
+        modelElement.innerHTML = `
+            <div class="quantization-bar ${quantColorClass}"></div>
+            <div class="icon-info">
+                <div class="icon-label">${modelName} GGUF (${modelSizeGb.toFixed(2)} GB)</div>
+                <div class="model-path" style="color: var(--theme-text-muted);">
+                    <span class="material-icons" style="font-size: 14px; vertical-align: middle; margin-right: 4px;">cloud</span>
+                    ${peerHostname} • ${modelDate}
+                </div>
+            </div>
+            <div class="model-quant">${modelQuantization}</div>
+        `;
+
+        // Add click handler
+        modelElement.addEventListener('click', () => {
+            this.handleRemoteModelClick(model, model.peer);
+        });
+
+        return modelElement;
+    }
+
+    createLocalModelElement(model) {
+        const modelElement = document.createElement('div');
+        const modelName = (model.name || '').replace('.gguf', '');
+        const modelPath = model.path || '';
+        const modelQuantization = model.quantization || '';
+        const modelSizeGb = Number(model.size_gb) || 0;
+        const modelEpochSeconds = Number(model.date);
+        const modelDateParsed = Number.isFinite(modelEpochSeconds) && modelEpochSeconds > 0
+            ? new Date(modelEpochSeconds * 1000)
+            : null;
+        const modelDateLabel = (modelDateParsed && !Number.isNaN(modelDateParsed.getTime()))
+            ? modelDateParsed.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
+            : 'Unknown date';
+        const modelMetaLabel = `${modelSizeGb.toFixed(2)} GB, ${modelDateLabel}`;
+
+        modelElement.className = 'desktop-icon local-model-item';
+        modelElement.setAttribute('data-path', modelPath);
+        modelElement.setAttribute('data-name', modelName);
+        modelElement.setAttribute('data-size', modelSizeGb);
+        modelElement.setAttribute('data-architecture', model.architecture || '');
+        modelElement.setAttribute('data-quantization', modelQuantization);
+        modelElement.setAttribute('data-date', model.date || '');
+
+        const quantColorClass = this.getQuantizationColorClass(modelQuantization);
+
+        modelElement.innerHTML = `
+            <div class="quantization-bar ${quantColorClass}"></div>
+            <div class="icon-info">
+                <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
+            </div>
+            <div class="model-quant">${modelQuantization}</div>
+        `;
+
+        return modelElement;
+    }
+
+    handleRemoteModelClick(model, peer) {
+        const modelName = model.name || 'Unknown model';
+        const peerIp = peer?.ip_address;
+        const peerPort = peer?.api_port || this.discoveryStatus?.api_port || 8081;
+        const peerHostname = peer?.hostname || peer?.instance_hostname || peer?.name || 'Unknown Host';
+
+        console.log('Remote model clicked:', { model, peer, host: peerIp, port: peerPort });
+
+        if (!peerIp) {
+            this.showNotification(
+                `Remote model ${modelName} is missing host information`,
+                'error'
+            );
+            return;
+        }
+
+        if (!terminalManager || !terminalManager.openNativeChatForServer) {
+            this.showNotification('Remote chat launcher unavailable', 'error');
+            return;
+        }
+
+        const modelPath = model.path || model.name || model.id;
+        terminalManager.openNativeChatForServer(modelName, peerIp, peerPort, modelPath);
+
+        this.showNotification(
+            `Connecting to ${modelName} on ${peerHostname} (${peerIp}:${peerPort})`,
+            'success'
+        );
+    }
+
+    // ==================== END DISCOVERY FEATURE ====================
 
     async hasCustomArguments(modelPath) {
         try {
@@ -4305,7 +5175,118 @@ this.showProperties(this.selectedIcon);
         this.saveDesktopState();
     }
 
+    // Network Discovery Settings Handlers
+    toggleDiscoveryEnabled() {
+        const enabled = document.getElementById('discovery-enabled').checked;
+        
+        // Auto-enable/disable discovery when toggled
+        // Settings are always visible for configuration
+        if (enabled) {
+            const port = parseInt(document.getElementById('discovery-port')?.value) || 5352;
+            const apiPort = parseInt(document.getElementById('discovery-api-port')?.value) || 8081;
+            const chatPort = parseInt(document.getElementById('discovery-chat-port')?.value) || 8080;
+            const name = document.getElementById('discovery-instance-name')?.value || 'Arandu-PC';
+            this.enableDiscovery(port, apiPort, name, chatPort);
+        } else {
+            this.disableDiscovery();
+        }
+    }
 
+    async copyInstanceId() {
+        const idInput = document.getElementById('discovery-instance-id');
+        if (idInput && idInput.value) {
+            try {
+                await navigator.clipboard.writeText(idInput.value);
+                console.log('Instance ID copied to clipboard');
+                // Could show a toast notification here
+            } catch (err) {
+                console.error('Failed to copy instance ID:', err);
+            }
+        }
+    }
+
+    async refreshDiscoveredInstances() {
+        try {
+            const peers = await invoke('get_discovered_peers');
+            this.updateDiscoveredInstancesList(peers);
+        } catch (error) {
+            console.error('Failed to refresh discovered instances:', error);
+        }
+    }
+
+    updateDiscoveredInstancesList(peers) {
+        const tbody = document.getElementById('discovered-instances-list');
+        if (!tbody) return;
+        
+        if (!peers || peers.length === 0) {
+            tbody.innerHTML = `
+                <tr id="no-instances-row">
+                    <td colspan="4" style="padding: 16px; text-align: center; color: var(--theme-text-muted); font-style: italic; font-size: 11px;">
+                        No instances discovered yet
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        tbody.innerHTML = peers.map(peer => `
+            <tr data-instance-id="${peer.instance_id}">
+                <td style="padding: 6px; border-bottom: 1px solid var(--theme-border);">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${peer.is_reachable ? '#22c55e' : '#ef4444'}; box-shadow: 0 0 4px ${peer.is_reachable ? '#22c55e' : '#ef4444'};"></span>
+                </td>
+                <td style="padding: 6px; border-bottom: 1px solid var(--theme-border); color: var(--theme-text); font-size: 11px;">${peer.hostname}</td>
+                <td style="padding: 6px; border-bottom: 1px solid var(--theme-border); color: var(--theme-text-muted); font-family: monospace; font-size: 10px;">${peer.ip_address}</td>
+                <td style="padding: 6px; border-bottom: 1px solid var(--theme-border); text-align: center; color: var(--theme-text); font-size: 11px;">${peer.models?.length || 0}</td>
+            </tr>
+        `).join('');
+    }
+
+    async loadDiscoverySettings() {
+        try {
+            const status = await invoke('get_discovery_status');
+            
+            // Update UI fields
+            const enabledCheckbox = document.getElementById('discovery-enabled');
+            const settingsDiv = document.getElementById('discovery-settings');
+            const nameInput = document.getElementById('discovery-instance-name');
+            const portInput = document.getElementById('discovery-port');
+            const apiPortInput = document.getElementById('discovery-api-port');
+            const chatPortInput = document.getElementById('discovery-chat-port');
+            const intervalInput = document.getElementById('discovery-interval');
+            const idInput = document.getElementById('discovery-instance-id');
+            
+            if (enabledCheckbox) enabledCheckbox.checked = status.enabled;
+            
+            // Update status indicator
+            const statusIndicator = document.getElementById('discovery-status-indicator');
+            if (statusIndicator) {
+                if (status.enabled) {
+                    statusIndicator.textContent = 'Running';
+                    statusIndicator.style.background = 'rgba(34, 197, 94, 0.2)';
+                    statusIndicator.style.color = '#22c55e';
+                } else {
+                    statusIndicator.textContent = 'Stopped';
+                    statusIndicator.style.background = 'var(--theme-bg-medium)';
+                    statusIndicator.style.color = 'var(--theme-text-muted)';
+                }
+            }
+            
+            // Settings are always visible now, just update the values
+            if (nameInput) nameInput.value = status.instance_name || '';
+            if (portInput) portInput.value = status.port || 5352;
+            if (chatPortInput) chatPortInput.value = status.chat_port || 8080;
+            if (apiPortInput) apiPortInput.value = status.api_port || 8081;
+            if (intervalInput) intervalInput.value = status.broadcast_interval || 5;
+            if (idInput) idInput.value = status.instance_id || '';
+            
+            // Load discovered instances
+            if (status.enabled) {
+                await this.refreshDiscoveredInstances();
+            }
+        } catch (error) {
+            console.error('Failed to load discovery settings:', error);
+        }
+    }
 
     showSettingsMenu(event) {
         event.stopPropagation();

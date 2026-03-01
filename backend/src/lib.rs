@@ -2,7 +2,7 @@
 // AI AGENTS: Check nowledge-mem memory for file locations and patterns before modifying
 // Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 use chrono::Utc;
 use tauri::{Manager, Listener, tray::TrayIconBuilder, menu::{Menu, MenuItemBuilder}};
@@ -29,6 +29,7 @@ mod tracker_manager;
 mod openai_types;
 mod openai_proxy;
 mod llama_client;
+mod discovery;
 
 use config::*;
 use process::*;
@@ -36,7 +37,7 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport, DiscoveredPeer, DiscoveryStatus, ActiveModel};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -45,6 +46,9 @@ use tracker_manager::TrackerManager;
 
 // Import ProcessHandle from process module
 use process::ProcessHandle;
+
+// Import Discovery types
+use discovery::DiscoveryService;
 
 fn arandu_base_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Unable to resolve home directory".to_string())?;
@@ -69,19 +73,62 @@ fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
         return Ok(Vec::new());
     }
 
-    let content = fs::read_to_string(&index_path)
-        .map_err(|e| format!("Failed to read chats index: {}", e))?;
+    let content = match fs::read_to_string(&index_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[Arandu] Warning: Failed to read chats index: {}. Starting fresh.", e);
+            return Ok(Vec::new());
+        }
+    };
 
-    let parsed: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse chats index: {}", e))?;
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            // Index is corrupted — try to salvage
+            eprintln!("[Arandu] Chats index corrupted: {}. Attempting recovery...", e);
+            let trimmed = content.trim();
+            
+            // Try to recover by finding last valid JSON array
+            let recovered = if let Some(pos) = trimmed.rfind(']') {
+                serde_json::from_str::<serde_json::Value>(&trimmed[..=pos]).ok()
+            } else {
+                None
+            };
+            
+            if let Some(data) = recovered {
+                // Back up the corrupt file
+                let backup = index_path.with_extension("json.bak");
+                let _ = fs::copy(&index_path, &backup);
+                // Rewrite the clean version
+                if let Ok(clean) = serde_json::to_string_pretty(&data) {
+                    let _ = fs::write(&index_path, &clean);
+                }
+                eprintln!("[Arandu] Chats index recovered successfully. Backup saved to .bak");
+                data
+            } else {
+                // Recovery failed - back up corrupt file and return empty
+                let backup = index_path.with_extension("json.bak");
+                let _ = fs::copy(&index_path, &backup);
+                let _ = fs::remove_file(&index_path);
+                eprintln!("[Arandu] Warning: Could not recover chats index. Backup saved to .bak, starting fresh.");
+                return Ok(Vec::new());
+            }
+        }
+    };
 
     if let Some(arr) = parsed.as_array() {
-        return Ok(arr.clone());
+        return Ok(arr
+            .iter()
+            .map(|entry| normalize_chat_index_entry(entry.clone()))
+            .collect());
     }
 
     if let Some(obj) = parsed.as_object() {
         if let Some(entries) = obj.get("entries").and_then(|v| v.as_array()) {
-            return Ok(entries.clone());
+            return Ok(entries
+                .iter()
+                .map(|entry| normalize_chat_index_entry(entry.clone()))
+                .collect());
         }
 
         // Backward compatibility: map keyed by chat_id
@@ -92,11 +139,11 @@ fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
                 if !item.contains_key("chat_id") {
                     item.insert("chat_id".to_string(), serde_json::json!(key));
                 }
-                Some(serde_json::Value::Object(item))
+                Some(normalize_chat_index_entry(serde_json::Value::Object(item)))
             })
             .collect();
 
-        values.sort_by(|a, b| {
+            values.sort_by(|a, b| {
             let a_ts = a.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
             let b_ts = b.get("last_used_at").and_then(|v| v.as_str()).unwrap_or("");
             b_ts.cmp(a_ts)
@@ -107,12 +154,372 @@ fn read_chats_index() -> Result<Vec<serde_json::Value>, String> {
     Err("Failed to parse chats index: unsupported JSON format".to_string())
 }
 
+fn normalize_chat_entry_identifier(entry: &serde_json::Value) -> Option<String> {
+    if let Some(v) = entry.get("chat_id").and_then(|v| v.as_str()) {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    if let Some(v) = entry.get("id").and_then(|v| v.as_str()) {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    if let Some(v) = entry.get("file_path").and_then(|v| v.as_str()) {
+        let path = Path::new(v.trim());
+        if let Some(stem) = path.file_stem().and_then(|v| v.to_str()) {
+            let stem = stem.trim();
+            if !stem.is_empty() {
+                return Some(stem.to_string());
+            }
+        }
+        let file_name = path.file_name().and_then(|v| v.to_str()).unwrap_or("").trim().to_string();
+        if !file_name.is_empty() {
+            return Some(file_name);
+        }
+    }
+
+    None
+}
+
+fn normalize_chat_index_entry(entry: serde_json::Value) -> serde_json::Value {
+    let mut value = entry;
+    if let serde_json::Value::Object(ref mut object) = value {
+        if !object.contains_key("chat_id") {
+            if let Some(chat_id) = normalize_chat_entry_identifier(&serde_json::Value::Object(object.clone())) {
+                object.insert("chat_id".to_string(), serde_json::json!(chat_id));
+            }
+        }
+    }
+    value
+}
+
 fn write_chats_index(index: &[serde_json::Value]) -> Result<(), String> {
     let index_path = chats_index_path()?;
     let content = serde_json::to_string_pretty(index)
         .map_err(|e| format!("Failed to serialize chats index: {}", e))?;
-    fs::write(&index_path, content)
-        .map_err(|e| format!("Failed to write chats index: {}", e))
+    // Atomic write: write to temp file then rename to avoid corruption from concurrent ops
+    let tmp_path = index_path.with_extension("json.tmp");
+    fs::write(&tmp_path, &content)
+        .map_err(|e| format!("Failed to write chats index temp file: {}", e))?;
+    fs::rename(&tmp_path, &index_path)
+        .map_err(|e| format!("Failed to rename chats index temp file: {}", e))
+}
+
+fn push_path_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidates.iter().any(|item| item == &candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn path_str_matches(raw_a: &str, raw_b: &str) -> bool {
+    if raw_a == raw_b {
+        return true;
+    }
+
+    let a = Path::new(raw_a);
+    let b = Path::new(raw_b);
+
+    let a_name = a.file_name().and_then(|v| v.to_str());
+    let b_name = b.file_name().and_then(|v| v.to_str());
+
+    if let (Some(a_name), Some(b_name)) = (a_name, b_name) {
+        if a_name == b_name {
+            return true;
+        }
+    }
+
+    let a_stem = a.file_stem().and_then(|v| v.to_str());
+    let b_stem = b.file_stem().and_then(|v| v.to_str());
+    if let (Some(a_stem), Some(b_stem)) = (a_stem, b_stem) {
+        if a_stem == b_stem {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn chat_index_matches_query(entry: &serde_json::Value, query: &str) -> bool {
+    let query = query.trim();
+    if query.is_empty() {
+        return false;
+    }
+
+    let query_value = serde_json::json!(query);
+    if entry.get("chat_id") == Some(&query_value) {
+        return true;
+    }
+
+    if entry.get("id") == Some(&query_value) {
+        return true;
+    }
+
+    if let Some(file_path) = entry.get("file_path").and_then(|v| v.as_str()) {
+        if path_str_matches(file_path, query) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn add_chat_path_candidates(candidates: &mut Vec<PathBuf>, raw_path: &str, chats_dir: &Path) {
+    let value = raw_path.trim();
+    if value.is_empty() {
+        return;
+    }
+
+    let candidate_path = Path::new(value);
+    push_path_candidate(candidates, PathBuf::from(value));
+    if !candidate_path.is_absolute() {
+        push_path_candidate(candidates, chats_dir.join(candidate_path));
+    }
+
+    let value_lower = value.to_lowercase();
+    let stem = candidate_path
+        .file_stem()
+        .and_then(|v| v.to_str())
+        .unwrap_or("")
+        .trim();
+
+    if !stem.is_empty() {
+        if !value_lower.ends_with(".md") {
+            push_path_candidate(candidates, chats_dir.join(format!("{}.md", stem)));
+            push_path_candidate(candidates, PathBuf::from(format!("{}.md", stem)));
+        }
+        if !value_lower.ends_with(".json") {
+            push_path_candidate(candidates, chats_dir.join(format!("{}.json", stem)));
+            push_path_candidate(candidates, PathBuf::from(format!("{}.json", stem)));
+        }
+    }
+}
+
+fn resolve_chat_file_path(chat_id: &str, index: &[serde_json::Value]) -> Option<PathBuf> {
+    let query = chat_id.trim();
+    if query.is_empty() {
+        return None;
+    }
+
+    let chats_dir = chats_dir().ok()?;
+
+    if let Some(entry) = index.iter().find(|item| chat_index_matches_query(item, query)) {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        if let Some(file_path) = entry.get("file_path").and_then(|v| v.as_str()) {
+            add_chat_path_candidates(&mut candidates, file_path, &chats_dir);
+        }
+
+        if let Some(file_path) = entry.get("chat_id").and_then(|v| v.as_str()) {
+            add_chat_path_candidates(&mut candidates, file_path, &chats_dir);
+        }
+
+        if let Some(file_path) = entry.get("id").and_then(|v| v.as_str()) {
+            add_chat_path_candidates(&mut candidates, file_path, &chats_dir);
+        }
+
+        add_chat_path_candidates(&mut candidates, query, &chats_dir);
+
+        if let Some(found) = candidates.into_iter().find(|path| path.exists()) {
+            return Some(found);
+        }
+    }
+
+    let mut fallback = Vec::new();
+    add_chat_path_candidates(&mut fallback, query, &chats_dir);
+    fallback.into_iter().find(|path| path.exists())
+}
+
+fn resolve_chat_file_path_from_query(chat_id: &str) -> Option<PathBuf> {
+    let query = chat_id.trim();
+    if query.is_empty() {
+        return None;
+    }
+
+    let chats_dir = chats_dir().ok()?;
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    add_chat_path_candidates(&mut candidates, query, &chats_dir);
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn resolve_chat_file_path_for_entry(
+    entry: &serde_json::Value,
+    chats_dir: &Path,
+) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Some(file_path) = entry.get("file_path").and_then(|v| v.as_str()) {
+        add_chat_path_candidates(&mut candidates, file_path, chats_dir);
+    }
+
+    if let Some(file_path) = entry.get("chat_id").and_then(|v| v.as_str()) {
+        add_chat_path_candidates(&mut candidates, file_path, chats_dir);
+    }
+
+    if let Some(file_path) = entry.get("id").and_then(|v| v.as_str()) {
+        add_chat_path_candidates(&mut candidates, file_path, chats_dir);
+    }
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn read_chat_markdown(path: &Path) -> Result<String, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read chat file '{}': {}", path.display(), e))?;
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(markdown) = json_chat_to_markdown(&parsed) {
+                return Ok(markdown);
+            }
+        }
+    }
+
+    Ok(raw)
+}
+
+fn json_chat_to_markdown(value: &serde_json::Value) -> Option<String> {
+    let messages = value
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .or_else(|| value.as_array())?;
+
+    let mut out = String::new();
+    for message in messages {
+        let role = message
+            .get("role")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .map(|v| v.to_lowercase())
+            .unwrap_or_default();
+
+        if !matches!(role.as_str(), "user" | "assistant" | "system") {
+            continue;
+        }
+
+        let timestamp = message
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .or_else(|| message.get("created_at").and_then(|v| v.as_str()) )
+            .unwrap_or("");
+
+        let model = message
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        let content = extract_json_message_content(message.get("content").or_else(|| message.get("text")))
+            .unwrap_or_default();
+        if content.is_empty() {
+            continue;
+        }
+
+        out.push_str(&format!("## {} | {} | {}\n\n{}\n\n", role.to_uppercase(), timestamp, model, content));
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn extract_json_message_content(value: Option<&serde_json::Value>) -> Option<String> {
+    match value {
+        Some(serde_json::Value::String(text)) => {
+            let text = text.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        }
+        Some(serde_json::Value::Array(parts)) => {
+            let mut pieces: Vec<String> = Vec::new();
+            for part in parts {
+                if let Some(text) = extract_json_message_content(Some(part)) {
+                    pieces.push(text);
+                }
+            }
+            if pieces.is_empty() {
+                None
+            } else {
+                Some(pieces.join("\n"))
+            }
+        }
+        Some(serde_json::Value::Object(obj)) => {
+            if let Some(text) = obj
+                .get("text")
+                .and_then(|v| v.as_str())
+                .map(|v| v.trim().to_string())
+            {
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
+            } else if let Some(content) = obj.get("content") {
+                extract_json_message_content(Some(content))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn append_json_chat_message(path: &Path, role: &str, content: &str, model: &str, timestamp: &str) -> Result<bool, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read chat file '{}': {}", path.display(), e))?;
+
+    let mut parsed = match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(value) => value,
+        Err(_) => return Ok(false),
+    };
+
+    let message = serde_json::json!({
+        "role": role,
+        "timestamp": timestamp,
+        "model": if model.is_empty() { "unknown" } else { model },
+        "content": content,
+    });
+
+    match parsed {
+        serde_json::Value::Object(ref mut object) => {
+            let mut messages = object
+                .get("messages")
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+
+            messages.push(message);
+            object.insert("messages".to_string(), serde_json::Value::Array(messages));
+
+            let serialized = serde_json::to_string_pretty(&parsed)
+                .map_err(|e| format!("Failed to serialize chat JSON '{}': {}", path.display(), e))?;
+            fs::write(path, serialized)
+                .map_err(|e| format!("Failed to write chat JSON '{}': {}", path.display(), e))?;
+
+            Ok(true)
+        }
+        serde_json::Value::Array(mut messages) => {
+            messages.push(message);
+            let serialized = serde_json::to_string_pretty(&messages)
+                .map_err(|e| format!("Failed to serialize chat JSON '{}': {}", path.display(), e))?;
+            fs::write(path, serialized)
+                .map_err(|e| format!("Failed to write chat JSON '{}': {}", path.display(), e))?;
+
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn find_chat_entry_index(index: &[serde_json::Value], chat_id: &str) -> Option<usize> {
+    index.iter().position(|item| chat_index_matches_query(item, chat_id))
 }
 
 fn chat_markdown_path(chat_id: &str) -> Result<PathBuf, String> {
@@ -134,6 +541,23 @@ fn sanitize_chat_title(raw: &str) -> String {
     }
 }
 
+fn sanitize_chat_model_label(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let no_quotes = trimmed.trim_matches('"');
+    let normalized = no_quotes.replace('\\', "/");
+
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .last()
+        .unwrap_or("")
+        .to_string()
+}
+
 #[tauri::command]
 async fn list_chat_logs() -> Result<Vec<serde_json::Value>, String> {
     let mut index = read_chats_index()?;
@@ -149,12 +573,14 @@ async fn list_chat_logs() -> Result<Vec<serde_json::Value>, String> {
 async fn create_chat_log(model: String) -> Result<serde_json::Value, String> {
     let now = Utc::now().to_rfc3339();
     let chat_id = format!("chat-{}", Utc::now().timestamp_millis());
+    let file_name = format!("{}.md", chat_id);
     let title = format!("Chat {}", Utc::now().format("%Y-%m-%d %H:%M"));
-    let model_label = model.trim();
+    let model_label = sanitize_chat_model_label(&model);
 
     let mut index = read_chats_index()?;
     let entry = serde_json::json!({
         "chat_id": chat_id,
+        "file_path": file_name,
         "title": title,
         "created_at": now,
         "last_used_at": now,
@@ -190,28 +616,43 @@ async fn append_chat_log_message(chat_id: String, role: String, content: String,
 
     let now = Utc::now().to_rfc3339();
     let mut index = read_chats_index()?;
-    let idx = index
-        .iter()
-        .position(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+    let idx = find_chat_entry_index(&index, &chat_id)
         .ok_or_else(|| "Chat not found".to_string())?;
 
-    let path = chat_markdown_path(&chat_id)?;
+    let path = resolve_chat_file_path(&chat_id, &index)
+        .or_else(|| chat_markdown_path(&chat_id).ok())
+        .ok_or_else(|| "Chat markdown file not found".to_string())?;
     if !path.exists() {
         return Err("Chat markdown file not found".to_string());
     }
 
-    let model_label = model.trim();
+    let model_label = sanitize_chat_model_label(&model);
     let section = format!(
         "## {} | {} | {}\n\n{}\n\n",
         role_norm.to_uppercase(),
         now,
-        if model_label.is_empty() { "unknown" } else { model_label },
+        if model_label.is_empty() { "unknown" } else { &model_label },
         content
     );
 
-    let mut existing = fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
-    existing.push_str(&section);
-    fs::write(&path, existing).map_err(|e| format!("Failed to append chat file: {}", e))?;
+    let is_json_chat = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+
+    if is_json_chat {
+        if !append_json_chat_message(&path, role_norm.as_str(), content.trim(), model_label.as_str(), &now)? {
+            let mut existing =
+                fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
+            existing.push_str(&section);
+            fs::write(&path, existing)
+                .map_err(|e| format!("Failed to append chat file: {}", e))?;
+        }
+    } else {
+        let mut existing = fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
+        existing.push_str(&section);
+        fs::write(&path, existing).map_err(|e| format!("Failed to append chat file: {}", e))?;
+    }
 
     let message_count = index[idx].get("message_count").and_then(|v| v.as_i64()).unwrap_or(0) + 1;
     index[idx]["message_count"] = serde_json::json!(message_count);
@@ -223,7 +664,7 @@ async fn append_chat_log_message(chat_id: String, role: String, content: String,
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        if !models.iter().any(|v| v.as_str() == Some(model_label)) {
+        if !models.iter().any(|v| v.as_str() == Some(&model_label)) {
             models.push(serde_json::json!(model_label));
             index[idx]["models_used"] = serde_json::Value::Array(models);
         }
@@ -236,9 +677,7 @@ async fn append_chat_log_message(chat_id: String, role: String, content: String,
 #[tauri::command]
 async fn rename_chat_log(chat_id: String, title: String) -> Result<serde_json::Value, String> {
     let mut index = read_chats_index()?;
-    let idx = index
-        .iter()
-        .position(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+    let idx = find_chat_entry_index(&index, &chat_id)
         .ok_or_else(|| "Chat not found".to_string())?;
 
     let cleaned = sanitize_chat_title(&title);
@@ -251,18 +690,81 @@ async fn rename_chat_log(chat_id: String, title: String) -> Result<serde_json::V
 #[tauri::command]
 async fn get_chat_log(chat_id: String) -> Result<serde_json::Value, String> {
     let index = read_chats_index()?;
-    let entry = index
-        .iter()
-        .find(|item| item.get("chat_id").and_then(|v| v.as_str()) == Some(chat_id.as_str()))
+    let idx = find_chat_entry_index(&index, &chat_id);
+    let entry = idx
+        .and_then(|i| index.get(i))
         .cloned()
-        .ok_or_else(|| "Chat not found".to_string())?;
+        .unwrap_or_else(|| serde_json::json!({"chat_id": chat_id}));
+    let chats_dir = chats_dir()?;
+    let path = resolve_chat_file_path(&chat_id, &index)
+        .or_else(|| resolve_chat_file_path_for_entry(&entry, &chats_dir))
+        .or_else(|| resolve_chat_file_path_from_query(&chat_id))
+        .or_else(|| chat_markdown_path(&chat_id).ok())
+        .ok_or_else(|| "Chat file not found".to_string())?;
 
-    let path = chat_markdown_path(&chat_id)?;
-    let markdown = fs::read_to_string(&path).map_err(|e| format!("Failed to read chat file: {}", e))?;
+    if !path.exists() {
+        return Err("Chat file not found".to_string());
+    }
+    let markdown = read_chat_markdown(&path)?;
 
     Ok(serde_json::json!({
         "entry": entry,
         "markdown": markdown
+    }))
+}
+
+#[tauri::command]
+async fn delete_chat_log(chat_id: String) -> Result<serde_json::Value, String> {
+    let normalized_chat_id = chat_id.trim();
+    if normalized_chat_id.is_empty() {
+        return Err("chat_id is required".to_string());
+    }
+
+    let index = read_chats_index()?;
+    let mut index_with_paths = index.clone();
+
+    let matched_entry = index_with_paths
+        .iter()
+        .find(|entry| chat_index_matches_query(entry, normalized_chat_id))
+        .cloned();
+
+    let chats_dir = chats_dir()?;
+    let chat_file_path = resolve_chat_file_path(normalized_chat_id, &index_with_paths)
+        .or_else(|| matched_entry.as_ref().and_then(|entry| resolve_chat_file_path_for_entry(entry, &chats_dir)))
+        .or_else(|| resolve_chat_file_path_from_query(normalized_chat_id));
+
+    let removed_count = {
+        let before_len = index_with_paths.len();
+        index_with_paths.retain(|entry| !chat_index_matches_query(entry, normalized_chat_id));
+        before_len - index_with_paths.len()
+    };
+
+    if removed_count == 0 && chat_file_path.is_none() {
+        return Err("Chat not found".to_string());
+    }
+
+    let mut file_deleted = false;
+    if let Some(path) = chat_file_path {
+        if path.exists() {
+            fs::remove_file(&path)
+                .map_err(|e| format!("Failed to delete chat file '{}': {}", path.display(), e))?;
+            file_deleted = true;
+        }
+    }
+
+    write_chats_index(&index_with_paths)?;
+
+    let removed_chat_id = matched_entry
+        .as_ref()
+        .and_then(|entry| entry.get("chat_id").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| normalized_chat_id.to_string());
+
+    Ok(serde_json::json!({
+        "chat_id": removed_chat_id,
+        "file_deleted": file_deleted,
+        "removed_count": removed_count
     }))
 }
 
@@ -274,15 +776,23 @@ async fn search_chat_logs(term: String) -> Result<Vec<serde_json::Value>, String
     }
 
     let index = read_chats_index()?;
+    let chats_dir = chats_dir()?;
     let mut matches = Vec::new();
 
-    for item in index {
-        let chat_id = item.get("chat_id").and_then(|v| v.as_str()).unwrap_or("");
+    for item in index.iter() {
+        let chat_id = item
+            .get("chat_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| item.get("id").and_then(|v| v.as_str()))
+            .unwrap_or("");
         let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
         let mut is_match = title.to_lowercase().contains(&needle);
-        if !is_match && !chat_id.is_empty() {
-            if let Ok(path) = chat_markdown_path(chat_id) {
-                if let Ok(md) = fs::read_to_string(path) {
+        if !is_match {
+            let path = resolve_chat_file_path(&chat_id, &index)
+                .or_else(|| resolve_chat_file_path_for_entry(&item, &chats_dir));
+
+            if let Some(path) = path {
+                if let Ok(md) = read_chat_markdown(&path) {
                     if md.to_lowercase().contains(&needle) {
                         is_match = true;
                     }
@@ -291,7 +801,7 @@ async fn search_chat_logs(term: String) -> Result<Vec<serde_json::Value>, String
         }
 
         if is_match {
-            matches.push(item);
+            matches.push(item.clone());
         }
     }
 
@@ -336,6 +846,9 @@ pub struct AppState {
     pub download_manager: Arc<Mutex<DownloadManager>>,
     pub tracker_manager: Arc<Mutex<Option<TrackerManager>>>,
     pub openai_proxy: Arc<Mutex<Option<openai_proxy::ProxyServer>>>,
+    pub discovery_service: Arc<Mutex<Option<DiscoveryService>>>,
+    pub python_processes: Arc<Mutex<Vec<u32>>>, // Track Python process PIDs spawned by this app
+    pub active_models: Arc<Mutex<HashMap<String, ActiveModel>>>, // Track models launched remotely
 }
 
 // Implement Clone manually to avoid derive issues with Child
@@ -350,6 +863,9 @@ impl Clone for AppState {
             download_manager: self.download_manager.clone(),
             tracker_manager: self.tracker_manager.clone(),
             openai_proxy: self.openai_proxy.clone(),
+            discovery_service: self.discovery_service.clone(),
+            python_processes: self.python_processes.clone(),
+            active_models: self.active_models.clone(),
         }
     }
 }
@@ -365,10 +881,13 @@ impl AppState {
             download_manager: Arc::new(Mutex::new(DownloadManager::new())),
             tracker_manager: Arc::new(Mutex::new(None)),
             openai_proxy: Arc::new(Mutex::new(None)),
+            discovery_service: Arc::new(Mutex::new(None)),
+            python_processes: Arc::new(Mutex::new(Vec::new())),
+            active_models: Arc::new(Mutex::new(HashMap::new())),
         }
     }
     
-    // Method to cleanup all child processes when app exits
+// Method to cleanup all child processes when app exits
     pub async fn cleanup_all_processes(&self) {
         println!("Starting cleanup of all child processes...");
         
@@ -381,40 +900,47 @@ impl AppState {
         
         if process_count == 0 {
             println!("No processes to clean up");
-            return;
-        }
-        
-        let mut child_processes = self.child_processes.lock().await;
-        let mut running_processes = self.running_processes.lock().await;
-        
-        for (process_id, handle_arc) in child_processes.drain() {
-            println!("Terminating process: {}", process_id);
-            let mut handle_guard = handle_arc.lock().await;
-            if let Some(mut child) = handle_guard.take_child() {
-                match child.kill().await {
-                    Ok(_) => println!("Successfully killed process: {}", process_id),
-                    Err(e) => {
-                        eprintln!("Failed to kill process {}: {}", process_id, e);
-                        // Try to force kill on Windows
-                        #[cfg(windows)]
-                        {
-                            if let Some(id) = child.id() {
-                                println!("Attempting force kill of PID: {}", id);
-                                let _ = std::process::Command::new("taskkill")
-                                    .args(["/PID", &id.to_string(), "/F"])
-                                    .output();
+        } else {
+            let mut child_processes = self.child_processes.lock().await;
+            let mut running_processes = self.running_processes.lock().await;
+            
+            for (process_id, handle_arc) in child_processes.drain() {
+                println!("Terminating process: {}", process_id);
+                let mut handle_guard = handle_arc.lock().await;
+                if let Some(mut child) = handle_guard.take_child() {
+                    match child.kill().await {
+                        Ok(_) => println!("Successfully killed process: {}", process_id),
+                        Err(e) => {
+                            eprintln!("Failed to kill process {}: {}", process_id, e);
+                            // Try to force kill on Windows
+                            #[cfg(windows)]
+                            {
+                                if let Some(id) = child.id() {
+                                    println!("Attempting force kill of PID: {}", id);
+                                    let _ = std::process::Command::new("taskkill")
+                                        .args(["/PID", &id.to_string(), "/F"])
+                                        .output();
+                                }
                             }
                         }
                     }
+                } else {
+                    println!("Process {} already terminated", process_id);
                 }
-            } else {
-                println!("Process {} already terminated", process_id);
             }
+            
+            // Clear the running processes list
+            running_processes.clear();
+            println!("Process cleanup completed");
         }
         
-        // Clear the running processes list
-        running_processes.clear();
-        println!("Process cleanup completed");
+        // Clear active remote models
+        let mut active_models = self.active_models.lock().await;
+        let active_count = active_models.len();
+        active_models.clear();
+        if active_count > 0 {
+            println!("Cleared {} active remote models", active_count);
+        }
     }
     
     // Force cleanup that drops all child processes immediately
@@ -482,6 +1008,114 @@ impl AppState {
         
         println!("Force cleanup completed");
     }
+    
+    /// Register a Python process PID for tracking
+    /// Call this whenever spawning a Python process
+    pub async fn register_python_process(&self, pid: u32) {
+        let mut processes = self.python_processes.lock().await;
+        if !processes.contains(&pid) {
+            processes.push(pid);
+            println!("Registered Python process with PID: {}", pid);
+        }
+    }
+    
+    /// Unregister a Python process PID
+    /// Call this when a Python process dies naturally
+    pub async fn unregister_python_process(&self, pid: u32) {
+        let mut processes = self.python_processes.lock().await;
+        if let Some(pos) = processes.iter().position(|&p| p == pid) {
+            processes.remove(pos);
+            println!("Unregistered Python process with PID: {}", pid);
+        }
+    }
+    
+    /// Kill only Python processes that were spawned by this app
+    /// This is used on application exit to ensure no orphaned Python servers
+    pub async fn kill_tracked_python_processes(&self) {
+        let pids: Vec<u32> = {
+            let processes = self.python_processes.lock().await;
+            processes.clone()
+        };
+        
+        if pids.is_empty() {
+            println!("No tracked Python processes to kill");
+            return;
+        }
+        
+        println!("Killing {} tracked Python processes...", pids.len());
+        
+        let mut killed_count = 0;
+        for pid in pids {
+            #[cfg(windows)]
+            {
+                println!("Killing tracked Python process with PID: {}", pid);
+                let result = std::process::Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F", "/T"])
+                    .output();
+                
+                match result {
+                    Ok(output) if output.status.success() => {
+                        println!("Successfully killed Python process {}", pid);
+                        killed_count += 1;
+                    }
+                    Ok(output) => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        if stderr.contains("not found") {
+                            println!("Python process {} already terminated", pid);
+                        } else {
+                            eprintln!("Failed to kill Python process {}: {}", pid, stderr);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error killing Python process {}: {}", pid, e);
+                    }
+                }
+            }
+            
+            #[cfg(not(windows))]
+            {
+                println!("Killing tracked Python process with PID: {}", pid);
+                let result = std::process::Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .status();
+                
+                match result {
+                    Ok(status) if status.success() => {
+                        println!("Successfully killed Python process {}", pid);
+                        killed_count += 1;
+                    }
+                    Ok(_) => {
+                        println!("Python process {} may already be terminated", pid);
+                    }
+                    Err(e) => {
+                        eprintln!("Error killing Python process {}: {}", pid, e);
+                    }
+                }
+            }
+        }
+        
+        println!("Killed {} tracked Python processes", killed_count);
+        
+        // Clear the tracked list
+        let mut processes = self.python_processes.lock().await;
+        processes.clear();
+    }
+    
+    /// Comprehensive cleanup that kills all processes including tracked Python servers
+    pub async fn comprehensive_cleanup(&self) {
+        println!("Starting comprehensive cleanup...");
+        
+        // First, kill all tracked child processes
+        self.cleanup_all_processes().await;
+        
+        // Then, force cleanup any remaining
+        self.force_cleanup_all_processes();
+        
+        // Finally, kill tracked Python processes only (not all Python on system)
+        self.kill_tracked_python_processes().await;
+        
+        println!("Comprehensive cleanup completed");
+    }
 }
 
 // Implement Drop trait for emergency cleanup
@@ -529,8 +1163,13 @@ async fn save_config(
     println!("Saving config: models_dir={}, additional_dirs={:?}, exec_folder={}, theme={}, background={}, synced={}", 
         models_directory, additional_models_directories, executable_folder, theme_color, background_color, theme_is_synced);
     
-    // Preserve existing active executable folder and proxy/network settings
-    let (existing_active_path, existing_active_version, existing_proxy_enabled, existing_proxy_port, existing_network_host, existing_network_port, existing_mcp_servers) = {
+    // Preserve existing active executable folder, proxy/network settings, and discovery settings
+    let (
+        existing_active_path, existing_active_version, existing_proxy_enabled, existing_proxy_port,
+        existing_network_host, existing_network_port, existing_mcp_servers,
+        existing_discovery_enabled, existing_discovery_port, existing_discovery_interval,
+        existing_discovery_name, existing_discovery_id
+    ) = {
         let cfg = state.config.lock().await;
         (
             cfg.active_executable_folder.clone(),
@@ -540,6 +1179,11 @@ async fn save_config(
             cfg.network_server_host.clone(),
             cfg.network_server_port,
             cfg.mcp_servers.clone(),
+            cfg.discovery_enabled,
+            cfg.discovery_port,
+            cfg.discovery_broadcast_interval,
+            cfg.discovery_instance_name.clone(),
+            cfg.discovery_instance_id.clone(),
         )
     };
     
@@ -563,6 +1207,12 @@ async fn save_config(
         network_server_host: existing_network_host,
         network_server_port: existing_network_port,
         mcp_servers: existing_mcp_servers,
+        // Preserve discovery settings
+        discovery_enabled: existing_discovery_enabled,
+        discovery_port: existing_discovery_port,
+        discovery_broadcast_interval: existing_discovery_interval,
+        discovery_instance_name: existing_discovery_name,
+        discovery_instance_id: existing_discovery_id,
     };
     
     // Update global config
@@ -1636,8 +2286,8 @@ async fn restart_application(
 ) -> Result<(), String> {
     println!("Application restart requested via command");
     
-    // Perform cleanup but don't exit
-    state.cleanup_all_processes().await;
+    // Perform comprehensive cleanup including Python processes
+    state.comprehensive_cleanup().await;
     
     // Give time for cleanup to complete
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
@@ -1655,8 +2305,8 @@ async fn graceful_exit(
 ) -> Result<(), String> {
     println!("Graceful exit requested via command");
     
-    // Perform cleanup
-    state.cleanup_all_processes().await;
+    // Perform comprehensive cleanup including Python processes
+    state.comprehensive_cleanup().await;
     
     // Give time for cleanup to complete
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
@@ -2518,6 +3168,218 @@ async fn get_network_interfaces() -> Result<serde_json::Value, String> {
     }))
 }
 
+// Resolve the IP used in discovery beacons.
+// For wildcard or localhost hostnames, use LAN IP when available.
+async fn resolve_discovery_bind_ip(host: String) -> String {
+    if host == "0.0.0.0" || host == "127.0.0.1" {
+        match tokio::task::spawn_blocking(|| {
+            use std::net::UdpSocket;
+
+            let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+            socket.connect("8.8.8.8:80").ok()?;
+            let ip = socket.local_addr().ok()?.ip().to_string();
+            Some(ip)
+        })
+        .await
+        {
+            Ok(Some(ip)) if !ip.is_empty() && ip != "127.0.0.1" => ip,
+            _ => "127.0.0.1".to_string(),
+        }
+    } else {
+        host
+    }
+}
+
+async fn ensure_network_server_running_for_discovery(
+    state: &AppState,
+    address: String,
+    port: u16,
+    api_port: u16,
+) -> Result<(), String> {
+    {
+        let proxy = state.openai_proxy.lock().await;
+        if proxy.is_some() {
+            return Ok(());
+        }
+    }
+
+    let model_directories = {
+        let config = state.config.lock().await;
+        let mut dirs = vec![config.models_directory.clone()];
+        dirs.extend(config.additional_models_directories.clone());
+        dirs.into_iter().filter(|dir| !dir.is_empty()).collect::<Vec<_>>()
+    };
+
+    let mut new_proxy = openai_proxy::ProxyServer::new(
+        address.clone(),
+        port,
+        api_port,
+        model_directories,
+    );
+
+    let app_state_arc = Arc::new(AppState {
+        config: state.config.clone(),
+        model_configs: state.model_configs.clone(),
+        running_processes: state.running_processes.clone(),
+        child_processes: state.child_processes.clone(),
+        session_state: state.session_state.clone(),
+        download_manager: state.download_manager.clone(),
+        tracker_manager: state.tracker_manager.clone(),
+        openai_proxy: state.openai_proxy.clone(),
+        discovery_service: state.discovery_service.clone(),
+        python_processes: state.python_processes.clone(),
+        active_models: state.active_models.clone(),
+    });
+
+    new_proxy
+        .start(app_state_arc)
+        .await
+        .map_err(|e| format!("Failed to start proxy: {}", e))?;
+
+    {
+        let mut proxy = state.openai_proxy.lock().await;
+        *proxy = Some(new_proxy);
+    }
+
+    {
+        let mut config = state.config.lock().await;
+        config.openai_proxy_enabled = true;
+        config.network_server_host = address;
+        config.network_server_port = port;
+        config.openai_proxy_port = api_port;
+    }
+
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("[Discovery] Warning: failed to save settings after auto-start network server: {}", e);
+    }
+
+    Ok(())
+}
+
+async fn start_discovery_service(
+    state: &AppState,
+    app_handle: Option<tauri::AppHandle>,
+    port: u16,
+    api_port: u16,
+    instance_name: String,
+    instance_id: Option<String>,
+) -> Result<(), String> {
+    {
+        let discovery = state.discovery_service.lock().await;
+        if let Some(existing) = discovery.as_ref() {
+            if existing.is_running() {
+                return Ok(());
+            }
+        }
+    }
+
+    // Clean up stale handles if a stopped service object was left behind.
+    {
+        let mut discovery = state.discovery_service.lock().await;
+        if let Some(mut existing) = discovery.take() {
+            existing.stop();
+        }
+    }
+
+    let (local_ip, chat_port) = {
+        let config = state.config.lock().await;
+        (config.network_server_host.clone(), config.network_server_port)
+    };
+
+    let bind_ip = resolve_discovery_bind_ip(local_ip).await;
+    let api_endpoint = format!("http://{}:{}", bind_ip, api_port);
+
+    let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let mut discovery_service = DiscoveryService::new(
+        port,
+        instance_id.clone(),
+        instance_name,
+        api_endpoint,
+        api_port,
+        chat_port,
+        app_handle,
+    );
+
+    discovery_service
+        .start()
+        .await
+        .map_err(|e| format!("Failed to start discovery service: {}", e))?;
+
+    {
+        let mut discovery = state.discovery_service.lock().await;
+        *discovery = Some(discovery_service);
+    }
+
+    {
+        let mut config = state.config.lock().await;
+        config.discovery_enabled = true;
+        config.discovery_port = port;
+        config.openai_proxy_port = api_port;
+        config.discovery_instance_id = instance_id;
+    }
+
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("[Discovery] Warning: failed to save settings after auto-start discovery: {}", e);
+    }
+
+    Ok(())
+}
+
+async fn auto_start_discovery_if_enabled(
+    state: &AppState,
+    app_handle: Option<tauri::AppHandle>,
+) {
+    let discovery_settings = {
+        let config = state.config.lock().await;
+        if !config.discovery_enabled {
+            None
+        } else {
+            Some((
+                config.discovery_port,
+                config.openai_proxy_port,
+                config.discovery_instance_name.clone(),
+                config.discovery_instance_id.clone(),
+                config.network_server_host.clone(),
+                config.network_server_port,
+            ))
+        }
+    };
+
+    if let Some((discovery_port, api_port, instance_name, instance_id, server_host, server_port)) = discovery_settings {
+        if let Err(error) = ensure_network_server_running_for_discovery(
+            state,
+            server_host,
+            server_port,
+            api_port,
+        )
+        .await
+        {
+            eprintln!(
+                "[Discovery] Failed to auto-start network server on startup: {}",
+                error
+            );
+            return;
+        }
+
+        if let Err(error) = start_discovery_service(
+            state,
+            app_handle,
+            discovery_port,
+            api_port,
+            instance_name,
+            Some(instance_id),
+        )
+        .await
+        {
+            eprintln!(
+                "[Discovery] Failed to auto-start discovery service on startup: {}",
+                error
+            );
+        }
+    }
+}
+
 #[tauri::command]
 async fn activate_network_server(
     address: String,
@@ -2534,23 +3396,46 @@ async fn activate_network_server(
         return Err("Network server already active".to_string());
     }
     
-    let mut new_proxy = openai_proxy::ProxyServer::new(
+    // Get model directories from config
+    let model_directories = {
+        let config = state.config.lock().await;
+        let mut dirs = vec![config.models_directory.clone()];
+        dirs.extend(config.additional_models_directories.clone());
+        dirs.into_iter().filter(|d| !d.is_empty()).collect()
+    };
+
+let mut new_proxy = openai_proxy::ProxyServer::new(
         address.clone(),
         port,
         proxy_port,
+        model_directories,
     );
-    
-    match new_proxy.start().await {
+
+    let app_state_arc = Arc::new(AppState {
+        config: state.config.clone(),
+        model_configs: state.model_configs.clone(),
+        running_processes: state.running_processes.clone(),
+        child_processes: state.child_processes.clone(),
+        session_state: state.session_state.clone(),
+        download_manager: state.download_manager.clone(),
+        tracker_manager: state.tracker_manager.clone(),
+        openai_proxy: state.openai_proxy.clone(),
+        discovery_service: state.discovery_service.clone(),
+        python_processes: state.python_processes.clone(),
+        active_models: state.active_models.clone(),
+    });
+
+    match new_proxy.start(app_state_arc).await {
         Ok(_) => {
             *proxy = Some(new_proxy);
-            
+
             let mut config = state.config.lock().await;
             config.openai_proxy_enabled = true;
             config.network_server_host = address.clone();
             config.network_server_port = port;
             drop(config);
             let _ = save_settings(&state).await;
-            
+
             Ok(serde_json::json!({
                 "success": true,
                 "address": address,
@@ -2605,6 +3490,232 @@ async fn get_network_server_status(
             "proxy_port": config.openai_proxy_port,
         }
     }))
+}
+
+// ==================== Network Discovery Commands ====================
+
+#[tauri::command]
+async fn enable_discovery(
+    port: u16,
+    api_port: u16,
+    instance_name: String,
+    chat_port: u16,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    // Get config values we need to persist
+    let _broadcast_interval = {
+        let config = state.config.lock().await;
+        config.discovery_broadcast_interval
+    };
+    
+    // Stop any existing discovery service
+    {
+        let mut discovery = state.discovery_service.lock().await;
+        if let Some(ref mut service) = *discovery {
+            service.stop();
+            *discovery = None;
+        }
+    }
+    
+    // Create instance ID
+    let instance_id = uuid::Uuid::new_v4().to_string();
+    
+    // Get network interfaces to determine the best IP address
+    let local_ip = {
+        let config = state.config.lock().await;
+        config.network_server_host.clone()
+    };
+    
+    // Use 0.0.0.0 if host is set to all interfaces, otherwise use the specific IP
+    let bind_ip = if local_ip == "0.0.0.0" || local_ip == "127.0.0.1" {
+        // Try to get the actual LAN IP
+        match tokio::task::spawn_blocking(|| {
+            use std::net::UdpSocket;
+            let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+            socket.connect("8.8.8.8:80").ok()?;
+            Some(socket.local_addr().ok()?.ip().to_string())
+        }).await {
+            Ok(Some(ip)) if !ip.is_empty() && ip != "127.0.0.1" => ip,
+            _ => "127.0.0.1".to_string(),
+        }
+    } else {
+        local_ip
+    };
+    
+    // Create and start new discovery service
+    let api_endpoint = format!("http://{}:{}", bind_ip, api_port);
+    let mut discovery_service = DiscoveryService::new(
+        port,
+        instance_id.clone(),
+        instance_name.clone(),
+        api_endpoint.clone(),
+        api_port,
+        chat_port,
+        Some(app),
+    );
+    
+    // Start broadcasting and listening
+    discovery_service.start().await
+        .map_err(|e| format!("Failed to start discovery service: {}", e))?;
+    
+    // Store the service
+    {
+        let mut discovery = state.discovery_service.lock().await;
+        *discovery = Some(discovery_service);
+    }
+    
+    // Update config
+    {
+        let mut config = state.config.lock().await;
+        config.discovery_enabled = true;
+        config.discovery_port = port;
+        config.openai_proxy_port = api_port;
+        config.network_server_port = chat_port;
+        config.discovery_instance_name = instance_name.clone();
+        config.discovery_instance_id = instance_id.clone();
+    }
+    
+    // Save config to disk
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("[Discovery] Warning: Failed to save settings: {}", e);
+    }
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "Discovery service enabled",
+        "endpoint": api_endpoint,
+        "instance_id": instance_id,
+        "instance_name": instance_name,
+        "port": port
+    }))
+}
+
+#[tauri::command]
+async fn disable_discovery(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    // Stop the discovery service
+    {
+        let mut discovery = state.discovery_service.lock().await;
+        if let Some(ref mut service) = *discovery {
+            service.stop();
+            *discovery = None;
+        }
+    }
+    
+    // Update config
+    {
+        let mut config = state.config.lock().await;
+        config.discovery_enabled = false;
+    }
+    
+    // Save config to disk
+    if let Err(e) = save_settings(&state).await {
+        eprintln!("[Discovery] Warning: Failed to save settings: {}", e);
+    }
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "message": "Discovery service disabled"
+    }))
+}
+
+#[tauri::command]
+async fn get_discovered_peers(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<DiscoveredPeer>, String> {
+    let discovery = state.discovery_service.lock().await;
+    
+    match discovery.as_ref() {
+        Some(service) => {
+            let peers = service.get_peers().await;
+            
+            // Fetch models for peers that don't have them yet
+            for peer in &peers {
+                if peer.models.is_empty() {
+                    println!("Fetching models from peer {} at {}:{}", peer.hostname, peer.ip_address, peer.api_port);
+                    match service.fetch_peer_models(&peer.ip_address, peer.api_port).await {
+                        Ok(models) => {
+                            println!("Fetched {} models from peer {}", models.len(), peer.hostname);
+                        }
+                        Err(e) => {
+                            println!("Failed to fetch models from peer {}: {}", peer.hostname, e);
+                        }
+                    }
+                }
+            }
+            
+            // Re-fetch peers after model fetch to get updated data with models
+            let updated_peers = service.get_peers().await;
+            Ok(updated_peers)
+        }
+        None => Ok(Vec::new()),
+    }
+}
+
+#[tauri::command]
+async fn get_discovery_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<DiscoveryStatus, String> {
+    let config = state.config.lock().await;
+    let discovery = state.discovery_service.lock().await;
+    
+    let (enabled, instance_id, instance_name, port, api_port, chat_port, broadcast_interval) = match discovery.as_ref() {
+        Some(service) => (
+            service.is_running(),
+            service.get_instance_id().to_string(),
+            service.get_hostname().to_string(),
+            service.get_port(),
+            service.get_api_port(),
+            service.get_chat_port(),
+            config.discovery_broadcast_interval,
+        ),
+        None => (
+            config.discovery_enabled,
+            config.discovery_instance_id.clone(),
+            config.discovery_instance_name.clone(),
+            config.discovery_port,
+            config.openai_proxy_port,
+            config.network_server_port,
+            config.discovery_broadcast_interval,
+        ),
+    };
+    
+Ok(DiscoveryStatus {
+        enabled,
+        port,
+        api_port,
+        chat_port,
+        broadcast_interval,
+        instance_id,
+        instance_name,
+    })
+}
+
+#[tauri::command]
+async fn refresh_remote_models(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let discovery = state.discovery_service.lock().await;
+    
+    match discovery.as_ref() {
+        Some(service) => {
+            let model_count = service.refresh_models().await
+                .map_err(|e| format!("Failed to refresh models: {}", e))?;
+            
+            Ok(serde_json::json!({
+                "success": true,
+                "message": format!("Refreshed models from all peers"),
+                "model_count": model_count
+            }))
+        }
+        None => Ok(serde_json::json!({
+            "success": false,
+            "message": "Discovery service is not running",
+            "model_count": 0
+        })),
+    }
 }
 
 #[tauri::command]
@@ -3143,7 +4254,16 @@ async fn test_mcp_connection(
     let mut result = match connection.transport {
         McpTransport::Stdio => {
             match TokioCommand::new(&connection.command).args(&connection.args).spawn() {
-                Ok(mut child) => match timeout(timeout_duration, child.wait()).await {
+                Ok(mut child) => {
+                    // Track Python processes if command is python/python3
+                    let cmd_lower = connection.command.to_lowercase();
+                    if cmd_lower.contains("python") {
+                        if let Some(pid) = child.id() {
+                            state.register_python_process(pid).await;
+                        }
+                    }
+                    
+                    match timeout(timeout_duration, child.wait()).await {
                     Ok(Ok(status)) => {
                         let code = status.code();
                         McpTestResult {
@@ -3173,13 +4293,14 @@ async fn test_mcp_connection(
                             success: true,
                             latency_ms: start_time.elapsed().as_millis() as i64,
                             message: "Stdio transport started successfully".to_string(),
-                        status_code: None,
-                        exit_code: None,
-                        error: None,
+                            status_code: None,
+                            exit_code: None,
+                            error: None,
+                        }
                     }
-                    }
-                },
-                Err(err) => McpTestResult {
+                }
+            }
+            Err(err) => McpTestResult {
                     success: false,
                     latency_ms: start_time.elapsed().as_millis() as i64,
                     message: "Failed to start stdio process".to_string(),
@@ -3507,12 +4628,20 @@ tauri::Builder::default()
                 println!("Before exit event received");
                 let state_clone = state_for_exit.clone();
                 tokio::spawn(async move {
-                    println!("Application before exit, emergency cleanup...");
-                    state_clone.cleanup_all_processes().await;
+                    println!("Application before exit, comprehensive cleanup...");
+                    state_clone.comprehensive_cleanup().await;
                 });
             });
             
+            let startup_state = state.clone();
             app.manage(state);
+
+            let app_handle = app.handle().clone();
+            rt.block_on(auto_start_discovery_if_enabled(
+                &startup_state,
+                Some(app_handle),
+            ));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3592,6 +4721,11 @@ get_weekly_reports,
             activate_network_server,
             deactivate_network_server,
             get_network_server_status,
+            enable_discovery,
+            disable_discovery,
+            get_discovered_peers,
+            get_discovery_status,
+            refresh_remote_models,
             get_mcp_connections,
             save_mcp_connection,
             delete_mcp_connection,
@@ -3603,9 +4737,10 @@ get_weekly_reports,
             create_chat_log,
             append_chat_log_message,
             rename_chat_log,
-            get_chat_log,
-            search_chat_logs,
-        ])
+             get_chat_log,
+            delete_chat_log,
+             search_chat_logs,
+         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
     }
@@ -3613,6 +4748,7 @@ get_weekly_reports,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn base_connection() -> McpServerConfig {
         McpServerConfig {
@@ -3821,5 +4957,51 @@ mod tests {
         let result = parse_mcp_tools_from_response(&response);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid request"));
+    }
+
+    #[test]
+    fn append_json_chat_message_appends_to_messages_array() {
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        path.push(format!("arandu-chat-test-{}.json", nanos));
+
+        let initial = r#"{
+            "messages": [
+                {
+                    "role": "user",
+                    "timestamp": "t0",
+                    "model": "test",
+                    "content": "hello"
+                }
+            ]
+        }"#;
+        fs::write(&path, initial).expect("seed legacy json");
+
+        append_json_chat_message(
+            &path,
+            "assistant",
+            "world",
+            "test",
+            "t1",
+        )
+        .expect("append json chat message");
+
+        let updated = fs::read_to_string(&path).expect("read updated json chat");
+        let parsed = serde_json::from_str::<serde_json::Value>(&updated)
+            .expect("updated chat file should stay valid json");
+
+        let messages = parsed
+            .get("messages")
+            .and_then(|value| value.as_array())
+            .expect("messages array should exist after append");
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[1]["content"], "world");
+
+        fs::remove_file(&path).ok();
     }
 }

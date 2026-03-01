@@ -40,6 +40,7 @@ class TerminalManager {
                 console.log('[TerminalManager] Current config requested from chat UI');
                 await this.handleCurrentConfigRequest(event.source);
             } else if (event.data && event.data.type === 'chat-logs-request') {
+                console.log('[TerminalManager] Chat logs request received:', event.data.op);
                 await this.handleChatLogsRequest(event.data, event.source);
             }
         });
@@ -71,80 +72,6 @@ class TerminalManager {
             return this.terminals.get(activeWindow.id) || null;
         }
         return null;
-    }
-
-    async handleChatLogsRequest(data, sourceWindow) {
-        const invoke = this.getInvoke();
-        const requestId = data && data.request_id ? data.request_id : null;
-        const op = data && data.op ? data.op : '';
-        const payload = (data && data.payload) || {};
-        const terminalInfo = this.getTerminalInfoBySourceWindow(sourceWindow);
-        const modelLabel = terminalInfo
-            ? `${terminalInfo.modelName || 'Unknown Model'} (${terminalInfo.modelPath || 'unknown path'})`
-            : 'Unknown Model';
-
-        const send = (body) => {
-            sourceWindow.postMessage({
-                type: 'chat-logs-response',
-                request_id: requestId,
-                ...body
-            }, '*');
-        };
-
-        if (!invoke) {
-            send({ ok: false, error: 'Invoke not available' });
-            return;
-        }
-
-        try {
-            if (op === 'list') {
-                const result = await invoke('list_chat_logs');
-                send({ ok: true, result });
-                return;
-            }
-
-            if (op === 'search') {
-                const result = await invoke('search_chat_logs', { term: payload.term || '' });
-                send({ ok: true, result });
-                return;
-            }
-
-            if (op === 'create') {
-                const result = await invoke('create_chat_log', { model: modelLabel });
-                send({ ok: true, result });
-                return;
-            }
-
-            if (op === 'append') {
-                const result = await invoke('append_chat_log_message', {
-                    chat_id: payload.chatId,
-                    role: payload.role,
-                    content: payload.content,
-                    model: modelLabel
-                });
-                send({ ok: true, result });
-                return;
-            }
-
-            if (op === 'load') {
-                const result = await invoke('get_chat_log', { chat_id: payload.chatId });
-                send({ ok: true, result });
-                return;
-            }
-
-            if (op === 'rename') {
-                const result = await invoke('rename_chat_log', {
-                    chat_id: payload.chatId,
-                    title: payload.title
-                });
-                send({ ok: true, result });
-                return;
-            }
-
-            send({ ok: false, error: `Unsupported chat logs operation: ${op}` });
-        } catch (error) {
-            send({ ok: false, error: error && error.message ? error.message : String(error) });
-        }
     }
 
     parseLaunchArgSignature(launchArgs = '') {
@@ -485,6 +412,104 @@ class TerminalManager {
         }, '*');
     }
 
+    async handleChatLogsRequest(data, sourceWindow) {
+        const payload = (data && data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload))
+            ? data.payload
+            : {};
+        const op = data && typeof data.op === 'string'
+            ? data.op
+            : '';
+        const requestId = data && typeof data.request_id === 'string' && data.request_id.trim()
+            ? data.request_id
+            : '';
+
+        const hasRequestId = Boolean(requestId);
+
+        const sendResponse = (ok, payloadData, errorMessage) => {
+            if (!sourceWindow || !hasRequestId) return;
+            sourceWindow.postMessage({
+                type: 'chat-logs-response',
+                request_id: requestId,
+                ok,
+                ...(ok ? { result: payloadData } : { error: errorMessage })
+            }, '*');
+        };
+
+        try {
+            if (!hasRequestId) {
+                throw new Error('Missing request_id for chat logs request');
+            }
+
+            if (!op) {
+                throw new Error('Missing or invalid chat logs operation');
+            }
+
+            const invoke = this.getInvoke();
+            if (!invoke) {
+                throw new Error('Invoke not available');
+            }
+
+            let result;
+            if (op === 'list') {
+                result = await invoke('list_chat_logs');
+            } else if (op === 'search') {
+                result = await invoke('search_chat_logs', { term: payload.term || '' });
+            } else if (op === 'create') {
+                const model = typeof payload.model === 'string' ? payload.model : '';
+                result = await invoke('create_chat_log', { model: model });
+            } else if (op === 'load') {
+                const chatId = payload && (typeof payload.chatId === 'string' ? payload.chatId.trim() : '')
+                    || (payload && typeof payload.chat_id === 'string' ? payload.chat_id.trim() : '');
+                if (!chatId) {
+                    throw new Error('chatId is required for load');
+                }
+                result = await invoke('get_chat_log', { chatId: chatId });
+            } else if (op === 'append') {
+                const chatId = payload && (typeof payload.chatId === 'string' ? payload.chatId.trim() : '')
+                    || (payload && typeof payload.chat_id === 'string' ? payload.chat_id.trim() : '');
+                if (!chatId) {
+                    throw new Error('chatId is required for append');
+                }
+                if (!payload || typeof payload.role !== 'string' || !payload.role.trim()) {
+                    throw new Error('role is required for append');
+                }
+                result = await invoke('append_chat_log_message', {
+                    chatId: chatId,
+                    role: payload.role,
+                    content: typeof payload.content === 'string' ? payload.content : String(payload.content || ''),
+                    model: typeof payload.model === 'string' ? payload.model : ''
+                });
+            } else if (op === 'rename') {
+                const chatId = payload && (typeof payload.chatId === 'string' ? payload.chatId.trim() : '')
+                    || (payload && typeof payload.chat_id === 'string' ? payload.chat_id.trim() : '');
+                if (!chatId) {
+                    throw new Error('chatId is required for rename');
+                }
+                result = await invoke('rename_chat_log', {
+                    chatId: chatId,
+                    title: payload.title || 'Untitled Chat'
+                });
+            } else if (op === 'delete') {
+                const chatId = payload && (typeof payload.chatId === 'string' ? payload.chatId.trim() : '')
+                    || (payload && typeof payload.chat_id === 'string' ? payload.chat_id.trim() : '');
+                if (!chatId) {
+                    throw new Error('chatId is required for delete');
+                }
+                result = await invoke('delete_chat_log', {
+                    chatId: chatId
+                });
+            } else {
+                throw new Error(`Unsupported chat logs operation: ${op}`);
+            }
+
+            sendResponse(true, result);
+        } catch (error) {
+            const errorMsg = typeof error === 'string' ? error : (error && error.message ? error.message : String(error));
+            console.error('[TerminalManager] Chat logs request failed:', errorMsg, '| op:', op, '| payload:', JSON.stringify(payload));
+            sendResponse(false, null, errorMsg || 'Failed to process chat logs request');
+        }
+    }
+
     async handleRestartRequest(data, sourceWindow) {
         console.log('[TerminalManager] Handling restart request...');
         
@@ -707,8 +732,14 @@ const content = `
                         </div>
                         <div class="server-output" id="server-output-${windowId}"><div class="server-line server-system">Starting ${modelName}...</div><div class="server-line server-system">Process ID: ${processId}</div><div class="server-line server-system">Server will be available at: ${host}:${port}</span></div><div class="server-line server-system">Waiting for server output...</div></div>
                     </div>
-                    <div class="server-tab-panel" id="panel-chat-${windowId}" style="background: white;">
-                        <iframe src="http://${host}:${port}/?arandu_chat_ui_v=${Date.now()}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
+                    <div class="server-tab-panel server-chat-panel" id="panel-chat-${windowId}" style="background: white;">
+                        <div class="chat-section-model-label">${modelName}</div>
+                        <iframe
+                            class="chat-section-iframe"
+                            src="http://${host}:${port}/?arandu_chat_ui_v=${Date.now()}"
+                            frameBorder="0"
+                            loading="lazy">
+                        </iframe>
                     </div>
                 </div>
             </div>
@@ -723,16 +754,7 @@ const content = `
             // Inject tabs into header
             const header = window.querySelector('.window-header');
             if (header) {
-const tabsHtml = `
-                    <div class="server-tabs header-tabs">
-                        <div class="server-tab active" id="tab-terminal-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'terminal')" title="Terminal Output">
-                            <span class="material-icons">terminal</span>
-                        </div>
-                        <div class="server-tab" id="tab-chat-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'chat')" title="Native Chat" style="opacity: 0.5; pointer-events: none;">
-                            <span class="material-icons">chat</span>
-                        </div>
-                    </div>
-                `;
+                const tabsHtml = this.buildServerTabHeader(windowId, 'starting');
                 const titleElement = header.querySelector('.window-title');
                 if (titleElement) {
                     titleElement.insertAdjacentHTML('afterend', tabsHtml);
@@ -1101,6 +1123,24 @@ const tabsHtml = `
                 outputDiv.scrollTop = outputDiv.scrollHeight;
             }
         }
+    }
+
+    buildServerTabHeader(windowId, status) {
+        const isRunning = status === 'running';
+        const chatClass = isRunning ? 'server-tab pulse-animation' : 'server-tab';
+        const chatStyle = isRunning ? 'opacity: 1; pointer-events: auto;' : 'opacity: 0.5; pointer-events: none;';
+        const iconStyle = isRunning ? ' style="color: #4caf50;"' : '';
+
+        return `
+            <div class="server-tabs header-tabs">
+                <div class="server-tab active" id="tab-terminal-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'terminal')" title="Terminal Output">
+                    <span class="material-icons">terminal</span>
+                </div>
+                <div class="${chatClass}" id="tab-chat-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'chat')" title="Native Chat" style="${chatStyle}">
+                    <span class="material-icons"${iconStyle}>chat</span>
+                </div>
+            </div>
+        `;
     }
 
     refreshChatIframe(windowId) {
@@ -1526,62 +1566,147 @@ switchTab(windowId, tabName) {
         console.log(`Auto-switch ${this.autoSwitchEnabled ? 'enabled' : 'disabled'}`);
     }
 
-    openNativeChatForServer(modelName, host, port) {
+async openNativeChatForServer(modelName, host, port, modelPath) {
         const url = `http://${host}:${port}`;
-        const windowId = `native_chat_${Date.now()}`; // Unique ID for each window
 
-        // Setup iframe content
-        // We use an iframe that takes up the full window content and ensure it has white background
+        try {
+            this.desktop.showNotification(`Requesting model launch: ${modelName}...`, 'info');
+
+            const launchResponse = await fetch(`http://${host}:${port}/api/models/launch`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model_path: modelPath,
+                    server_host: host,
+                    server_port: port
+                })
+            });
+
+            // Check if response is JSON or plain text
+            const contentType = launchResponse.headers.get('content-type') || '';
+            let launchResult;
+
+            if (contentType.includes('application/json')) {
+                launchResult = await launchResponse.json();
+            } else {
+                // Server returned plain text error
+                const errorText = await launchResponse.text();
+                throw new Error(`Expected JSON but got text: ${errorText}`);
+            }
+
+            if (!launchResult.success) {
+                this.desktop.showNotification(`Failed to launch model: ${launchResult.message}`, 'error');
+                this.openNativeChatForServerError(host, port, `Model launch failed: ${launchResult.message}`);
+                return;
+            }
+
+            this.desktop.showNotification(`Model ${modelName} is ready!`, 'success');
+            this.openNativeChatForServerSuccess(
+                modelName,
+                host,
+                port,
+                launchResult.process_id,
+                launchResult.server_host,
+                launchResult.server_port
+            );
+
+        } catch (error) {
+            console.error('Launch error:', error);
+            this.desktop.showNotification(`Error launching model: ${error.message}`, 'error');
+            this.openNativeChatForServerError(host, port, `Launch request failed: ${error.message}`);
+        }
+    }
+
+    openNativeChatForServerSuccess(modelName, host, port, processId, serverHost, serverPort) {
+        const chatUrl = serverHost ? `http://${serverHost}:${serverPort}` : `http://${host}:${port}`;
+        const windowId = `native_chat_${Date.now()}`;
+
         const content = `
             <div style="width: 100%; height: 100%; display: flex; flex-direction: column; background: white;">
-                <iframe src="${url}" frameBorder="0" style="flex: 1; border: none; width: 100%; height: 100%;"></iframe>
+                <div style="padding: 8px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+                    <span>Process ID: ${processId}</span>
+                    <button id="stop-model-${windowId}" onclick="terminalManager.stopRemoteModel('${host}', ${port}, '${processId}')" style="padding: 4px 8px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Stop Model</button>
+                </div>
+                <iframe src="${chatUrl}" frameborder="0" style="flex: 1; border: none; width: 100%; height: 100%;"></iframe>
             </div>
         `;
 
-        // Create the window with host and port in title
-        this.desktop.createWindow(windowId, `Native Chat - ${modelName} (${host}:${port})`, 'browser-window', content);
+        this.desktop.createWindow(windowId, `Remote Chat - ${modelName} (${host}:${port})`, 'browser-window', content);
 
-        // Apply some specific styles if needed (desktop.js handles basic window creation)
         const windowElement = this.desktop.windows.get(windowId);
         if (windowElement) {
-            // Make it a decent size by default
             windowElement.style.width = '1000px';
             windowElement.style.height = '800px';
 
-            // Center it roughly
             const left = (window.innerWidth - 1000) / 2;
             const top = (window.innerHeight - 800) / 2;
             windowElement.style.left = `${Math.max(50, left)}px`;
             windowElement.style.top = `${Math.max(50, top)}px`;
 
-            // Bring to front
             windowElement.style.zIndex = this.desktop.windowZIndex + 1;
             this.desktop.windowZIndex += 1;
 
-            // Add taskbar item for this window with host and port in title
-            this.desktop.addTaskbarItem(`Native Chat - ${modelName} (${host}:${port})`, windowId, '<span class="material-icons">open_in_browser</span>');
+            this.desktop.addTaskbarItem(`Remote Chat - ${modelName} (${host}:${port})`, windowId, '<span class="material-icons">cloud</span>');
+        }
+    }
 
-            // Handle focus/click to bring to front
-            // Since iframe consumes clicks, we monitor window blur which happens when clicking into iframe
-            const iframe = windowElement.querySelector('iframe');
-            if (iframe) {
-                const blurHandler = () => {
-                    if (document.activeElement === iframe) {
-                        // Bring this window to front
-                        windowElement.style.zIndex = ++this.desktop.windowZIndex;
+    openNativeChatForServerError(host, port, errorMessage) {
+        const windowId = `chat_error_${Date.now()}`;
 
-                        // Update visual active state if possible (DesktopManager doesn't expose a clean method for this but we can try)
-                        // This mimics what happens in desktop.js mousedown handler
-                        document.querySelectorAll('.window').forEach(w => w.classList.remove('active'));
-                        windowElement.classList.add('active');
+        const content = `
+            <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; background: #fff5f5;">
+                <span class="material-icons" style="font-size: 48px; color: #dc2626; margin-bottom: 16px;">error</span>
+                <h2 style="margin: 0 0 12px 0; color: #991b1b;">Failed to Connect</h2>
+                <p style="margin: 0 0 24px 0; color: #7f1d1d; max-width: 600px;">
+                    ${errorMessage}<br>
+                    Server: ${host}:${port}
+                </p>
+                <p style="margin: 0; color: #991b1b; font-size: 12px;">The model may not be running on the remote server</p>
+            </div>
+        `;
 
-                        document.querySelectorAll('.taskbar-item').forEach(t => t.classList.remove('active'));
-                        const taskbarItem = document.getElementById(`taskbar-${windowId}`);
-                        if (taskbarItem) taskbarItem.classList.add('active');
-                    }
-                };
-                window.addEventListener('blur', blurHandler);
+        this.desktop.createWindow(windowId, `Connection Error - ${host}:${port}`, 'error-window', content);
+
+        const windowElement = this.desktop.windows.get(windowId);
+        if (windowElement) {
+            windowElement.style.width = '500px';
+            windowElement.style.height = '300px';
+
+            const left = (window.innerWidth - 500) / 2;
+            const top = (window.innerHeight - 300) / 2;
+            windowElement.style.left = `${Math.max(50, left)}px`;
+            windowElement.style.top = `${Math.max(50, top)}px`;
+
+            windowElement.style.zIndex = this.desktop.windowZIndex + 1;
+            this.desktop.windowZIndex += 1;
+        }
+    }
+
+async stopRemoteModel(host, port, processId) {
+        try {
+            this.desktop.showNotification(`Stopping model...`, 'info');
+
+            const response = await fetch(`http://${host}:${port}/api/models/stop`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    process_id: processId
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                this.desktop.showNotification(`Model stopped successfully`, 'success');
+            } else {
+                this.desktop.showNotification(`Failed to stop model: ${result.message}`, 'error');
             }
+        } catch (error) {
+            this.desktop.showNotification(`Error stopping model: ${error.message}`, 'error');
         }
     }
 
@@ -1811,8 +1936,14 @@ this.terminals.delete(windowId);
             ).join('') : '<div class="server-line">No saved output found</div>'}
                         </div>
                     </div>
-                    <div class="server-tab-panel" id="panel-chat-${windowId}" style="background: white;">
-                        <iframe src="http://${terminalData.host}:${terminalData.port}" frameBorder="0" style="width: 100%; height: 100%; border: none;"></iframe>
+                    <div class="server-tab-panel server-chat-panel" id="panel-chat-${windowId}" style="background: white;">
+                        <div class="chat-section-model-label">${terminalData.modelName}</div>
+                        <iframe
+                            class="chat-section-iframe"
+                            src="http://${terminalData.host}:${terminalData.port}"
+                            frameBorder="0"
+                            loading="lazy">
+                        </iframe>
                     </div>
                 </div>
             </div>
@@ -1823,16 +1954,7 @@ this.terminals.delete(windowId);
         // Inject tabs into header
         const header = window.querySelector('.window-header');
         if (header) {
-            const tabsHtml = `
-                <div class="server-tabs header-tabs">
-                    <div class="server-tab active" id="tab-terminal-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'terminal')" title="Terminal Output">
-                        <span class="material-icons">terminal</span>
-                    </div>
-                    <div class="server-tab" id="tab-chat-${windowId}" onclick="terminalManager.switchTab('${windowId}', 'chat')" title="Native Chat" style="${terminalData.status === 'running' ? 'opacity: 1; pointer-events: auto;' : 'opacity: 0.5; pointer-events: none;'}" class="${terminalData.status === 'running' ? 'server-tab pulse-animation' : 'server-tab'}">
-                        <span class="material-icons" style="${terminalData.status === 'running' ? 'color: #4caf50;' : ''}">chat</span>
-                    </div>
-                </div>
-            `;
+            const tabsHtml = this.buildServerTabHeader(windowId, terminalData.status);
             const titleElement = header.querySelector('.window-title');
             if (titleElement) {
                 titleElement.insertAdjacentHTML('afterend', tabsHtml);

@@ -57,8 +57,8 @@
             root.style.setProperty('--theme-bg-strong', selectedTheme.bgStrong);
         })();
     </script>
-    <script src="modules/search-history.js" defer></script>
-    <script src="modules/terminal-manager.js" defer></script>
+    <script src="modules/search-history.js" defer onerror="console.error('Failed to load search-history.js'); alert('Failed to load search-history.js. Please refresh.');"></script>
+    <script src="modules/terminal-manager.js" defer onerror="console.error('Failed to load terminal-manager.js'); alert('Failed to load terminal-manager.js. Please refresh.');"></script>
     <script src="desktop.js" defer></script>
     <script src="modules/modal-dialog.js" defer></script>
     <script src="modules/huggingface-app.js" defer></script>
@@ -97,14 +97,23 @@
             </div>
 
             <!-- View Toggle - Model Display Style -->
-            <div class="desktop-view-toggle" id="desktop-view-toggle" title="Toggle between icon and list view">
+            <div class="desktop-view-toggle" id="desktop-view-toggle" title="Toggle between view modes">
                 <button class="view-toggle-btn active" id="view-icon-btn" title="Icon View">
                     <span class="material-icons">grid_view</span>
                 </button>
-                <button class="view-toggle-btn" id="view-list-btn" title="List View (sorted by size)">
+                <button class="view-toggle-btn" id="view-list-btn" title="Local Models (sorted by size)">
                     <span class="material-icons">view_list</span>
                 </button>
+                <button class="view-toggle-btn" id="view-remote-btn" title="Remote LLMs">
+                    <span class="material-icons">cloud</span>
+                </button>
             </div>
+
+            <!-- Last Used Model -->
+            <button class="desktop-launch-last-btn" id="launch-last-model-btn" title="Launch last used model" disabled>
+                <span class="material-icons">history</span>
+                <span class="launch-last-model-text" id="launch-last-model-text">Last model</span>
+            </button>
         </div>
 
         <!-- Legacy Network Serve widget removed from desktop; MCP Manager is available from dock. -->
@@ -157,6 +166,9 @@
                 <div class="dock-progress-container hidden">
                     <div class="dock-progress-bar"></div>
                 </div>
+            </button>
+            <button class="dock-item permanent debug-dock-item" id="discovery-debug-dock-icon" title="Discovery Debug Log" data-app="debug">
+                <span class="material-icons">bug_report</span>
             </button>
             <div class="dock-separator"></div>
             <!-- Running applications will appear here -->
@@ -296,6 +308,102 @@
                     </button>
                     <small style="color: var(--ubuntu-text-muted); font-size: 11px;">Scan all models to find HuggingFace associations. This helps detect available updates.</small>
                 </div>
+                
+                <!-- Network Discovery Section -->
+                <div class="property-group" id="network-discovery-group">
+                    <h4><span class="material-icons">lan</span> Network Discovery</h4>
+                    
+                    <!-- Enable/Disable Toggle -->
+                    <div class="property-row" style="align-items: center; margin-bottom: 12px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="discovery-enabled" onchange="desktop.toggleDiscoveryEnabled()" style="width: 18px; height: 18px;">
+                            <span style="font-size: 13px; color: var(--theme-text);">Enable Network Discovery</span>
+                        </label>
+                        <span id="discovery-status-indicator" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--theme-bg-medium); color: var(--theme-text-muted); margin-left: auto;">Stopped</span>
+                        <span class="material-icons" style="font-size: 16px; color: var(--theme-text-muted); cursor: help; margin-left: 8px;" title="Allow other Arandu instances on your network to discover this instance and share models">help_outline</span>
+                    </div>
+                    
+                    <div id="discovery-settings" style="padding-left: 20px; border-left: 2px solid var(--theme-border);">
+                        <!-- Instance Name -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">Instance Name</label>
+                            <input type="text" class="property-input" id="discovery-instance-name" placeholder="My Arandu Instance" maxlength="50">
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">Name displayed to other instances on the network</small>
+                        </div>
+                        
+                        <!-- Discovery Port -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">Discovery Port (UDP)</label>
+                            <input type="number" class="property-input" id="discovery-port" placeholder="5352" min="1024" max="65535" value="5352">
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">UDP port for discovery beacons (1024-65535)</small>
+                        </div>
+                        
+                        <!-- API/Proxy Port -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">API Port (HTTP)</label>
+                            <input type="number" class="property-input" id="discovery-api-port" placeholder="8081" min="1024" max="65535" value="8081">
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">HTTP port for API access (model launch, control) - OpenAI proxy</small>
+                        </div>
+                        
+                        <!-- Chat Port -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">Chat Port (HTTP)</label>
+                            <input type="number" class="property-input" id="discovery-chat-port" placeholder="8080" min="1024" max="65535" value="8080">
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">HTTP port for chat UI (llama-server connection)</small>
+                        </div>
+                        
+                        <!-- Broadcast Interval -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">Broadcast Interval (seconds)</label>
+                            <input type="number" class="property-input" id="discovery-interval" placeholder="5" min="1" max="60" value="5">
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">How often to broadcast presence (1-60 seconds)</small>
+                        </div>
+                        
+                        <!-- Instance ID (Read-only) -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+                            <label style="font-size: 12px; color: var(--theme-text-muted); margin-bottom: 4px;">Instance ID</label>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="text" class="property-input" id="discovery-instance-id" readonly style="background: var(--theme-bg-medium); color: var(--theme-text-muted); font-family: monospace; font-size: 11px; flex: 1;">
+                                <button class="browse-btn" onclick="desktop.copyInstanceId()" title="Copy to clipboard" style="padding: 6px;">
+                                    <span class="material-icons" style="font-size: 16px;">content_copy</span>
+                                </button>
+                            </div>
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 2px;">Unique identifier for this instance (auto-generated)</small>
+                        </div>
+                        
+                        <!-- Discovered Instances -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-top: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="font-size: 12px; color: var(--theme-text); font-weight: 500;">Discovered Instances</label>
+                                <button class="browse-btn" onclick="desktop.refreshDiscoveredInstances()" title="Refresh discovered instances" style="padding: 4px 8px;">
+                                    <span class="material-icons" style="font-size: 16px;">refresh</span>
+                                </button>
+                            </div>
+                            
+                            <div id="discovered-instances-container" style="background: var(--theme-bg-medium); border: 1px solid var(--theme-border); border-radius: 6px; max-height: 150px; overflow-y: auto;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                    <thead style="background: var(--theme-surface); position: sticky; top: 0; z-index: 1;">
+                                        <tr>
+                                            <th style="padding: 6px; text-align: left; color: var(--theme-text-muted); font-weight: 500; border-bottom: 1px solid var(--theme-border);">Status</th>
+                                            <th style="padding: 6px; text-align: left; color: var(--theme-text-muted); font-weight: 500; border-bottom: 1px solid var(--theme-border);">Hostname</th>
+                                            <th style="padding: 6px; text-align: left; color: var(--theme-text-muted); font-weight: 500; border-bottom: 1px solid var(--theme-border);">IP</th>
+                                            <th style="padding: 6px; text-align: center; color: var(--theme-text-muted); font-weight: 500; border-bottom: 1px solid var(--theme-border);">Models</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="discovered-instances-list">
+                                        <tr id="no-instances-row">
+                                            <td colspan="4" style="padding: 16px; text-align: center; color: var(--theme-text-muted); font-style: italic; font-size: 11px;">
+                                                No instances discovered yet
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 4px;">Other Arandu instances visible on your local network</small>
+                        </div>
+                    </div>
+                </div>
+                
                 <button class="settings-window-save" id="save-config"><span class="material-icons">save</span> Save
                     Settings & Scan Models</button>
             </div>

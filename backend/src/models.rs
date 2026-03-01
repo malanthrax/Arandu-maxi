@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalConfig {
@@ -24,10 +25,21 @@ pub struct GlobalConfig {
     pub openai_proxy_port: u16,
     #[serde(default = "default_network_server_host")]
     pub network_server_host: String,
-    #[serde(default)]
+    #[serde(default = "default_network_server_port")]
     pub network_server_port: u16,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    // === NETWORK DISCOVERY CONFIGURATION ===
+    #[serde(default)]
+    pub discovery_enabled: bool,
+    #[serde(default = "default_discovery_port")]
+    pub discovery_port: u16,
+    #[serde(default = "default_discovery_broadcast_interval")]
+    pub discovery_broadcast_interval: u64,
+    #[serde(default = "default_discovery_instance_name")]
+    pub discovery_instance_name: String,
+    #[serde(default = "default_discovery_instance_id")]
+    pub discovery_instance_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -120,6 +132,37 @@ mod tests {
             .expect("legacy config should deserialize");
 
         assert_eq!(config.mcp_servers.len(), 0);
+        // Network discovery fields should have defaults
+        assert!(!config.discovery_enabled);
+        assert_eq!(config.discovery_port, 5353);
+        assert_eq!(config.discovery_broadcast_interval, 5);
+        assert!(!config.discovery_instance_name.is_empty());
+        assert!(!config.discovery_instance_id.is_empty());
+    }
+
+    #[test]
+    fn global_config_deserializes_with_discovery_fields() {
+        let payload = r#"{
+            "models_directory": "C:/tmp/models",
+            "additional_models_directories": [],
+            "executable_folder": "C:/tmp/llama",
+            "theme_color": "dark-gray",
+            "theme_is_synced": true,
+            "discovery_enabled": true,
+            "discovery_port": 8080,
+            "discovery_broadcast_interval": 10,
+            "discovery_instance_name": "My-Arandu-Instance",
+            "discovery_instance_id": "550e8400-e29b-41d4-a716-446655440000"
+        }"#;
+
+        let config: GlobalConfig = serde_json::from_str(payload)
+            .expect("config with discovery fields should deserialize");
+
+        assert!(config.discovery_enabled);
+        assert_eq!(config.discovery_port, 8080);
+        assert_eq!(config.discovery_broadcast_interval, 10);
+        assert_eq!(config.discovery_instance_name, "My-Arandu-Instance");
+        assert_eq!(config.discovery_instance_id, "550e8400-e29b-41d4-a716-446655440000");
     }
 
     #[test]
@@ -252,6 +295,30 @@ fn default_network_server_host() -> String {
     "127.0.0.1".to_string()
 }
 
+fn default_network_server_port() -> u16 {
+    8080
+}
+
+// === NETWORK DISCOVERY DEFAULT FUNCTIONS ===
+fn default_discovery_port() -> u16 {
+    5353
+}
+
+fn default_discovery_broadcast_interval() -> u64 {
+    5
+}
+
+fn default_discovery_instance_name() -> String {
+    hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "Arandu-PC".to_string())
+}
+
+fn default_discovery_instance_id() -> String {
+    Uuid::new_v4().to_string()
+}
+
 impl Default for GlobalConfig {
     fn default() -> Self {
         let base_dir = dirs::home_dir().unwrap_or_default().join(".Arandu");
@@ -269,6 +336,12 @@ impl Default for GlobalConfig {
             network_server_host: "127.0.0.1".to_string(),
             network_server_port: 8080,
             mcp_servers: Vec::new(),
+            // === NETWORK DISCOVERY DEFAULTS ===
+            discovery_enabled: false,
+            discovery_port: default_discovery_port(),
+            discovery_broadcast_interval: default_discovery_broadcast_interval(),
+            discovery_instance_name: default_discovery_instance_name(),
+            discovery_instance_id: default_discovery_instance_id(),
         }
     }
 }
@@ -424,6 +497,59 @@ pub struct ProcessOutput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ModelStatus {
+    Starting,
+    Ready,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveModel {
+    pub process_id: String,
+    pub model_path: String,
+    pub model_name: String,
+    pub host: String,
+    pub port: u16,
+    pub server_host: String,
+    pub server_port: u16,
+    pub status: ModelStatus,
+    pub launched_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteLaunchRequest {
+    pub model_path: String,
+    pub server_host: Option<String>,
+    pub server_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteLaunchResponse {
+    pub success: bool,
+    pub message: String,
+    pub process_id: Option<String>,
+    pub server_host: Option<String>,
+    pub server_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteStopRequest {
+    pub process_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteStopResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteActiveModelsResponse {
+    pub success: bool,
+    pub models: Vec<ActiveModel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
     pub windows: HashMap<String, WindowState>,
     pub terminals: HashMap<String, TerminalState>,
@@ -531,14 +657,6 @@ pub struct ModelDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GgufFileInfo {
-    pub filename: String,
-    pub path: String,
-    pub size: u64,
-    pub quantization_type: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadStartResult {
     pub download_id: String,
     pub message: String,
@@ -566,6 +684,14 @@ pub struct HFFileInfo {
     pub filename: String,
     pub size: i64,
     pub last_modified: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GgufFileInfo {
+    pub filename: String,
+    pub path: String,
+    pub size: u64,
+    pub quantization_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -631,3 +757,7 @@ pub struct WeeklyReport {
     pub categories: HashMap<String, u32>,
     pub top_downloads: Vec<TrackerModel>,
 }
+
+// Note: DiscoveredPeer, RemoteModel, and DiscoveryStatus are defined in discovery.rs
+// Re-export them here for use in other modules
+pub use crate::discovery::{DiscoveredPeer, DiscoveryStatus};

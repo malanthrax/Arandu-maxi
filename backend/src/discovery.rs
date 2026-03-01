@@ -26,17 +26,21 @@ pub struct DiscoveryBeacon {
     pub instance_id: String,
     pub hostname: String,
     pub api_endpoint: String,
+    pub api_port: u16,
+    pub chat_port: u16,
     pub timestamp: String,
 }
 
 impl DiscoveryBeacon {
-    pub fn new(instance_id: String, hostname: String, api_endpoint: String) -> Self {
+    pub fn new(instance_id: String, hostname: String, api_endpoint: String, api_port: u16, chat_port: u16) -> Self {
         Self {
             protocol: DISCOVERY_PROTOCOL.to_string(),
             version: DISCOVERY_VERSION.to_string(),
             instance_id,
             hostname,
             api_endpoint,
+            api_port,
+            chat_port,
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -48,6 +52,7 @@ pub struct DiscoveredPeer {
     pub hostname: String,
     pub ip_address: String,
     pub api_port: u16,
+    pub chat_port: u16,
     pub api_endpoint: String,
     pub last_seen: DateTime<Utc>,
     pub is_reachable: bool,
@@ -67,6 +72,7 @@ pub struct RemoteModel {
     pub quantization: Option<String>,
     pub architecture: Option<String>,
     pub date: Option<i64>,
+    pub path: Option<String>,
 }
 
 impl RemoteModel {
@@ -89,6 +95,7 @@ impl RemoteModel {
             quantization: model.quantization,
             architecture: model.architecture,
             date: model.date,
+            path: model.path,
         }
     }
 }
@@ -107,6 +114,8 @@ pub struct DiscoveryService {
     instance_id: String,
     hostname: String,
     api_endpoint: String,
+    api_port: u16,
+    chat_port: u16,
     broadcast_socket: Option<Arc<UdpSocket>>,
     listen_socket: Option<Arc<UdpSocket>>,
     peers: PeerCache,
@@ -122,6 +131,8 @@ impl DiscoveryService {
         instance_id: String,
         hostname: String,
         api_endpoint: String,
+        api_port: u16,
+        chat_port: u16,
         app_handle: Option<tauri::AppHandle>,
     ) -> Self {
         Self {
@@ -129,6 +140,8 @@ impl DiscoveryService {
             instance_id,
             hostname,
             api_endpoint,
+            api_port,
+            chat_port,
             broadcast_socket: None,
             listen_socket: None,
             peers: Arc::new(Mutex::new(HashMap::new())),
@@ -175,6 +188,8 @@ impl DiscoveryService {
             self.instance_id.clone(),
             self.hostname.clone(),
             self.api_endpoint.clone(),
+            self.api_port,
+            self.chat_port,
         );
 
         let beacon_json =
@@ -297,6 +312,7 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
                                     hostname: beacon.hostname.clone(),
                                     ip_address: peer_ip.clone(),
                                     api_port: peer_port,
+                                    chat_port: beacon.chat_port,
                                     api_endpoint: beacon.api_endpoint.clone(),
                                     last_seen: Utc::now(),
                                     is_reachable: true,
@@ -577,29 +593,26 @@ impl DiscoveryService {
     }
     
     /// Get the port used by this discovery service
-    pub fn get_port(&self) -> u16 {
+pub fn get_port(&self) -> u16 {
         self.port
     }
-    
-    /// Get the instance ID
+
+    pub fn get_api_port(&self) -> u16 {
+        self.api_port
+    }
+
+    pub fn get_chat_port(&self) -> u16 {
+        self.chat_port
+    }
+
     pub fn get_instance_id(&self) -> &str {
         &self.instance_id
     }
-    
-    /// Get the hostname/instance name
+
     pub fn get_hostname(&self) -> &str {
         &self.hostname
     }
-
-    /// Get the API port from the api_endpoint
-    pub fn get_api_port(&self) -> u16 {
-        self.api_endpoint
-            .split(':')
-            .last()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(8081)
-    }
-
+    
     /// Start both broadcasting and listening
     pub async fn start(&mut self) -> Result<(), String> {
         if !self.is_running() {
@@ -639,11 +652,12 @@ impl DiscoveryService {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveryStatus {
     pub enabled: bool,
-    pub instance_id: String,
-    pub instance_name: String,
     pub port: u16,
     pub api_port: u16,
-    pub broadcast_interval_secs: u64,
+    pub chat_port: u16,
+    pub broadcast_interval: u64,
+    pub instance_name: String,
+    pub instance_id: String,
 }
 
 impl Default for DiscoveryStatus {
@@ -654,7 +668,8 @@ impl Default for DiscoveryStatus {
             instance_name: String::new(),
             port: 0,
             api_port: 8081,
-            broadcast_interval_secs: 30,
+            chat_port: 8080,
+            broadcast_interval: 5,
         }
     }
 }
@@ -669,6 +684,8 @@ mod tests {
             "test-instance-123".to_string(),
             "TestHost".to_string(),
             "http://192.168.1.100:8081".to_string(),
+            8081,
+            8080,
         );
 
         let json = serde_json::to_string(&beacon).unwrap();
@@ -679,6 +696,8 @@ mod tests {
         assert_eq!(deserialized.instance_id, "test-instance-123");
         assert_eq!(deserialized.hostname, "TestHost");
         assert_eq!(deserialized.api_endpoint, "http://192.168.1.100:8081");
+        assert_eq!(deserialized.api_port, 8081);
+        assert_eq!(deserialized.chat_port, 8080);
     }
 
     #[test]
