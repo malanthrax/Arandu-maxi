@@ -5156,10 +5156,21 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         }
 
         // Flatten all remote models from all peers into a single list
+        const seenRemoteModelKeys = new Set();
         let allRemoteModels = [];
         this.discoveredPeers.forEach((peer) => {
             if (peer.models && peer.models.length > 0) {
                 peer.models.forEach((model) => {
+                    const modelPathKey = String(model.path || '').toLowerCase();
+                    const modelIdKey = String(model.id || model.name || '').toLowerCase();
+                    const peerKey = `${peer.ip_address || ''}:${peer.api_port || 0}`;
+                    const dedupeKey = `${peerKey}|${modelPathKey || modelIdKey}`;
+
+                    if (seenRemoteModelKeys.has(dedupeKey)) {
+                        return;
+                    }
+                    seenRemoteModelKeys.add(dedupeKey);
+
                     allRemoteModels.push({
                         ...model,
                         peer_hostname: peer.hostname,

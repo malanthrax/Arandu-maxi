@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,6 +134,26 @@ pub struct DiscoveryService {
 }
 
 impl DiscoveryService {
+    fn dedupe_remote_models(models: Vec<RemoteModel>) -> Vec<RemoteModel> {
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut deduped = Vec::with_capacity(models.len());
+
+        for model in models {
+            let key = model
+                .path
+                .as_ref()
+                .map(|path| path.to_lowercase())
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| model.id.to_lowercase());
+
+            if seen.insert(key) {
+                deduped.push(model);
+            }
+        }
+
+        deduped
+    }
+
     pub fn new(
         port: u16,
         instance_id: String,
@@ -724,6 +744,8 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
             })
             .collect();
 
+        let remote_models = Self::dedupe_remote_models(remote_models);
+
         // Log successful response
         self.log_event(
             "RECV",
@@ -837,17 +859,29 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
         if let Some(cache) = &self.peer_model_cache {
             let cached_peers = cache.get_all_peers().await;
             let mut merged_peers: HashMap<String, DiscoveredPeer> = runtime_peers;
+            let runtime_endpoint_keys: HashSet<String> = merged_peers
+                .values()
+                .map(|peer| format!("{}:{}", peer.ip_address, peer.api_port))
+                .collect();
 
             // Add cached peers that aren't in runtime (but mark as unreachable)
             for cached in cached_peers {
                 if let Some(peer) = merged_peers.get_mut(&cached.instance_id) {
                     // Merge: use cached models if runtime has none
                     if peer.models.is_empty() && !cached.models.is_empty() {
-                        peer.models = cached.models;
+                        peer.models = Self::dedupe_remote_models(cached.models);
                         peer.models_from_cache = true;
                         peer.cache_last_updated = Some(cached.last_updated);
                     }
                 } else {
+                    let cached_endpoint_key = format!("{}:{}", cached.ip_address, cached.api_port);
+
+                    // If runtime already has the same endpoint under a different instance_id,
+                    // skip stale cached duplicate to prevent repeated model rows on load.
+                    if runtime_endpoint_keys.contains(&cached_endpoint_key) {
+                        continue;
+                    }
+
                     // Add cached peer as offline
                     let offline_peer = DiscoveredPeer {
                         instance_id: cached.instance_id,
@@ -860,7 +894,7 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
                         is_reachable: false, // Mark as offline
                         models_from_cache: true,
                         cache_last_updated: Some(cached.last_updated),
-                        models: cached.models,
+                        models: Self::dedupe_remote_models(cached.models),
                     };
                     merged_peers.insert(offline_peer.instance_id.clone(), offline_peer);
                 }

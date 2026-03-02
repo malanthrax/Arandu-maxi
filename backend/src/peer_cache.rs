@@ -158,6 +158,34 @@ impl PeerModelCache {
         is_reachable: bool,
     ) -> PeerModelDelta {
         let mut cache = self.cache.lock().await;
+
+        // If a peer rotates instance_id across restarts but stays on same endpoint,
+        // drop older cache identities to prevent duplicate remote model rows.
+        let duplicate_instance_ids: Vec<String> = cache
+            .peers
+            .iter()
+            .filter_map(|(id, peer)| {
+                if id != &instance_id
+                    && peer.ip_address == ip_address
+                    && peer.api_port == api_port
+                {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for duplicate_id in duplicate_instance_ids {
+            cache.peers.remove(&duplicate_id);
+            info!(
+                "Removed stale peer cache identity {} for endpoint {}:{}",
+                duplicate_id,
+                ip_address,
+                api_port
+            );
+        }
+
         let old_models = cache
             .peers
             .get(&instance_id)
