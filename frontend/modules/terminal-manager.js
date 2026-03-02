@@ -1566,13 +1566,51 @@ switchTab(windowId, tabName) {
         console.log(`Auto-switch ${this.autoSwitchEnabled ? 'enabled' : 'disabled'}`);
     }
 
-async openNativeChatForServer(modelName, host, port, modelPath) {
-        const url = `http://${host}:${port}`;
+async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
+        // chatPort is the llama-server UI port (default 8080)
+        // apiPort is the Arandu API port (default 8081)
+        const resolvedChatPort = chatPort || 8080;
+
+        if (!modelPath) {
+            this.desktop.showNotification(`Cannot launch: model path is missing`, 'error');
+            this.openNativeChatForServerError(host, apiPort, 'Model path is missing. The remote peer may need to be re-discovered.');
+            return;
+        }
 
         try {
+            // Reuse already-loaded model on server when possible.
+            const activeModels = await this.fetchRemoteActiveModels(host, apiPort);
+            const targetModelPath = this.normalizeModelPath(modelPath);
+            const alreadyLoaded = activeModels.find((model) =>
+                this.normalizeModelPath(model.model_path) === targetModelPath
+            );
+
+            if (alreadyLoaded) {
+                const activeChatHost = (alreadyLoaded.server_host && alreadyLoaded.server_host !== '0.0.0.0')
+                    ? alreadyLoaded.server_host
+                    : host;
+                const activeChatPort = Number(alreadyLoaded.server_port) > 0
+                    ? Number(alreadyLoaded.server_port)
+                    : resolvedChatPort;
+
+                this.desktop.showNotification(`Model already loaded on ${host}, connecting...`, 'info');
+                this.openNativeChatForServerSuccess(
+                    modelName,
+                    host,
+                    apiPort,
+                    alreadyLoaded.process_id,
+                    activeChatHost,
+                    activeChatPort
+                );
+                if (this.desktop && typeof this.desktop.refreshRemoteActiveModels === 'function') {
+                    void this.desktop.refreshRemoteActiveModels(true);
+                }
+                return;
+            }
+
             this.desktop.showNotification(`Requesting model launch: ${modelName}...`, 'info');
 
-            const launchResponse = await fetch(`http://${host}:${port}/api/models/launch`, {
+            const launchResponse = await fetch(`http://${host}:${apiPort}/api/models/launch`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1580,7 +1618,7 @@ async openNativeChatForServer(modelName, host, port, modelPath) {
                 body: JSON.stringify({
                     model_path: modelPath,
                     server_host: host,
-                    server_port: port
+                    server_port: resolvedChatPort
                 })
             });
 
@@ -1591,14 +1629,30 @@ async openNativeChatForServer(modelName, host, port, modelPath) {
             if (contentType.includes('application/json')) {
                 launchResult = await launchResponse.json();
             } else {
-                // Server returned plain text error
                 const errorText = await launchResponse.text();
                 throw new Error(`Expected JSON but got text: ${errorText}`);
             }
 
             if (!launchResult.success) {
                 this.desktop.showNotification(`Failed to launch model: ${launchResult.message}`, 'error');
-                this.openNativeChatForServerError(host, port, `Model launch failed: ${launchResult.message}`);
+                this.openNativeChatForServerError(host, apiPort, `Model launch failed: ${launchResult.message}`);
+                return;
+            }
+
+            // Poll for model readiness — llama-server takes time to load the model
+            this.desktop.showNotification(`Model launching, waiting for it to be ready...`, 'info');
+            const launchedChatHost = (launchResult.server_host && launchResult.server_host !== '0.0.0.0')
+                ? launchResult.server_host
+                : host;
+            const launchedChatPort = Number(launchResult.server_port) > 0
+                ? Number(launchResult.server_port)
+                : resolvedChatPort;
+            const chatUrl = `http://${launchedChatHost}:${launchedChatPort}`;
+            const ready = await this.waitForModelReady(chatUrl, 60, 2000);
+
+            if (!ready) {
+                this.desktop.showNotification(`Model launch timed out`, 'error');
+                this.openNativeChatForServerError(host, apiPort, `Model did not become ready within 60 seconds. It may still be loading — try opening manually at ${chatUrl}`);
                 return;
             }
 
@@ -1606,49 +1660,103 @@ async openNativeChatForServer(modelName, host, port, modelPath) {
             this.openNativeChatForServerSuccess(
                 modelName,
                 host,
-                port,
+                apiPort,
                 launchResult.process_id,
-                launchResult.server_host,
-                launchResult.server_port
+                launchedChatHost,
+                launchedChatPort
             );
+            if (this.desktop && typeof this.desktop.refreshRemoteActiveModels === 'function') {
+                void this.desktop.refreshRemoteActiveModels(true);
+            }
 
         } catch (error) {
             console.error('Launch error:', error);
             this.desktop.showNotification(`Error launching model: ${error.message}`, 'error');
-            this.openNativeChatForServerError(host, port, `Launch request failed: ${error.message}`);
+            this.openNativeChatForServerError(host, apiPort, `Launch request failed: ${error.message}`);
         }
     }
 
-    openNativeChatForServerSuccess(modelName, host, port, processId, serverHost, serverPort) {
-        const chatUrl = serverHost ? `http://${serverHost}:${serverPort}` : `http://${host}:${port}`;
+    normalizeModelPath(path) {
+        return String(path || '').replace(/\\/g, '/').toLowerCase();
+    }
+
+    async fetchRemoteActiveModels(host, apiPort) {
+        try {
+            const response = await fetch(`http://${host}:${apiPort}/api/models/active`, {
+                signal: AbortSignal.timeout(4000)
+            });
+
+            if (!response.ok) {
+                return [];
+            }
+
+            const payload = await response.json();
+            if (!payload || payload.success !== true || !Array.isArray(payload.models)) {
+                return [];
+            }
+
+            return payload.models;
+        } catch (_) {
+            return [];
+        }
+    }
+
+    async waitForModelReady(chatUrl, maxAttempts, intervalMs) {
+        for (let i = 0; i < maxAttempts; i++) {
+            try {
+                const response = await fetch(`${chatUrl}/health`, { signal: AbortSignal.timeout(3000) });
+                if (response.ok) {
+                    return true;
+                }
+            } catch (e) {
+                // Not ready yet, keep polling
+            }
+            await new Promise(resolve => setTimeout(resolve, intervalMs));
+        }
+        return false;
+    }
+
+    openNativeChatForServerSuccess(modelName, host, apiPort, processId, chatHost, chatPort) {
+        // chatHost and chatPort are the peer's IP and llama-server UI port
+        const chatUrl = `http://${chatHost}:${chatPort}`;
         const windowId = `native_chat_${Date.now()}`;
 
         const content = `
             <div style="width: 100%; height: 100%; display: flex; flex-direction: column; background: white;">
                 <div style="padding: 8px; background: #f5f5f5; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
                     <span>Process ID: ${processId}</span>
-                    <button id="stop-model-${windowId}" onclick="terminalManager.stopRemoteModel('${host}', ${port}, '${processId}')" style="padding: 4px 8px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Stop Model</button>
+                    <button id="stop-model-${windowId}" onclick="terminalManager.stopRemoteModel('${host}', ${apiPort}, '${processId}')" style="padding: 4px 8px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">Stop Model</button>
                 </div>
                 <iframe src="${chatUrl}" frameborder="0" style="flex: 1; border: none; width: 100%; height: 100%;"></iframe>
             </div>
         `;
 
-        this.desktop.createWindow(windowId, `Remote Chat - ${modelName} (${host}:${port})`, 'browser-window', content);
+        const windowElement = this.desktop.createWindow(
+            windowId,
+            `Remote Chat - ${modelName} (${host}:${apiPort})`,
+            'browser-window',
+            content
+        );
 
-        const windowElement = this.desktop.windows.get(windowId);
         if (windowElement) {
-            windowElement.style.width = '1000px';
-            windowElement.style.height = '800px';
+            const targetWidth = Math.round(Math.max(1100, Math.min(window.innerWidth * 0.9, 1700)));
+            const targetHeight = Math.round(Math.max(760, Math.min(window.innerHeight * 0.88, 1200)));
 
-            const left = (window.innerWidth - 1000) / 2;
-            const top = (window.innerHeight - 800) / 2;
-            windowElement.style.left = `${Math.max(50, left)}px`;
-            windowElement.style.top = `${Math.max(50, top)}px`;
+            windowElement.style.width = `${targetWidth}px`;
+            windowElement.style.height = `${targetHeight}px`;
+            windowElement.style.transform = 'none';
+
+            const left = (window.innerWidth - targetWidth) / 2;
+            const top = (window.innerHeight - targetHeight) / 2;
+            windowElement.style.left = `${Math.max(24, Math.round(left))}px`;
+            windowElement.style.top = `${Math.max(24, Math.round(top))}px`;
+            windowElement.dataset.savedWidth = String(targetWidth);
+            windowElement.dataset.savedHeight = String(targetHeight);
 
             windowElement.style.zIndex = this.desktop.windowZIndex + 1;
             this.desktop.windowZIndex += 1;
 
-            this.desktop.addTaskbarItem(`Remote Chat - ${modelName} (${host}:${port})`, windowId, '<span class="material-icons">cloud</span>');
+            this.desktop.addTaskbarItem(`Remote Chat - ${modelName} (${host}:${apiPort})`, windowId, '<span class="material-icons">cloud</span>');
         }
     }
 
@@ -1667,12 +1775,12 @@ async openNativeChatForServer(modelName, host, port, modelPath) {
             </div>
         `;
 
-        this.desktop.createWindow(windowId, `Connection Error - ${host}:${port}`, 'error-window', content);
+        const windowElement = this.desktop.createWindow(windowId, `Connection Error - ${host}:${port}`, 'error-window', content);
 
-        const windowElement = this.desktop.windows.get(windowId);
         if (windowElement) {
             windowElement.style.width = '500px';
             windowElement.style.height = '300px';
+            windowElement.style.transform = 'none';
 
             const left = (window.innerWidth - 500) / 2;
             const top = (window.innerHeight - 300) / 2;
@@ -1702,6 +1810,9 @@ async stopRemoteModel(host, port, processId) {
 
             if (result.success) {
                 this.desktop.showNotification(`Model stopped successfully`, 'success');
+                if (this.desktop && typeof this.desktop.refreshRemoteActiveModels === 'function') {
+                    void this.desktop.refreshRemoteActiveModels(true);
+                }
             } else {
                 this.desktop.showNotification(`Failed to stop model: ${result.message}`, 'error');
             }

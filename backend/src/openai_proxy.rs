@@ -15,12 +15,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::info;
 use crate::openai_types::{
     ChatCompletionRequest, AudioTranscriptionRequest, AudioTranscriptionResponse,
     AudioSpeechRequest, ImageGenerationRequest,
     ModelInfo, ModelsResponse, OpenAIError, OpenAIErrorResponse
 };
 use crate::llama_client::LlamaClient;
+use crate::AppState;
+use crate::models::{ActiveModel, ModelStatus, ProcessStatus};
+
+fn normalize_model_path(path: &str) -> String {
+    path.replace('\\', "/").to_lowercase()
+}
 
 /// OpenAI-compatible API proxy server
 #[derive(Debug)]
@@ -28,35 +35,47 @@ pub struct ProxyServer {
     llama_server_url: String,
     proxy_port: u16,
     shutdown_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    models_directories: Vec<String>,
 }
 
 impl ProxyServer {
-    pub fn new(llama_server_host: String, llama_server_port: u16, proxy_port: u16) -> Self {
+    pub fn new(llama_server_host: String, llama_server_port: u16, proxy_port: u16, models_directories: Vec<String>) -> Self {
         Self {
             llama_server_url: format!("http://{}:{}", llama_server_host, llama_server_port),
             proxy_port,
             shutdown_tx: None,
+            models_directories,
         }
     }
 
-    pub async fn start(&mut self) -> Result<(), String> {
+    pub async fn start(&mut self, app_state: Arc<AppState>) -> Result<(), String> {
         // Configure CORS to allow all origins (needed for cross-LAN access)
         let cors = CorsLayer::new()
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any);
 
+        let models_dirs = self.models_directories.clone();
+
         let app = Router::new()
             .route("/v1/models", get(list_models))
+            .route("/v1/models/arandu", get(list_models_arandu))
             .route("/v1/chat/completions", post(chat_completions))
             .route("/v1/audio/transcriptions", post(audio_transcriptions))
             .route("/v1/audio/speech", post(audio_speech))
             .route("/v1/images/generations", post(image_generations))
             .route("/health", get(health_check))
+
+            .route("/api/models/launch", post(launch_model))
+            .route("/api/models/stop", post(stop_model))
+            .route("/api/models/active", get(list_active_models))
+
             .layer(cors)
             .with_state(Arc::new(RwLock::new(ProxyState {
                 llama_server_url: self.llama_server_url.clone(),
                 llama_client: LlamaClient::new(self.llama_server_url.clone()),
+                models_directories: models_dirs,
+                app_state,
             })));
 
         let addr = SocketAddr::from(([0, 0, 0, 0], self.proxy_port));
@@ -69,6 +88,9 @@ impl ProxyServer {
             .map_err(|e| format!("Failed to bind proxy server: {}", e))?;
 
         println!("OpenAI proxy server starting on {}", addr);
+        
+        // Log successful startup
+        info!("OpenAI proxy server bound to {} and ready to accept connections", addr);
 
         tokio::spawn(async move {
             axum::serve(listener, app)
@@ -93,6 +115,8 @@ impl ProxyServer {
 pub struct ProxyState {
     pub llama_server_url: String,
     pub llama_client: LlamaClient,
+    pub models_directories: Vec<String>,
+    pub app_state: Arc<AppState>,
 }
 
 // ============== HANDLER FUNCTIONS ==============
@@ -132,6 +156,11 @@ async fn list_models(
                         object: "model".to_string(),
                         created: chrono::Utc::now().timestamp(),
                         owned_by: "llama.cpp".to_string(),
+                        size_gb: None,
+                        quantization: None,
+                        architecture: None,
+                        date: None,
+                        path: None,
                     }];
                     let response = ModelsResponse {
                         object: "list".to_string(),
@@ -146,6 +175,11 @@ async fn list_models(
                         object: "model".to_string(),
                         created: chrono::Utc::now().timestamp(),
                         owned_by: "llama.cpp".to_string(),
+                        size_gb: None,
+                        quantization: None,
+                        architecture: None,
+                        date: None,
+                        path: None,
                     }];
                     let response = ModelsResponse {
                         object: "list".to_string(),
@@ -165,6 +199,71 @@ async fn list_models(
                 },
             };
             (StatusCode::SERVICE_UNAVAILABLE, Json(error)).into_response()
+        }
+    }
+}
+
+// New endpoint for Arandu network discovery - returns all available models with full metadata
+async fn list_models_arandu(
+    State(state): State<Arc<RwLock<ProxyState>>>,
+) -> impl IntoResponse {
+    let state_guard = state.read().await;
+    let model_directories = state_guard.models_directories.clone();
+    let app_state = state_guard.app_state.clone();
+    drop(state_guard);
+
+    let fake_enabled = {
+        let flag = app_state.fake_discovery_model_enabled.lock().await;
+        *flag
+    };
+
+    // Scan all model directories
+    match crate::scanner::scan_models(&model_directories).await {
+        Ok(scanned_models) => {
+            // Convert scanned ModelInfo to OpenAI ModelInfo format with Arandu extensions
+            let mut models: Vec<ModelInfo> = scanned_models
+                .into_iter()
+                .map(|model| ModelInfo {
+                    id: model.name.clone(),
+                    object: "model".to_string(),
+                    created: model.date,
+                    owned_by: "arandu".to_string(),
+                    size_gb: Some(model.size_gb),
+                    quantization: Some(model.quantization),
+                    architecture: Some(model.architecture),
+                    date: Some(model.date),
+                    path: Some(model.path.clone()),
+                })
+                .collect();
+
+            if fake_enabled {
+                models.push(ModelInfo {
+                    id: "arandu-test-fake-model.gguf".to_string(),
+                    object: "model".to_string(),
+                    created: chrono::Utc::now().timestamp(),
+                    owned_by: "arandu-test".to_string(),
+                    size_gb: Some(0.01),
+                    quantization: Some("Q4_TEST".to_string()),
+                    architecture: Some("test".to_string()),
+                    date: Some(chrono::Utc::now().timestamp()),
+                    path: Some("__ARANDU_FAKE_MODEL__".to_string()),
+                });
+            }
+
+            let response = ModelsResponse {
+                object: "list".to_string(),
+                data: models,
+            };
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            eprintln!("Error scanning models for /v1/models/arandu: {}", e);
+            // Return empty list on error
+            let response = ModelsResponse {
+                object: "list".to_string(),
+                data: vec![],
+            };
+            (StatusCode::OK, Json(response)).into_response()
         }
     }
 }
@@ -316,5 +415,208 @@ async fn handle_streaming_completion(
         }
     };
     
-    Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
+// ============== REMOTE MODEL LAUNCH ENDPOINTS ==============
+
+async fn launch_model(
+    State(state): State<Arc<RwLock<ProxyState>>>,
+    Json(request): Json<crate::models::RemoteLaunchRequest>,
+) -> Json<crate::models::RemoteLaunchResponse> {
+    use crate::models::RemoteLaunchResponse;
+
+    let state_guard = state.read().await;
+    let app_state = state_guard.app_state.clone();
+    let model_directories = state_guard.models_directories.clone();
+    drop(state_guard);
+
+    let requested_path = request.model_path;
+    let requested_norm = normalize_model_path(&requested_path);
+
+    let scanned_models = match crate::scanner::scan_models(&model_directories).await {
+        Ok(models) => models,
+        Err(e) => {
+            return Json(RemoteLaunchResponse {
+                success: false,
+                message: format!("Failed to enumerate server model library: {}", e),
+                process_id: None,
+                server_host: None,
+                server_port: None,
+            });
+        }
+    };
+
+    let canonical_model_path = match scanned_models
+        .iter()
+        .find(|model| normalize_model_path(&model.path) == requested_norm)
+    {
+        Some(model) => model.path.clone(),
+        None => {
+            return Json(RemoteLaunchResponse {
+                success: false,
+                message: "Requested model is not in this server's configured model library".to_string(),
+                process_id: None,
+                server_host: None,
+                server_port: None,
+            });
+        }
+    };
+
+    if let Err(e) = tokio::fs::File::open(&canonical_model_path).await {
+        return Json(RemoteLaunchResponse {
+            success: false,
+            message: format!("Server cannot read requested model file: {}", e),
+            process_id: None,
+            server_host: None,
+            server_port: None,
+        });
+    }
+
+    let existing_active = {
+        let active_models = app_state.active_models.lock().await;
+        active_models
+            .values()
+            .find(|active| normalize_model_path(&active.model_path) == requested_norm)
+            .cloned()
+    };
+
+    if let Some(existing) = existing_active {
+        let is_running = {
+            let running = app_state.running_processes.lock().await;
+            running
+                .get(&existing.process_id)
+                .map(|proc| matches!(proc.status, ProcessStatus::Starting | ProcessStatus::Running))
+                .unwrap_or(false)
+        };
+
+        if is_running {
+            return Json(RemoteLaunchResponse {
+                success: true,
+                message: "Model already loaded on server".to_string(),
+                process_id: Some(existing.process_id),
+                server_host: Some(existing.server_host),
+                server_port: Some(existing.server_port),
+            });
+        }
+
+        let mut active_models = app_state.active_models.lock().await;
+        active_models.remove(&existing.process_id);
+    }
+
+    // Bind to all interfaces so the requesting remote client can connect
+    match crate::process::launch_model_server(canonical_model_path.clone(), &app_state, Some("0.0.0.0".to_string())).await {
+        Ok(launch_result) => {
+            let model_name = std::path::Path::new(&canonical_model_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&canonical_model_path)
+                .to_string();
+
+            let active_model = ActiveModel {
+                process_id: launch_result.process_id.clone(),
+                model_path: canonical_model_path,
+                model_name,
+                host: launch_result.server_host.clone(),
+                port: launch_result.server_port,
+                server_host: launch_result.server_host.clone(),
+                server_port: launch_result.server_port,
+                status: ModelStatus::Ready,
+                launched_at: chrono::Utc::now(),
+            };
+
+            let app_state_for_insert = app_state.clone();
+            tokio::spawn(async move {
+                let mut active_models = app_state_for_insert.active_models.lock().await;
+                active_models.insert(active_model.process_id.clone(), active_model);
+            });
+
+            Json(RemoteLaunchResponse {
+                success: true,
+                message: "Model launched successfully".to_string(),
+                process_id: Some(launch_result.process_id),
+                server_host: Some(launch_result.server_host),
+                server_port: Some(launch_result.server_port),
+            })
+        }
+        Err(e) => {
+            Json(RemoteLaunchResponse {
+                success: false,
+                message: format!("Failed to launch model: {}", e),
+                process_id: None,
+                server_host: None,
+                server_port: None,
+            })
+        }
+    }
+}
+
+async fn stop_model(
+    State(state): State<Arc<RwLock<ProxyState>>>,
+    Json(request): Json<crate::models::RemoteStopRequest>,
+) -> impl IntoResponse {
+    use crate::models::RemoteStopResponse;
+
+    let state_guard = state.read().await;
+    let app_state = state_guard.app_state.clone();
+    let process_id_for_remove = request.process_id.clone();
+    drop(state_guard);
+
+    let _ = crate::process::terminate_process(request.process_id.clone(), &app_state).await;
+
+    let mut active_models = app_state.active_models.lock().await;
+    active_models.remove(&process_id_for_remove);
+
+    Json(RemoteStopResponse {
+        success: true,
+        message: "Model stopped successfully".to_string(),
+    })
+}
+
+async fn list_active_models(
+    State(state): State<Arc<RwLock<ProxyState>>>,
+) -> impl IntoResponse {
+    use crate::models::RemoteActiveModelsResponse;
+
+    let state_guard = state.read().await;
+    let app_state = state_guard.app_state.clone();
+    drop(state_guard);
+
+    let running_snapshot = {
+        let running = app_state.running_processes.lock().await;
+        running.clone()
+    };
+
+    let mut active_models = app_state.active_models.lock().await;
+    active_models.retain(|process_id, model| {
+        if let Some(process) = running_snapshot.get(process_id) {
+            if model.server_host.is_empty() {
+                model.server_host = process.host.clone();
+            }
+            if model.server_port == 0 {
+                model.server_port = process.port;
+            }
+
+            match process.status {
+                ProcessStatus::Starting => {
+                    model.status = ModelStatus::Starting;
+                    true
+                }
+                ProcessStatus::Running => {
+                    model.status = ModelStatus::Ready;
+                    true
+                }
+                ProcessStatus::Stopped | ProcessStatus::Failed => false,
+            }
+        } else {
+            false
+        }
+    });
+
+    let models: Vec<ActiveModel> = active_models.values().cloned().collect();
+
+    Json(RemoteActiveModelsResponse {
+        success: true,
+        models,
+    })
 }

@@ -30,6 +30,7 @@ mod openai_types;
 mod openai_proxy;
 mod llama_client;
 mod discovery;
+mod peer_cache;
 
 use config::*;
 use process::*;
@@ -49,6 +50,7 @@ use process::ProcessHandle;
 
 // Import Discovery types
 use discovery::DiscoveryService;
+use peer_cache::PeerModelCache;
 
 fn arandu_base_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Unable to resolve home directory".to_string())?;
@@ -849,6 +851,8 @@ pub struct AppState {
     pub discovery_service: Arc<Mutex<Option<DiscoveryService>>>,
     pub python_processes: Arc<Mutex<Vec<u32>>>, // Track Python process PIDs spawned by this app
     pub active_models: Arc<Mutex<HashMap<String, ActiveModel>>>, // Track models launched remotely
+    pub peer_model_cache: Option<Arc<PeerModelCache>>, // Persistent cache for peer models
+    pub fake_discovery_model_enabled: Arc<Mutex<bool>>,
 }
 
 // Implement Clone manually to avoid derive issues with Child
@@ -866,6 +870,8 @@ impl Clone for AppState {
             discovery_service: self.discovery_service.clone(),
             python_processes: self.python_processes.clone(),
             active_models: self.active_models.clone(),
+            peer_model_cache: self.peer_model_cache.clone(),
+            fake_discovery_model_enabled: self.fake_discovery_model_enabled.clone(),
         }
     }
 }
@@ -884,6 +890,8 @@ impl AppState {
             discovery_service: Arc::new(Mutex::new(None)),
             python_processes: Arc::new(Mutex::new(Vec::new())),
             active_models: Arc::new(Mutex::new(HashMap::new())),
+            peer_model_cache: None,
+            fake_discovery_model_enabled: Arc::new(Mutex::new(false)),
         }
     }
     
@@ -1533,9 +1541,9 @@ async fn launch_model_with_preset(
     } // Release the lock here
     
     // Launch the model (this may acquire locks internally)
-    let result = launch_model_server(model_path.clone(), &state).await
+    let result = launch_model_server(model_path.clone(), &state, None).await
         .map_err(|e| format!("Failed to launch model: {}", e))?;
-    
+
     // Restore original args
     {
         let mut model_configs = state.model_configs.lock().await;
@@ -1602,7 +1610,7 @@ async fn launch_model_with_half_context(
         model_configs.insert(model_path.clone(), config);
     }
 
-    let result = launch_model_server(model_path.clone(), &state)
+    let result = launch_model_server(model_path.clone(), &state, None)
         .await
         .map_err(|e| format!("Failed to launch model with half context: {}", e))?;
 
@@ -1630,7 +1638,7 @@ async fn launch_model(
     model_path: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let result = launch_model_server(model_path, &state).await
+    let result = launch_model_server(model_path, &state, None).await
         .map_err(|e| format!("Failed to launch model: {}", e))?;
     
     Ok(serde_json::json!({
@@ -2888,7 +2896,8 @@ async fn download_hf_file(
 
 // Initialize and load settings
 async fn initialize_app_state(app_data_dir: std::path::PathBuf) -> Result<AppState, Box<dyn std::error::Error>> {
-    let state = AppState::new();
+    let mut state = AppState::new();
+    println!("Initializing app state with app data dir: {:?}", app_data_dir);
     
     // Initialize tracker manager
     {
@@ -2954,6 +2963,13 @@ async fn initialize_app_state(app_data_dir: std::path::PathBuf) -> Result<AppSta
                 }
             }
         }
+    }
+    
+    // Initialize peer model cache for persistent storage of discovered peer models
+    {
+        let cache = Arc::new(PeerModelCache::new(app_data_dir.clone()).await);
+        state.peer_model_cache = Some(cache);
+        println!("Peer model cache initialized successfully");
     }
     
     Ok(state)
@@ -3229,6 +3245,8 @@ async fn ensure_network_server_running_for_discovery(
         discovery_service: state.discovery_service.clone(),
         python_processes: state.python_processes.clone(),
         active_models: state.active_models.clone(),
+        peer_model_cache: state.peer_model_cache.clone(),
+        fake_discovery_model_enabled: state.fake_discovery_model_enabled.clone(),
     });
 
     new_proxy
@@ -3281,15 +3299,21 @@ async fn start_discovery_service(
         }
     }
 
-    let (local_ip, chat_port) = {
+    let (local_ip, chat_port, broadcast_interval) = {
         let config = state.config.lock().await;
-        (config.network_server_host.clone(), config.network_server_port)
+        (
+            config.network_server_host.clone(),
+            config.network_server_port,
+            config.discovery_broadcast_interval,
+        )
     };
 
     let bind_ip = resolve_discovery_bind_ip(local_ip).await;
     let api_endpoint = format!("http://{}:{}", bind_ip, api_port);
 
     let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let peer_cache_arc = state.peer_model_cache.clone();
 
     let mut discovery_service = DiscoveryService::new(
         port,
@@ -3298,7 +3322,9 @@ async fn start_discovery_service(
         api_endpoint,
         api_port,
         chat_port,
+        broadcast_interval,
         app_handle,
+        peer_cache_arc,
     );
 
     discovery_service
@@ -3324,6 +3350,37 @@ async fn start_discovery_service(
     }
 
     Ok(())
+}
+
+async fn auto_start_network_server_always(state: &AppState) {
+    let (host, chat_port, api_port) = {
+        let config = state.config.lock().await;
+        (
+            config.network_server_host.clone(),
+            config.network_server_port,
+            config.openai_proxy_port,
+        )
+    };
+
+    let resolved_host = if host.trim().is_empty() {
+        "127.0.0.1".to_string()
+    } else {
+        host
+    };
+
+    if let Err(error) = ensure_network_server_running_for_discovery(
+        state,
+        resolved_host,
+        chat_port,
+        api_port,
+    )
+    .await
+    {
+        eprintln!(
+            "[Startup] Failed to auto-start network server (chat: {}, api: {}): {}",
+            chat_port, api_port, error
+        );
+    }
 }
 
 async fn auto_start_discovery_if_enabled(
@@ -3423,6 +3480,8 @@ let mut new_proxy = openai_proxy::ProxyServer::new(
         discovery_service: state.discovery_service.clone(),
         python_processes: state.python_processes.clone(),
         active_models: state.active_models.clone(),
+        peer_model_cache: state.peer_model_cache.clone(),
+        fake_discovery_model_enabled: state.fake_discovery_model_enabled.clone(),
     });
 
     match new_proxy.start(app_state_arc).await {
@@ -3504,7 +3563,7 @@ async fn enable_discovery(
     app: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     // Get config values we need to persist
-    let _broadcast_interval = {
+    let broadcast_interval = {
         let config = state.config.lock().await;
         config.discovery_broadcast_interval
     };
@@ -3543,8 +3602,29 @@ async fn enable_discovery(
         local_ip
     };
     
+    // Ensure the API proxy server is running before broadcasting beacons.
+    // Without this, beacons advertise port api_port but nothing listens there,
+    // so peers get connection refused when fetching models.
+    ensure_network_server_running_for_discovery(
+        &*state,
+        bind_ip.clone(),
+        chat_port,
+        api_port,
+    )
+    .await
+    .map_err(|e| {
+        format!(
+            "Failed to start network API server on port {} before discovery: {}",
+            api_port, e
+        )
+    })?;
+
     // Create and start new discovery service
     let api_endpoint = format!("http://{}:{}", bind_ip, api_port);
+    
+    // Get peer cache reference for the discovery service
+    let peer_cache_arc = state.peer_model_cache.clone();
+    
     let mut discovery_service = DiscoveryService::new(
         port,
         instance_id.clone(),
@@ -3552,7 +3632,9 @@ async fn enable_discovery(
         api_endpoint.clone(),
         api_port,
         chat_port,
+        broadcast_interval,
         Some(app),
+        peer_cache_arc,
     );
     
     // Start broadcasting and listening
@@ -3629,26 +3711,9 @@ async fn get_discovered_peers(
     
     match discovery.as_ref() {
         Some(service) => {
-            let peers = service.get_peers().await;
-            
-            // Fetch models for peers that don't have them yet
-            for peer in &peers {
-                if peer.models.is_empty() {
-                    println!("Fetching models from peer {} at {}:{}", peer.hostname, peer.ip_address, peer.api_port);
-                    match service.fetch_peer_models(&peer.ip_address, peer.api_port).await {
-                        Ok(models) => {
-                            println!("Fetched {} models from peer {}", models.len(), peer.hostname);
-                        }
-                        Err(e) => {
-                            println!("Failed to fetch models from peer {}: {}", peer.hostname, e);
-                        }
-                    }
-                }
-            }
-            
-            // Re-fetch peers after model fetch to get updated data with models
-            let updated_peers = service.get_peers().await;
-            Ok(updated_peers)
+            // Return merged runtime+cache peers without refetching on every UI poll.
+            // Model refresh is done on new-peer auto-fetch and explicit refresh command.
+            Ok(service.get_peers_with_cached_models().await)
         }
         None => Ok(Vec::new()),
     }
@@ -3658,7 +3723,27 @@ async fn get_discovered_peers(
 async fn get_discovery_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<DiscoveryStatus, String> {
-    let config = state.config.lock().await;
+    let (
+        cfg_enabled,
+        cfg_instance_id,
+        cfg_instance_name,
+        cfg_port,
+        cfg_api_port,
+        cfg_chat_port,
+        cfg_broadcast_interval,
+    ) = {
+        let config = state.config.lock().await;
+        (
+            config.discovery_enabled,
+            config.discovery_instance_id.clone(),
+            config.discovery_instance_name.clone(),
+            config.discovery_port,
+            config.openai_proxy_port,
+            config.network_server_port,
+            config.discovery_broadcast_interval,
+        )
+    };
+
     let discovery = state.discovery_service.lock().await;
     
     let (enabled, instance_id, instance_name, port, api_port, chat_port, broadcast_interval) = match discovery.as_ref() {
@@ -3669,16 +3754,16 @@ async fn get_discovery_status(
             service.get_port(),
             service.get_api_port(),
             service.get_chat_port(),
-            config.discovery_broadcast_interval,
+            cfg_broadcast_interval,
         ),
         None => (
-            config.discovery_enabled,
-            config.discovery_instance_id.clone(),
-            config.discovery_instance_name.clone(),
-            config.discovery_port,
-            config.openai_proxy_port,
-            config.network_server_port,
-            config.discovery_broadcast_interval,
+            cfg_enabled,
+            cfg_instance_id,
+            cfg_instance_name,
+            cfg_port,
+            cfg_api_port,
+            cfg_chat_port,
+            cfg_broadcast_interval,
         ),
     };
     
@@ -3691,6 +3776,28 @@ Ok(DiscoveryStatus {
         instance_id,
         instance_name,
     })
+}
+
+#[tauri::command]
+async fn set_fake_discovery_model_enabled(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let mut flag = state.fake_discovery_model_enabled.lock().await;
+    *flag = enabled;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "enabled": enabled
+    }))
+}
+
+#[tauri::command]
+async fn get_fake_discovery_model_enabled(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    let flag = state.fake_discovery_model_enabled.lock().await;
+    Ok(*flag)
 }
 
 #[tauri::command]
@@ -4522,7 +4629,13 @@ tauri::Builder::default()
         .setup(|app| {
             // Initialize app state
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let app_data_dir = match app.path().app_data_dir() {
+                Ok(path) => path,
+                Err(e) => {
+                    eprintln!("Failed to resolve Tauri app_data_dir: {}", e);
+                    arandu_base_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                }
+            };
             let state = rt.block_on(initialize_app_state(app_data_dir))
                 .map_err(|e| format!("Failed to initialize app state: {}", e))?;
             
@@ -4636,6 +4749,8 @@ tauri::Builder::default()
             let startup_state = state.clone();
             app.manage(state);
 
+            rt.block_on(auto_start_network_server_always(&startup_state));
+
             let app_handle = app.handle().clone();
             rt.block_on(auto_start_discovery_if_enabled(
                 &startup_state,
@@ -4698,6 +4813,7 @@ tauri::Builder::default()
             show_window,
 initial_scan_models,
             check_model_update,
+            gguf_parser::get_file_modification_date,
             get_hf_model_files,
             link_model_to_hf,
             get_model_metadata,
@@ -4725,6 +4841,8 @@ get_weekly_reports,
             disable_discovery,
             get_discovered_peers,
             get_discovery_status,
+            set_fake_discovery_model_enabled,
+            get_fake_discovery_model_enabled,
             refresh_remote_models,
             get_mcp_connections,
             save_mcp_connection,

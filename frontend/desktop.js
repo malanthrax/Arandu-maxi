@@ -28,7 +28,14 @@ class DesktopManager {
         this.discoveryEnabled = false;
         this.discoveredPeers = [];
         this.discoveryPollInterval = null;
+        this.discoveryPollInFlight = false;
+        this.remoteModelRefreshInFlight = false;
+        this.lastRemoteModelRefreshAt = 0;
+        this.remoteActiveModelsByPeer = new Map();
+        this.remoteActiveModelsFetchInFlight = false;
+        this.remoteActiveModelsLastFetchAt = 0;
         this.discoveryStatus = {};
+        this.discoveryDebugLogListenerInitialized = false;
         
         // Debug logging properties
         this.debugLogWindowOpen = false;
@@ -272,6 +279,7 @@ class DesktopManager {
         const iconBtn = document.getElementById('view-icon-btn');
         const listBtn = document.getElementById('view-list-btn');
         const remoteBtn = document.getElementById('view-remote-btn');
+        const fakeModelBtn = document.getElementById('view-fake-model-btn');
 
         if (iconBtn && listBtn) {
             iconBtn.addEventListener('click', () => {
@@ -288,6 +296,13 @@ class DesktopManager {
             });
         }
 
+        if (fakeModelBtn) {
+            fakeModelBtn.addEventListener('click', async () => {
+                await this.toggleFakeDiscoveryModel();
+            });
+            this.syncFakeDiscoveryModelButton();
+        }
+
         // Load saved preference
         const savedView = localStorage.getItem('desktop-model-view') || 'icon';
         this.setDesktopView(savedView);
@@ -300,6 +315,47 @@ class DesktopManager {
         }
 
         this.updateLaunchLastModelButton();
+    }
+
+    async syncFakeDiscoveryModelButton() {
+        const fakeModelBtn = document.getElementById('view-fake-model-btn');
+        if (!fakeModelBtn) return;
+
+        try {
+            const enabled = await invoke('get_fake_discovery_model_enabled');
+            fakeModelBtn.classList.toggle('active', !!enabled);
+            fakeModelBtn.title = enabled
+                ? 'Fake discovery model ON (click to disable)'
+                : 'Fake discovery model OFF (click to enable)';
+        } catch (error) {
+            console.error('Failed to sync fake discovery model button:', error);
+        }
+    }
+
+    async toggleFakeDiscoveryModel() {
+        const fakeModelBtn = document.getElementById('view-fake-model-btn');
+        if (!fakeModelBtn) return;
+
+        const currentlyEnabled = fakeModelBtn.classList.contains('active');
+        const nextEnabled = !currentlyEnabled;
+
+        try {
+            await invoke('set_fake_discovery_model_enabled', { enabled: nextEnabled });
+            fakeModelBtn.classList.toggle('active', nextEnabled);
+            fakeModelBtn.title = nextEnabled
+                ? 'Fake discovery model ON (click to disable)'
+                : 'Fake discovery model OFF (click to enable)';
+
+            this.showNotification(
+                nextEnabled
+                    ? 'Fake discovery model enabled on this server'
+                    : 'Fake discovery model disabled on this server',
+                'info'
+            );
+        } catch (error) {
+            console.error('Failed to toggle fake discovery model:', error);
+            this.showNotification(`Failed to toggle fake model: ${error.message}`, 'error');
+        }
     }
 
     getModelIconByPath(modelPath) {
@@ -756,7 +812,9 @@ class DesktopManager {
                 modelName: remoteData.name || icon.dataset.name || 'Unknown model',
                 peerIp,
                 peerPort: remoteData.peer_api_port || remoteData.peerPort || remoteData.api_port || (this.discoveryStatus && this.discoveryStatus.api_port) || 8081,
-                peerHostname: remoteData.peer || remoteData.peer_hostname || remoteData.peerHostname || 'Unknown Host'
+                peerChatPort: remoteData.peer_chat_port || 8080,
+                peerHostname: remoteData.peer || remoteData.peer_hostname || remoteData.peerHostname || 'Unknown Host',
+                modelPath: remoteData.path || ''
             };
         } catch (error) {
             return null;
@@ -782,7 +840,8 @@ class DesktopManager {
             remoteInfo.modelName,
             remoteInfo.peerIp,
             remoteInfo.peerPort,
-            remoteInfo.modelPath
+            remoteInfo.modelPath,
+            remoteInfo.peerChatPort
         );
 
         this.showNotification(
@@ -4685,51 +4744,182 @@ async ensureTerminalManager() {
         if (this.discoveryPollInterval) {
             clearInterval(this.discoveryPollInterval);
             this.discoveryPollInterval = null;
+            this.discoveryPollInFlight = false;
             console.log('Discovery polling stopped');
         }
     }
 
     async pollDiscoveredPeers() {
+        if (this.discoveryPollInFlight) {
+            return;
+        }
+
+        this.discoveryPollInFlight = true;
         try {
             const result = await invoke('get_discovered_peers');
             console.log('Got discovered peers:', result);
             if (result && Array.isArray(result)) {
+                const newSignature = this.buildDiscoveredPeersSignature(result);
+                const changed = newSignature !== this._lastDiscoveredPeersSignature;
                 this.discoveredPeers = result;
-                
-                // If we're in list view, refresh the display to show discovered peers
-                const desktopIcons = document.getElementById('desktop-icons');
-                if (desktopIcons && desktopIcons.classList.contains('list-view')) {
-                    // Get current local models
-                    const localModels = Array.from(desktopIcons.querySelectorAll('.desktop-icon'))
-                        .map(icon => ({
-                            name: icon.dataset.name,
-                            path: icon.dataset.path,
-                            size_gb: icon.dataset.size,
-                            architecture: icon.dataset.architecture,
-                            quantization: icon.dataset.quantization,
-                            date: icon.dataset.date
-                        }));
-                    
-                    // Note: Split view has been removed. Use the Remote LLMS button to view remote models.
-                    // Local models in list view are handled by normal refresh
+
+                const totalRemoteModels = result.reduce((acc, peer) => acc + ((peer.models && peer.models.length) ? peer.models.length : 0), 0);
+                const reachablePeers = result.filter((peer) => peer.is_reachable !== false).length;
+                if (result.length > 0 && reachablePeers > 0 && totalRemoteModels === 0) {
+                    // Recovery path for handshake races: trigger a bounded explicit refresh.
+                    await this.refreshRemoteModelsNow(false);
+                }
+
+                // Refresh loaded-model state map in background.
+                void this.refreshRemoteActiveModels(false);
+
+                // Only re-render if data changed — prevents scroll reset and flash on every poll
+                if (changed) {
+                    this._lastDiscoveredPeersSignature = newSignature;
+                    const desktopIcons = document.getElementById('desktop-icons');
+                    if (desktopIcons && desktopIcons.classList.contains('remote-view')) {
+                        this.renderRemoteModelsList();
+                    }
                 }
             }
         } catch (error) {
             console.error('Error polling discovered peers:', error);
+        } finally {
+            this.discoveryPollInFlight = false;
+        }
+    }
+
+    async refreshRemoteModelsNow(force = true) {
+        if (this.remoteModelRefreshInFlight) {
+            return;
+        }
+
+        const now = Date.now();
+        const cooldownMs = 15000;
+        if (!force && now - this.lastRemoteModelRefreshAt < cooldownMs) {
+            return;
+        }
+
+        this.remoteModelRefreshInFlight = true;
+        this.lastRemoteModelRefreshAt = now;
+
+        try {
+            const result = await invoke('refresh_remote_models');
+            if (!result || result.success !== true) {
+                if (force) {
+                    this.showNotification(result?.message || 'Failed to refresh remote models', 'error');
+                }
+            } else if (force) {
+                this.showNotification(`Refreshed remote models (${result.model_count || 0} total)`, 'info');
+            }
+        } catch (error) {
+            console.error('Failed to refresh remote models:', error);
+            if (force) {
+                this.showNotification(`Failed to refresh remote models: ${error.message}`, 'error');
+            }
+        } finally {
+            this.remoteModelRefreshInFlight = false;
+        }
+    }
+
+    normalizeModelPath(path) {
+        return String(path || '').replace(/\\/g, '/').toLowerCase();
+    }
+
+    async refreshRemoteActiveModels(force = false) {
+        if (this.remoteActiveModelsFetchInFlight) {
+            return;
+        }
+
+        const now = Date.now();
+        const cooldownMs = 10000;
+        if (!force && now - this.remoteActiveModelsLastFetchAt < cooldownMs) {
+            return;
+        }
+
+        const peers = (this.discoveredPeers || []).filter((peer) =>
+            peer && peer.is_reachable !== false && peer.ip_address && peer.api_port
+        );
+
+        if (peers.length === 0) {
+            this.remoteActiveModelsByPeer.clear();
+            return;
+        }
+
+        this.remoteActiveModelsFetchInFlight = true;
+        this.remoteActiveModelsLastFetchAt = now;
+
+        try {
+            const updates = await Promise.all(peers.map(async (peer) => {
+                const key = `${peer.ip_address}:${peer.api_port}`;
+                try {
+                    const response = await fetch(`http://${peer.ip_address}:${peer.api_port}/api/models/active`, {
+                        signal: AbortSignal.timeout(3500)
+                    });
+
+                    if (!response.ok) {
+                        return [key, null];
+                    }
+
+                    const payload = await response.json();
+                    if (!payload || payload.success !== true || !Array.isArray(payload.models)) {
+                        return [key, null];
+                    }
+
+                    const loadedSet = new Set(
+                        payload.models
+                            .map((m) => this.normalizeModelPath(m.model_path))
+                            .filter((v) => !!v)
+                    );
+
+                    return [key, loadedSet];
+                } catch (_) {
+                    return [key, null];
+                }
+            }));
+
+            updates.forEach(([key, loadedSet]) => {
+                if (loadedSet instanceof Set) {
+                    this.remoteActiveModelsByPeer.set(key, loadedSet);
+                } else {
+                    this.remoteActiveModelsByPeer.delete(key);
+                }
+            });
+
+            const desktopIcons = document.getElementById('desktop-icons');
+            if (desktopIcons && desktopIcons.classList.contains('remote-view')) {
+                this.renderRemoteModelsList();
+            }
+        } finally {
+            this.remoteActiveModelsFetchInFlight = false;
         }
     }
 
 async enableDiscovery(port, apiPort, name, chatPort) {
         try {
-            await invoke('enable_discovery', {
+            const result = await invoke('enable_discovery', {
                 port: port,
                 apiPort: apiPort,
-                name: name,
+                instanceName: name,
                 chatPort: chatPort
             });
+
+            this.discoveryEnabled = true;
+            this.discoveryStatus = {
+                ...(this.discoveryStatus || {}),
+                enabled: true,
+                port,
+                api_port: apiPort,
+                chat_port: chatPort,
+                instance_name: name,
+                ...(result || {})
+            };
+            await this.startDiscoveryPolling();
             this.showNotification('Network discovery enabled', 'success');
         } catch (error) {
             console.error('Failed to enable discovery:', error);
+            const checkbox = document.getElementById('discovery-enabled');
+            if (checkbox) checkbox.checked = false;
             this.showNotification('Failed to enable discovery: ' + error, 'error');
         }
     }
@@ -4741,17 +4931,11 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             if (result && result.success) {
                 this.discoveryEnabled = false;
                 this.discoveredPeers = [];
+                this._lastDiscoveredPeersSignature = null;
                 this.stopDiscoveryPolling();
                 
-                // Also deactivate the network server
-                try {
-                    await invoke('deactivate_network_server');
-                    console.log('Network server deactivated');
-                } catch (netError) {
-                    console.warn('Warning: Failed to deactivate network server:', netError);
-                }
-                
-                this.showNotification('Discovery and Network Server disabled', 'info');
+                // Keep network server running; discovery is now independent.
+                this.showNotification('Discovery disabled (network server remains active)', 'info');
                 
                 // Update status indicator immediately
                 const statusIndicator = document.getElementById('discovery-status-indicator');
@@ -4781,13 +4965,36 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             dockIcon.addEventListener('click', () => this.toggleDebugLogWindow());
         }
         
+        if (this.discoveryDebugLogListenerInitialized) {
+            return;
+        }
+
         // Listen for backend debug events
         if (window.__TAURI__ && window.__TAURI__.event) {
             window.__TAURI__.event.listen('discovery-debug-log', (event) => {
                 const { direction, ip, data, type } = event.payload;
                 this.addDebugLogEntry(direction, ip, data, type);
             });
+            this.discoveryDebugLogListenerInitialized = true;
         }
+    }
+
+    buildDiscoveredPeersSignature(peers) {
+        const stablePeers = (peers || []).map((peer) => {
+            const modelIds = (peer.models || []).map((m) => `${m.id || ''}|${m.path || ''}|${m.date || ''}`).sort();
+            return {
+                id: peer.instance_id || '',
+                ip: peer.ip_address || '',
+                apiPort: peer.api_port || 0,
+                chatPort: peer.chat_port || 0,
+                reachable: !!peer.is_reachable,
+                fromCache: !!peer.models_from_cache,
+                modelCount: modelIds.length,
+                modelIds
+            };
+        }).sort((a, b) => a.id.localeCompare(b.id));
+
+        return JSON.stringify(stablePeers);
     }
 
     toggleDebugLogWindow() {
@@ -4911,26 +5118,18 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         // Create header for remote models view
         const header = document.createElement('div');
         header.className = 'remote-view-header';
-        header.style.cssText = `
-            padding: 12px 20px;
-            background: var(--theme-surface-light);
-            border-bottom: 1px solid var(--theme-border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-shrink: 0;
-        `;
-        
+        // Layout handled by CSS — only structural inline styles here
+        header.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+
         const totalRemoteModels = this.discoveredPeers.reduce((acc, peer) => acc + (peer.models?.length || 0), 0);
         const totalPeers = this.discoveredPeers.length;
-        
+
         header.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="material-icons" style="color: var(--theme-primary); font-size: 24px;">cloud</span>
-                <span style="font-weight: 600; color: var(--theme-text); font-size: 16px;">Remote LLMs</span>
+                <span class="material-icons" style="color: var(--theme-primary); font-size: 22px;">cloud</span>
+                <span style="font-weight: 600; color: var(--theme-text); font-size: 15px;">Remote LLMs</span>
             </div>
-            <span style="color: var(--theme-text-muted); font-size: 12px;">${totalPeers} peers, ${totalRemoteModels} models</span>
+            <span style="color: var(--theme-text-muted); font-size: 12px;">${totalPeers} peer${totalPeers !== 1 ? 's' : ''}, ${totalRemoteModels} model${totalRemoteModels !== 1 ? 's' : ''}</span>
         `;
         
         desktopIcons.appendChild(header);
@@ -4965,11 +5164,54 @@ async enableDiscovery(port, apiPort, name, chatPort) {
                         ...model,
                         peer_hostname: peer.hostname,
                         peer_ip: peer.ip_address,
+                        peer_api_port: peer.api_port,
+                        peer_reachable: peer.is_reachable,
+                        peer_models_from_cache: peer.models_from_cache,
+                        peer_cache_last_updated: peer.cache_last_updated,
+                        peer_model_loaded: (() => {
+                            const key = `${peer.ip_address}:${peer.api_port}`;
+                            const loaded = this.remoteActiveModelsByPeer.get(key);
+                            if (!loaded) return false;
+                            return loaded.has(this.normalizeModelPath(model.path || ''));
+                        })(),
                         peer: peer
                     });
                 });
             }
         });
+
+        if (allRemoteModels.length === 0) {
+            const reachablePeers = this.discoveredPeers.filter((peer) => peer.is_reachable !== false).length;
+            const pendingMsg = document.createElement('div');
+            pendingMsg.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                min-height: 260px;
+                color: var(--theme-text-muted);
+                text-align: center;
+                padding: 16px;
+            `;
+            pendingMsg.innerHTML = `
+                <span class="material-icons" style="font-size: 46px; opacity: 0.55;">sync</span>
+                <p style="font-size: 16px; margin: 0; color: var(--theme-text);">Peers discovered, waiting for model list</p>
+                <p style="font-size: 12px; margin: 0; opacity: 0.8;">${this.discoveredPeers.length} peer${this.discoveredPeers.length !== 1 ? 's' : ''} found, ${reachablePeers} reachable. If this persists, refresh now.</p>
+                <button type="button" id="remote-models-refresh-btn" style="margin-top: 6px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--theme-border); background: var(--theme-surface); color: var(--theme-text); cursor: pointer;">Refresh Remote Models</button>
+            `;
+
+            const refreshBtn = pendingMsg.querySelector('#remote-models-refresh-btn');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', async () => {
+                    await this.refreshRemoteModelsNow(true);
+                    await this.pollDiscoveredPeers();
+                });
+            }
+
+            desktopIcons.appendChild(pendingMsg);
+            return;
+        }
 
         // Sort by size (largest first)
         allRemoteModels.sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
@@ -4989,6 +5231,11 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         const modelSizeGb = Number(model.size_gb) || 0;
         const modelDate = model.date ? new Date(model.date * 1000).toLocaleDateString() : 'Unknown';
         const peerHostname = model.peer_hostname || 'Unknown Host';
+        const peerReachable = !!model.peer_reachable;
+        const fromCache = !!model.peer_models_from_cache;
+        const loaded = peerReachable && !!model.peer_model_loaded;
+        const stale = fromCache && !peerReachable;
+        const stateLabel = stale ? 'Cached/Offline' : (fromCache ? 'Cached/Live' : 'Live');
 
         modelElement.className = 'desktop-icon remote-model-item';
         // Set individual data attributes for hover tooltip compatibility
@@ -5004,7 +5251,12 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             peer: peerHostname,
             peer_ip: model.peer_ip,
             peer_api_port: model.peer?.api_port || model.peer_api_port || (this.discoveryStatus && this.discoveryStatus.api_port) || 8081,
-            peer_chat_port: model.peer?.chat_port || 8080
+            peer_chat_port: model.peer?.chat_port || 8080,
+            peer_reachable: peerReachable,
+            from_cache: fromCache,
+            loaded,
+            stale,
+            path: model.path || ''
         }));
 
         const quantColorClass = this.getQuantizationColorClass(modelQuantization);
@@ -5013,18 +5265,13 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             <div class="quantization-bar ${quantColorClass}"></div>
             <div class="icon-info">
                 <div class="icon-label">${modelName} GGUF (${modelSizeGb.toFixed(2)} GB)</div>
-                <div class="model-path" style="color: var(--theme-text-muted);">
-                    <span class="material-icons" style="font-size: 14px; vertical-align: middle; margin-right: 4px;">cloud</span>
-                    ${peerHostname} • ${modelDate}
+                <div class="model-path">
+                    <span class="material-icons" style="font-size: 13px; vertical-align: middle; margin-right: 4px;">cloud</span>
+                    ${peerHostname} &bull; ${modelDate} &bull; <span class="remote-state-badge ${stale ? 'offline' : (fromCache ? 'cached' : 'live')}">${stateLabel}</span>${loaded ? ' <span class="remote-loaded-badge" title="Already loaded on remote server">L</span>' : ''}
                 </div>
             </div>
-            <div class="model-quant">${modelQuantization}</div>
+            <div class="model-quant">${modelQuantization || '&mdash;'}</div>
         `;
-
-        // Add click handler
-        modelElement.addEventListener('click', () => {
-            this.handleRemoteModelClick(model, model.peer);
-        });
 
         return modelElement;
     }
@@ -5068,10 +5315,21 @@ async enableDiscovery(port, apiPort, name, chatPort) {
     handleRemoteModelClick(model, peer) {
         const modelName = model.name || 'Unknown model';
         const peerIp = peer?.ip_address;
-        const peerPort = peer?.api_port || this.discoveryStatus?.api_port || 8081;
+        const peerApiPort = peer?.api_port || this.discoveryStatus?.api_port || 8081;
+        const peerChatPort = peer?.chat_port || 8080;
         const peerHostname = peer?.hostname || peer?.instance_hostname || peer?.name || 'Unknown Host';
+        const peerReachable = peer?.is_reachable !== false;
+        const fromCache = peer?.models_from_cache === true;
 
-        console.log('Remote model clicked:', { model, peer, host: peerIp, port: peerPort });
+        console.log('Remote model clicked:', { model, peer, host: peerIp, apiPort: peerApiPort, chatPort: peerChatPort });
+
+        if (!peerReachable && fromCache) {
+            this.showNotification(
+                `Cannot launch ${modelName}: peer ${peerHostname} is offline (cached entry)`,
+                'error'
+            );
+            return;
+        }
 
         if (!peerIp) {
             this.showNotification(
@@ -5086,13 +5344,13 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             return;
         }
 
-        const modelPath = model.path || model.name || model.id;
-        terminalManager.openNativeChatForServer(modelName, peerIp, peerPort, modelPath);
+        const modelPath = model.path || '';
+        if (!modelPath) {
+            this.showNotification(`Cannot launch: model path missing for ${modelName}`, 'error');
+            return;
+        }
 
-        this.showNotification(
-            `Connecting to ${modelName} on ${peerHostname} (${peerIp}:${peerPort})`,
-            'success'
-        );
+        terminalManager.openNativeChatForServer(modelName, peerIp, peerApiPort, modelPath, peerChatPort);
     }
 
     // ==================== END DISCOVERY FEATURE ====================
