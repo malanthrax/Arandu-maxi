@@ -1278,6 +1278,7 @@
         let chatSearchDebounceTimer = null;
         const pendingChatRequests = new Map();
         const ATTACHMENT_TEXT_CHAR_LIMIT = 12000;
+        let isChatHistoryProcessing = false; // Prevents concurrent operations
 
         function getFileKind(file) {
             const name = String(file.name || '').toLowerCase();
@@ -1485,6 +1486,44 @@
             return normalizeChatId(candidate);
         }
 
+        function handleChatHistoryItemClick(itemElement, event) {
+            if (!itemElement) return;
+
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            const chatIdFromItem = itemElement.getAttribute ? itemElement.getAttribute('data-chat-id') : '';
+            const filePathFromItem = itemElement.getAttribute ? itemElement.getAttribute('data-chat-file-path') : '';
+            const chatId = normalizeChatId(chatIdFromItem) || normalizeChatId(filePathFromItem);
+            if (!chatId) return;
+
+            if (getChatHistoryDebugEnabled()) {
+                console.log('[ChatUI][History] click item -> load', { chatId, source: 'direct-item-handler' });
+            }
+
+            loadChatById(chatId);
+        }
+
+        function handleChatHistoryItemDelete(buttonElement, event) {
+            if (!buttonElement) return;
+
+            if (event) {
+                event.stopPropagation();
+                event.preventDefault();
+            }
+
+            const chatId = normalizeChatId(buttonElement.getAttribute ? buttonElement.getAttribute('data-chat-id') : '');
+            if (!chatId) return;
+
+            if (getChatHistoryDebugEnabled()) {
+                console.log('[ChatUI][History] click delete -> remove', { chatId, source: 'direct-delete-handler' });
+            }
+
+            deleteChatById(chatId);
+        }
+
         function getPersistedMessageCount(chatId) {
             const normalized = normalizeChatId(chatId);
             if (!normalized) return 0;
@@ -1560,6 +1599,14 @@
         function getDebugStreamEnabled() {
             try {
                 return localStorage.getItem('aranduChatStreamDebug') === '1';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function getChatHistoryDebugEnabled() {
+            try {
+                return localStorage.getItem('aranduChatHistoryDebug') === '1';
             } catch (error) {
                 return false;
             }
@@ -1915,10 +1962,8 @@
                 if (requestSeq !== chatHistoryRequestSeq) return;
             } catch (error) {
                 console.error('[ChatUI] Failed to refresh chat list:', error);
-                const list = document.getElementById('chatHistoryList');
-                if (list) {
-                    list.innerHTML = `<div class="chat-history-meta" style="color:#f87171;">Failed to load chats: ${String(error.message || error)}</div>`;
-                }
+                chatSessions = [];
+                renderChatHistoryList();
             }
         }
 
@@ -1932,9 +1977,11 @@
                 return;
             }
 
-            list.innerHTML = chatSessions.map((session) => {
+            const fragment = document.createDocumentFragment();
+
+            chatSessions.forEach((session) => {
                 const id = getChatDisplayId(session);
-                if (!id) return '';
+                if (!id) return;
                 const rawTitle = session.title || 'Untitled Chat';
                 const title = escapeHtml(rawTitle);
                 const lastUsed = escapeHtml(parseChatHistoryDate(session.last_used_at));
@@ -1942,22 +1989,57 @@
                 const modelLabel = escapeHtml(getSessionModelLabel(session));
                 const activeClass = id === activeChatId ? 'active' : '';
                 const filePath = session && typeof session.file_path === 'string' ? session.file_path : '';
-                const safeId = sanitizeAttributeValue(id);
-                const safeFilePath = sanitizeAttributeValue(filePath);
-                return `
-                    <div class="chat-history-item ${activeClass}" data-chat-id="${safeId}" data-chat-file-path="${safeFilePath}" title="${title}" role="button" tabindex="0" data-action="open">
-                        <div class="chat-history-item-body">
-                            <div class="chat-history-item-text">
-                                <div class="chat-history-title">${title}</div>
-                                <div class="chat-history-meta">${modelLabel} · ${lastUsed} · ${Number.isFinite(count) ? count : 0} msgs</div>
-                            </div>
-                            <button type="button" class="chat-history-delete" data-chat-id="${safeId}" data-action="delete" title="Delete chat" aria-label="Delete chat">
-                                <span class="material-icons">delete</span>
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).filter(Boolean).join('');
+
+                const item = document.createElement('div');
+                item.className = `chat-history-item ${activeClass}`;
+                item.setAttribute('data-chat-id', id);
+                item.setAttribute('data-chat-file-path', filePath);
+                item.setAttribute('role', 'button');
+                item.setAttribute('tabindex', '0');
+                item.setAttribute('title', rawTitle);
+                item.setAttribute('data-action', 'open');
+
+                /* Click handled via delegation on chatHistoryList; keydown also delegated below */
+
+                const body = document.createElement('div');
+                body.className = 'chat-history-item-body';
+
+                const textWrap = document.createElement('div');
+                textWrap.className = 'chat-history-item-text';
+
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'chat-history-title';
+                titleDiv.textContent = rawTitle;
+
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'chat-history-meta';
+                metaDiv.textContent = `${modelLabel} · ${lastUsed} · ${Number.isFinite(count) ? count : 0} msgs`;
+
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.className = 'chat-history-delete';
+                deleteButton.setAttribute('data-chat-id', id);
+                deleteButton.setAttribute('data-action', 'delete');
+                deleteButton.setAttribute('title', 'Delete chat');
+                deleteButton.setAttribute('aria-label', 'Delete chat');
+
+                const deleteIcon = document.createElement('span');
+                deleteIcon.className = 'material-icons';
+                deleteIcon.textContent = 'delete';
+                deleteButton.appendChild(deleteIcon);
+
+                /* Delete handled via delegation on chatHistoryList */
+
+                textWrap.appendChild(titleDiv);
+                textWrap.appendChild(metaDiv);
+                body.appendChild(textWrap);
+                body.appendChild(deleteButton);
+
+                item.appendChild(body);
+                fragment.appendChild(item);
+            });
+
+            list.replaceChildren(fragment);
         }
 
         async function startNewChat() {
@@ -1993,9 +2075,9 @@
             const normalizedChatId = normalizeChatId(chatId);
             if (!normalizedChatId) return;
 
-            await persistUnsavedMessages();
-
             try {
+                await persistUnsavedMessages();
+
                 const result = await requestChatLogs('load', { chat_id: normalizedChatId });
                 activeChatId = normalizedChatId;
                 messageHistory = parseChatMarkdown(result.markdown);
@@ -2018,18 +2100,6 @@
             const normalizedChatId = normalizeChatId(chatId);
             if (!normalizedChatId) return;
 
-            const session = (Array.isArray(chatSessions) ? chatSessions : []).find((item) => {
-                const candidateId = getChatDisplayId(item);
-                return candidateId === normalizedChatId;
-            });
-            const confirmMessage = session && session.title
-                ? `Delete "${session.title}"? This action cannot be undone.`
-                : 'Delete this chat? This action cannot be undone.';
-
-            if (!confirm(confirmMessage)) {
-                return;
-            }
-
             try {
                 await requestChatLogs('delete', { chat_id: normalizedChatId });
                 if (chatPersistedMessageCounts[normalizedChatId] !== undefined) {
@@ -2047,11 +2117,10 @@
                     autoTitleDone = false;
                     restoreChatToUI();
                     await startNewChat();
-                    return;
+                } else {
+                    const searchTerm = document.getElementById('chatHistorySearch')?.value || '';
+                    await refreshChatHistoryList(searchTerm);
                 }
-
-                const searchTerm = document.getElementById('chatHistorySearch')?.value || '';
-                await refreshChatHistoryList(searchTerm);
             } catch (error) {
                 console.error('[ChatUI] Failed to delete chat:', error);
             }
@@ -2910,10 +2979,10 @@ function applySpeculativeFix() {
                         dry_multiplier: currentParams.dry_multiplier,
                         dry_base: currentParams.dry_base,
                         dry_allowed_length: currentParams.dry_allowed_length,
-                                                reasoning_format: currentParams.reasoning_format,
+                        reasoning_format: currentParams.reasoning_format,
                         reasoning_budget: currentParams.reasoning_budget,
                         stream: true,
-                        stream_options: { include_usage: true } // Required for stats in stream
+                        stream_options: { include_usage: true }
                     })
                 });
 
@@ -3106,13 +3175,30 @@ function applySpeculativeFix() {
 
             const chatList = document.getElementById('chatHistoryList');
             if (CHAT_HISTORY_ENABLED && chatList) {
-                chatList.addEventListener('click', async (event) => {
+                async function handleChatListInteraction(event) {
+                    // Prevent concurrent operations
+                    if (isChatHistoryProcessing) {
+                        if (getChatHistoryDebugEnabled()) {
+                            console.log('[ChatUI][History] Ignoring interaction - already processing');
+                        }
+                        return;
+                    }
+
                     const deleteButton = event.target.closest('[data-action="delete"]');
                     if (deleteButton) {
                         event.stopPropagation();
                         const chatId = deleteButton.getAttribute('data-chat-id');
                         if (chatId) {
-                            await deleteChatById(chatId);
+                            isChatHistoryProcessing = true;
+                            chatList.style.pointerEvents = 'none';
+                            chatList.style.opacity = '0.6';
+                            try {
+                                await deleteChatById(chatId);
+                            } finally {
+                                isChatHistoryProcessing = false;
+                                chatList.style.pointerEvents = '';
+                                chatList.style.opacity = '';
+                            }
                         }
                         return;
                     }
@@ -3125,19 +3211,56 @@ function applySpeculativeFix() {
                     const chatId = normalizeChatId(chatIdFromAttr) || normalizeChatId(filePathFromAttr);
                     if (!chatId) return;
 
-                    await loadChatById(chatId);
+                    isChatHistoryProcessing = true;
+                    chatList.style.pointerEvents = 'none';
+                    chatList.style.opacity = '0.6';
+                    try {
+                        await loadChatById(chatId);
+                    } finally {
+                        isChatHistoryProcessing = false;
+                        chatList.style.pointerEvents = '';
+                        chatList.style.opacity = '';
+                    }
+                }
+
+                chatList.addEventListener('click', handleChatListInteraction);
+
+                chatList.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        const item = event.target.closest('.chat-history-item');
+                        if (item) {
+                            event.preventDefault();
+                            handleChatListInteraction(event);
+                        }
+                    }
                 });
             }
 
             const newBtn = document.getElementById('newChatButton');
             if (CHAT_HISTORY_ENABLED && newBtn) {
                 newBtn.addEventListener('click', async () => {
-                    await startNewChat();
+                    if (isChatHistoryProcessing) return;
+                    isChatHistoryProcessing = true;
+                    newBtn.disabled = true;
+                    newBtn.style.opacity = '0.6';
+                    try {
+                        await startNewChat();
+                    } finally {
+                        isChatHistoryProcessing = false;
+                        newBtn.disabled = false;
+                        newBtn.style.opacity = '';
+                    }
                 });
             }
 
-            refreshChatHistoryList();
-            startNewChat();
+            (async () => {
+                await refreshChatHistoryList();
+                if (!activeChatId) {
+                    await startNewChat();
+                }
+            })().catch((error) => {
+                console.error('[ChatUI] Failed to initialize chat history:', error);
+            });
             
             // Set initial state for floating toggle
             const panel = document.getElementById('parameterPanel');

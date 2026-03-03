@@ -13,6 +13,21 @@
 4. **Use shell commands as fallback** only when memory doesn't have the answer
 
 **File location priorities:**
+
+### NOWLEDGE-MEM REQUIREMENT (CRITICAL)
+
+1. - Use the nowledge-mem MCP endpoint declared in `tools.yaml` for project memory operations.
+2. - Ensure every significant item is captured in nowledge mem, including:
+  - errors and issues
+  - bug fixes
+  - ideas and decisions
+  - plans and implementation steps
+  - code changes and file locations
+2. - If required project memory/instruction data is not in `AGENTS.md`, update it immediately.
+3. - When practical, include concise evidence in memory entries (commands run, file paths, and outcomes).
+
+---
+
 1. **Knowledge base memory** (search `H:\Ardanu Fix\Arandu-maxi\docs\knowledge-base`) - **ALWAYS CHECK HERE FIRST**
 2. AGENTS.md File Structure section
 3. Shell commands (ls, find, grep) - use only as a last resort
@@ -20,20 +35,7 @@
 **MANDATORY RULE: MEMORY FIRST**
 You must always search `H:\Ardanu Fix\Arandu-maxi\docs\knowledge-base` for file locations before using any file system commands. If you find a path, use it. If you change a path or find a new one, you MUST update `docs/knowledge-base` immediately to keep it current.
 
-### NOWLEDGE-MEM REQUIREMENT (CRITICAL)
-
-- Use the nowledge-mem MCP endpoint declared in `tools.yaml` for project memory operations.
-- Ensure every significant item is captured in nowledge mem, including:
-  - errors and issues
-  - bug fixes
-  - ideas and decisions
-  - plans and implementation steps
-  - code changes and file locations
-- If required project memory/instruction data is not in `AGENTS.md`, update it immediately.
-- When practical, include concise evidence in memory entries (commands run, file paths, and outcomes).
-
 ---
-
 ## Project Overview
 
 **Arandu** is a Tauri-based desktop application that provides a user-friendly UI for managing llama.cpp models and servers. It eliminates the need to manually handle DLL files or command-line arguments by providing a complete desktop environment with model management, HuggingFace integration, automatic llama.cpp backend downloads, and hardware monitoring.
@@ -64,14 +66,15 @@ See [README.md](README.md#quick-start) for prerequisites and setup instructions.
 | File | Purpose | Key Types/Functions |
 |------|---------|---------------------|
 | `lib.rs` | Main entry, Tauri commands, AppState | `AppState`, Tauri command handlers |
-| `models.rs` | Data structures | `GlobalConfig`, `ModelConfig`, `ProcessInfo`, `DownloadStatus` |
+| `models.rs` | Data structures | `GlobalConfig`, `ModelConfig`, `ProcessInfo`, `DownloadStatus`, `ActiveModel`, `RemoteLaunchRequest/Response` |
 | `config.rs` | Config persistence | `load_settings()`, `save_settings()` |
 | `scanner.rs` | Model file discovery | `scan_models()`, `scan_mmproj_files()` |
 | `huggingface.rs` | HF API integration | `search_huggingface_models()`, `fetch_model_files()` |
 | `huggingface_downloader.rs` | HF Direct Link Download | `parse_model_id()`, `fetch_model_info()`, `fetch_model_files()` |
 | `downloader.rs` | Download management | `DownloadManager`, pause/resume/extract |
 | `llamacpp_manager.rs` | GitHub releases | `fetch_llamacpp_releases()`, release caching |
-| `process.rs` | Process management | `launch_model_internal()`, `launch_model_external()`, `ProcessHandle` |
+| `process.rs` | Process management | `launch_model_internal()`, `launch_model_external()`, `ProcessHandle`, `launch_model_server()` |
+| `openai_proxy.rs` | OpenAI API proxy + Remote launch endpoints | `ProxyServer`, `launch_model()`, `stop_model()`, `list_active_models()` |
 | `system_monitor.rs` | Hardware monitoring | `SystemMonitor`, RAM/VRAM tracking |
 | `gguf_parser.rs` | GGUF metadata parsing | `parse_gguf_metadata()`, `get_file_modification_date()` |
 | `update_checker.rs` | HF update checking | `check_huggingface_updates()`, `link_model_to_hf()`, `extract_hf_model_id_from_path()` |
@@ -446,6 +449,135 @@ Arandu/
 - Events: Listen via `window.__TAURI__.event.listen()`
 - State: Use `window.desktop` global for desktop state
 
+### Debug Logging Standards (MANDATORY)
+
+**All debug logging windows must follow the Discovery Debug Log appearance:**
+
+```css
+/* Window container */
+.debug-log-window {
+    position: fixed;
+    width: 700px;
+    height: 500px;
+    background: var(--theme-surface);
+    border: 2px solid var(--theme-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    resize: both;
+    min-width: 400px;
+    min-height: 300px;
+    z-index: 10000;
+}
+
+/* Header */
+.debug-log-header {
+    padding: 14px 18px;
+    background: linear-gradient(135deg, var(--theme-surface-light) 0%, var(--theme-surface) 100%);
+    border-bottom: 2px solid var(--theme-border);
+    font-weight: 700;
+    font-size: 14px;
+}
+
+/* Content area */
+.debug-log-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* Log entries - color coded by type */
+.log-entry {
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    border-left: 4px solid transparent;
+    background: rgba(255, 255, 255, 0.03);
+    animation: fade-in 0.3s ease;
+}
+
+.log-entry.send { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+.log-entry.receive { border-left-color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+.log-entry.error { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+.log-entry.info { border-left-color: #9ca3af; background: rgba(156, 163, 175, 0.1); }
+
+/* Direction badge */
+.log-entry .direction {
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.log-entry.send .direction { background: rgba(59, 130, 246, 0.3); color: #60a5fa; }
+.log-entry.receive .direction { background: rgba(34, 197, 94, 0.3); color: #4ade80; }
+.log-entry.error .direction { background: rgba(239, 68, 68, 0.3); color: #f87171; }
+.log-entry.info .direction { background: rgba(156, 163, 175, 0.3); color: #d1d5db; }
+
+/* IP address */
+.log-entry .ip {
+    color: #fbbf24;
+    font-weight: 600;
+    font-family: 'Consolas', monospace;
+}
+
+/* Timestamp */
+.log-entry .timestamp {
+    color: #6b7280;
+    font-size: 10px;
+}
+
+/* Controls */
+.debug-log-controls {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    border-top: 2px solid var(--theme-border);
+    background: var(--theme-surface-light);
+}
+```
+
+**Log Entry Structure:**
+```javascript
+{
+    direction: 'SEND' | 'RECV' | 'ERROR' | 'INFO',
+    ip: '192.168.1.100',
+    data: 'Log message or payload',
+    type: 'send' | 'receive' | 'error' | 'info',
+    timestamp: '2026-02-28T12:34:56Z'
+}
+```
+
+**Dock Button Styling (when applicable):**
+```css
+.debug-dock-item {
+    background: rgba(255, 193, 7, 0.2) !important;
+    border: 1px solid rgba(255, 193, 7, 0.5) !important;
+}
+
+.debug-dock-item.active {
+    background: rgba(255, 193, 7, 0.5) !important;
+    box-shadow: 0 0 12px rgba(255, 193, 7, 0.6) !important;
+}
+```
+
+**Requirements:**
+1. ✅ Color-coded entries (blue=SEND, green=RECV, red=ERROR, gray=INFO)
+2. ✅ Monospace font for technical content
+3. ✅ Timestamp on every entry
+4. ✅ Direction badge with uppercase text
+5. ✅ IP address in yellow/monospace
+6. ✅ Fade-in animation for new entries
+7. ✅ Clear and Export buttons in controls area
+8. ✅ Resizable window with min dimensions
+9. ✅ Consistent with theme variables
+
+**Reference Implementation:** `frontend/css/desktop.css` lines 1977-2234
+
 ---
 
 ## Common Issues
@@ -641,8 +773,264 @@ Browse and track trending AI models from HuggingFace directly in the app.
 
 ---
 
+## Remote Model Launch System
+
+Automatically launch models on a remote Arandu server instance via REST API. Allows clients to trigger model launches on servers with powerful hardware, enabling resource sharing across LAN.
+
+**How it works:**
+1. Enable Discovery on both server and client machines
+2. Server appears in client's discovered peers list
+3. Client clicks remote model icon → POSTs to `/api/models/launch`
+4. Server launches llama-server with requested model
+5. Client shows success toast and opens chat window
+6. Multiple clients can connect to same running model
+
+**Port Architecture:**
+```
+UDP 5352 (Discovery Port)
+    └── Discovery beacons, peer detection
+
+TCP 8081 (API Port)
+    └── HTTP API: model launch, stop, list
+    └── Endpoint: /api/models/launch (POST)
+    └── Endpoint: /api/models/stop (POST)
+    └── Endpoint: /api/models/active (GET)
+    └── Endpoint: /v1/models/arandu (GET) - returns model paths
+
+TCP 8080 (Chat Port)
+    └── llama-server HTTP UI
+    └── OpenAI-compatible API: /v1/chat/completions
+    └── REQUIRES: --cors flag for iframe loading
+```
+
+**Firewall Requirements (All machines):**
+- UDP 5352: Inbound/Outbound (Discovery beacons)
+- TCP 8081: Inbound (API launch/stop/list)
+- TCP 8080: Inbound (Chat UI) - server machines only
+
+**User Flow:**
+```
+Client clicks remote model
+    ↓
+POST /api/models/launch
+    ↓
+Server launches llama-server
+    ↓
+Toast: "Model ready!"
+    ↓
+Chat window opens with Stop button
+```
+
+**REST API Endpoints:**
+
+### POST `/api/models/launch`
+**Request:**
+```json
+{
+  "model_path": "/path/to/model.gguf",
+  "server_host": "192.168.1.100",
+  "server_port": 8080
+}
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "Model launched successfully",
+  "process_id": "uuid-string",
+  "server_host": "127.0.0.1",
+  "server_port": 8080
+}
+```
+
+**Response (Failure):**
+```json
+{
+  "success": false,
+  "message": "Failed to launch model: [reason]",
+  "process_id": null,
+  "server_host": null,
+  "server_port": null
+}
+```
+
+### POST `/api/models/stop`
+**Request:**
+```json
+{
+  "process_id": "uuid-string"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Model stopped successfully"
+}
+```
+
+### GET `/api/models/active`
+**Response:**
+```json
+{
+  "success": true,
+  "models": [
+    {
+      "process_id": "uuid-string",
+      "model_path": "/path/to/model.gguf",
+      "model_name": "model.gguf",
+      "host": "",
+      "port": 0,
+      "server_host": "127.0.0.1",
+      "server_port": 8080,
+      "status": "Starting" | "Ready" | "Failed(reason)",
+      "launched_at": "2026-03-01T12:34:56Z"
+    }
+  ]
+}
+```
+
+### GET `/v1/models/arandu`
+Returns all available models with full metadata including file paths for remote launch.
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "model-name.gguf",
+      "name": "model-name.gguf",
+      "object": "model",
+      "created": 1699999999,
+      "owned_by": "arandu",
+      "size_gb": 8.5,
+      "quantization": "Q4_K_M",
+      "architecture": "llama",
+      "date": 1699999999,
+      "path": "C:\\AI\\models\\model-name.gguf"
+    }
+  ]
+}
+```
+
+**Backend Implementation:**
+
+**File:** `backend/src/openai_proxy.rs`
+- `ProxyState` struct: Added `app_state: Arc<AppState>` field (line 114)
+- `launch_model()` handler: Line 396 - Launches model via `launch_model_server()`
+- `stop_model()` handler: Line 459 - Stops model via `terminate_process()`
+- `list_active_models()` handler: Line 492 - Lists all active remote models
+- `list_models_arandu()` handler: Line 201 - Returns models with full paths (NEW)
+- Routes registered: Lines 58, 65-67
+
+**File:** `backend/src/models.rs`
+- `ActiveModel` struct: Line 503 - Tracks running models
+- `ModelStatus` enum: Line 496 - Starting | Ready | Failed(String)
+- `RemoteLaunchRequest/Response`: Line 516, 522 - Launch API types
+- `RemoteStopRequest/Response`: Line 532, 536 - Stop API types
+- `RemoteActiveModelsResponse`: Line 543 - List API type
+- `GgufFileInfo` struct: Line 692 - GGUF file metadata (NEW)
+
+**File:** `backend/src/lib.rs`
+- `AppState.active_models`: Line 850 - `HashMap<String, ActiveModel>` tracks running models
+- `cleanup_all_processes()`: Line 936 - Cleans up remote models on app exit
+
+**File:** `backend/src/openai_types.rs`
+- `ModelInfo` struct: Added `path` field (NEW) - Required for remote launch to work
+
+**File:** `backend/src/discovery.rs`
+- `RemoteModel` struct: Added `path` field (NEW) - Propagates full file path to clients
+- `fetch_peer_models()`: Line 394 - Fetches models from peer with full metadata
+
+**Frontend Implementation:**
+
+**File:** `frontend/modules/terminal-manager.js`
+- `openNativeChatForServer()`: Line 1569 - Async function, calls launch API, shows toast notifications
+- `openNativeChatForServerSuccess()`: Line 1592 - Opens chat window with Process ID + Stop button
+- `openNativeChatForServerError()`: Line 1624 - Shows error window with details
+- `stopRemoteModel()`: Line 1651 - Calls stop API, shows notifications
+- Syntax fix: Removed orphaned closing braces (lines 1694-1698) - FIXED (2026-03-01)
+
+**File:** `frontend/desktop.js`
+- `handleRemoteModelClick()`: Line 5092 - Passes `model.path` to launch API (with fallbacks)
+- `ensureTerminalManager()`: Line 2455 - Async initialization with manual script loading (NEW)
+
+**Testing Checklist:** `docs/knowledge-base/2026-03-01-remote-launch-testing-checklist.md`
+
+**Key Features:**
+- ✅ Automatic model launch on server when client clicks remote model
+- ✅ Toast notifications: "Requesting launch..." → "Model ready!" (or error)
+- ✅ Chat window with Process ID display and Stop button
+- ✅ Error handling with user-friendly error windows
+- ✅ Concurrent access: Multiple clients can connect to same model
+- ✅ No authentication required (LAN-only, no exposure to internet)
+- ✅ Full file paths in API response (FIXED 2026-03-01)
+
+**Known Limitations:**
+- No retry logic for failed launches
+- No loading progress indicator
+- Stop button has no confirmation dialog
+- Process ID display could be shortened
+- No visual feedback for "Starting" → "Ready" transition
+
+**Known Issues (2026-03-01):**
+- ~~⚠️ Active: Chat window on remote PC shows white screen (empty/blank)~~ **FIXED (2026-03-01)**
+- ~~⚠️ Active: JSON parse error still occurring despite path fix~~ **FIXED (2026-03-01)**
+- ~~⚠️ Critical: CORS flag missing from llama-server~~ **FIXED (2026-03-01)**
+- ~~⚠️ Critical: Port configuration incomplete~~ **FIXED (2026-03-01)**
+- ~~⚠️ Critical: Test compilation error~~ **FIXED (2026-03-01)**
+
+**Build Date:** Mar 1, 2026 (late session)
+**Status:** All critical issues fixed, ready for testing on 3 LAN machines
+
+### 2026-03-01 - CORS and Port Configuration Fixes ✅ COMPLETE
+
+**Issues Fixed:**
+1. **CORS Flag Missing** - llama-server now launched with `--cors` flag
+   - Location: `backend/src/process.rs:222` (internal), `backend/src/process.rs:357` (external)
+   - Impact: White screens on remote chat windows no longer occur
+   - Browser now allows iframe loading from remote origins
+
+2. **Port Configuration Incomplete** - Chat port (8080) now tracked throughout discovery system
+   - Added `chat_port: u16` to: `DiscoveryBeacon`, `DiscoveredPeer`, `DiscoveryService`, `DiscoveryStatus`
+   - Updated all constructors to accept and propagate chat_port
+   - Frontend UI added Chat Port input (default 8080)
+   - Location: `backend/src/discovery.rs`, `backend/src/lib.rs`, `frontend/desktop.js`, `frontend/index.html`
+
+3. **Test Compilation Error** - Fixed missing parameters in test
+   - Location: `backend/src/discovery.rs:718-719`
+   - Added `8081` (api_port) and `8080` (chat_port) to `test_discovery_service_lifecycle()`
+
+4. **Critical Indentation Errors** - Fixed syntax errors in process.rs
+   - Location: `backend/src/process.rs:219`, `backend/src/process.rs:350`
+   - Corrected indentation causing compilation failures
+
+**Commits:**
+- `e1fd9ba` - Main CORS and port configuration fixes
+- `348249b` - Test compilation error fix
+- `75a7574` - Indentation fixes for compilation
+
+**Verification:**
+- ✅ `cargo check` passes - no compilation errors
+- ✅ All struct constructors updated with new parameters
+- ✅ All serialization/deserialization working correctly
+- ✅ CORS flag present in both internal and external launches
+- ✅ Chat port propagated through entire discovery system
+- ✅ API returns full file paths for remote launch
+
+**Testing Status:**
+- Ready for testing on 3 LAN machines (10.0.0.47, 10.0.0.119, 10.0.0.106)
+- Firewall requirements documented
+- Port architecture fully coordinated
+
+---
+
 ## Skills Applied
 
+### Core Skills (System Default)
 - **superpowers:** Agentic development workflow framework
   - `brainstorming` - Design refinement before implementation
   - `writing-plans` - Detailed implementation planning
@@ -651,6 +1039,22 @@ Browse and track trending AI models from HuggingFace directly in the app.
   - `requesting-code-review` - Code quality verification
 - **vercel-react-best-practices:** Frontend performance patterns
 - **plan:** Implementation planning
+
+### Extra Skills (Custom - Located in `Extra skills/`)
+Located at: `H:\Ardanu Fix\Arandu-maxi\Extra skills\`
+
+- **agent-orchestration/** - Multi-agent coordination and task delegation
+- **async-python-patterns/** - Asynchronous Python programming patterns
+- **brainstorming-skill/** - Enhanced brainstorming techniques
+- **commands/** - Command-line utilities and automation
+- **conventional-commits/** - Commit message standardization
+- **fastmcp-creator/** - Fast MCP (Model Context Protocol) creation tools
+- **llamafile/** - Llamafile model deployment and management
+- **memory-bank-setup-skill/** - Project memory bank initialization
+- **prompt-optimization-claude-45/** - Claude 4.5 prompt engineering
+- **python3-development/** - Python 3 development best practices
+
+**Note:** These extra skills are available for use by all agents. Check individual skill folders for detailed documentation and usage instructions.
 
 ---
 

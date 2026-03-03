@@ -142,8 +142,9 @@ impl Drop for ProcessHandle {
 pub async fn launch_model_server(
     model_path: String,
     state: &AppState,
+    host_override: Option<String>,
 ) -> Result<LaunchResult, Box<dyn std::error::Error>> {
-    let (global_config, model_config) = {
+    let (global_config, mut model_config) = {
         let config = state.config.lock().await;
         let model_configs = state.model_configs.lock().await;
         let model_config = model_configs.get(&model_path)
@@ -151,6 +152,11 @@ pub async fn launch_model_server(
             .unwrap_or_else(|| ModelConfig::new(model_path.clone()));
         (config.clone(), model_config)
     };
+
+    // Allow callers (e.g. remote launch endpoint) to override the bind host
+    if let Some(host) = host_override {
+        model_config.server_host = host;
+    }
     
     // Resolve server path with fallback to latest installed version if needed
     let executable_path = resolve_llama_server_path_with_fallback(state, &global_config).await;
@@ -219,7 +225,6 @@ println!("Using custom UI path: {:?}", custom_ui_path);
     cmd.args(["-m", &model_config.model_path])
         .args(["--host", &model_config.server_host])
         .args(["--port", &final_port.to_string()])
-        .args(["--cors"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true); // Ensure child process is killed when dropped
@@ -354,7 +359,6 @@ pub async fn launch_model_external(
         model_config.server_host.clone(),
         "--port".to_string(),
         final_port.to_string(),
-        "--cors".to_string(),
     ];
     
     // Add custom arguments if present

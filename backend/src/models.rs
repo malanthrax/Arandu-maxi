@@ -134,7 +134,7 @@ mod tests {
         assert_eq!(config.mcp_servers.len(), 0);
         // Network discovery fields should have defaults
         assert!(!config.discovery_enabled);
-        assert_eq!(config.discovery_port, 5353);
+        assert_eq!(config.discovery_port, 5352);
         assert_eq!(config.discovery_broadcast_interval, 5);
         assert!(!config.discovery_instance_name.is_empty());
         assert!(!config.discovery_instance_id.is_empty());
@@ -301,7 +301,7 @@ fn default_network_server_port() -> u16 {
 
 // === NETWORK DISCOVERY DEFAULT FUNCTIONS ===
 fn default_discovery_port() -> u16 {
-    5353
+    5352
 }
 
 fn default_discovery_broadcast_interval() -> u64 {

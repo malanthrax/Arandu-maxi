@@ -46,6 +46,7 @@ pub fn parse_gguf_metadata(path: &str) -> Result<GgufMetadata, String> {
 }
 
 /// Get file modification timestamp (Unix epoch seconds)
+#[tauri::command]
 pub fn get_file_modification_date(path: &str) -> Result<i64, String> {
     let metadata = std::fs::metadata(path)
         .map_err(|e| format!("Failed to get metadata: {}", e))?;

@@ -257,6 +257,32 @@
 	display: flex;
 }
 
+.server-chat-panel {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.chat-section-model-label {
+	padding: 8px 12px 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--theme-text);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	background: rgba(0, 0, 0, 0.2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.chat-section-iframe {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	border: none;
+}
+
 .server-info {
 	display: flex;
 	align-items: center;
@@ -457,6 +483,15 @@
 	width: 750px;
 	min-height: 464px;
 	height: 464px;
+	max-width: 90vw;
+	max-height: 90vh;
+	position: fixed;
+	overflow: hidden;
+}
+
+.settings-window .window-content {
+	overflow-y: auto;
+	max-height: calc(90vh - 50px);
 }
 
 .settings-window-save {
@@ -537,4 +572,36 @@
 
 .server-tab.pulse-animation {
 	animation: pulse-green 2s 1;
+}
+
+/* Network Discovery Section */
+#network-discovery-group {
+	margin-top: 16px;
+}
+
+#network-discovery-group h4 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#discovery-settings {
+	margin-top: 12px;
+}
+
+#discovered-instances-container {
+	font-size: 12px;
+}
+
+#discovered-instances-container th {
+	font-size: 10px;
+	font-weight: 600;
+}
+
+#discovered-instances-container td {
+	font-size: 11px;
+}
+
+#discovered-instances-list tr:hover {
+	background: var(--theme-hover);
 }

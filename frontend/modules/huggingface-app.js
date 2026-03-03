@@ -954,12 +954,10 @@ class HuggingFaceApp {
         if (!window) return;
 
         try {
-            const selected = await invoke('browse_folder', { inputId: 'hf-destination-path' });
-            if (selected) {
-                const pathInput = window.querySelector('#hf-destination-path');
-                if (pathInput) {
-                    pathInput.value = selected;
-                }
+            const pathInput = window.querySelector('#hf-destination-path');
+            const selected = await invoke('browse_folder', { initialDir: pathInput?.value || null });
+            if (selected && pathInput) {
+                pathInput.value = selected;
             }
         } catch (error) {
             console.error('Failed to browse folder:', error);

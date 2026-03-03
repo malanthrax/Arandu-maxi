@@ -135,6 +135,17 @@ pub struct ModelInfo {
     pub object: String,
     pub created: i64,
     pub owned_by: String,
+    // Arandu extensions for network discovery
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_gb: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub architecture: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

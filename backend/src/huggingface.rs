@@ -278,11 +278,11 @@ pub async fn get_huggingface_model_details(
                 // Count all files
                 total_files += 1;
                 
-                // Process GGUF files specifically
+// Process GGUF files specifically
                 if file_path.to_lowercase().ends_with(".gguf") {
                     let size = file.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
                     let filename = file_path.split('/').last().unwrap_or(file_path).to_string();
-                    let quantization_type = extract_quantization_type(file_path);
+                    let quantization_type = extract_quantization_type(file_path).unwrap_or_else(|| "Unknown".to_string());
                     
                     gguf_files.insert(filename.clone(), GgufFileInfo {
                         filename: filename.clone(),

@@ -33,8 +33,23 @@ pwd                              # Should be: /h/Ardanu Fix/Arandu-maxi
 
 **NEVER rely on `workdir` parameter alone.** It sets the shell working directory for a single command, but subsequent operations return to the default C drive path.
 
+## Working Policy
+- Never perform edits, tests, or builds in any `C:\` worktree copy.
+- Use `H:\Ardanu Fix\Arandu-maxi` as the canonical project location.
+- If work starts in another directory, migrate or recreate the changes into the canonical path before validating.
+
 ## Build Location
 Always use: `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+
+## 2026-02-28 Build Verification
+
+- Verified rebuild in canonical workspace with:
+  - `cargo tauri build --no-bundle` (run from `backend/`)
+- Confirmed artifact: `backend\\target\\release\\Arandu.exe` exists.
+- 2026-02-28 follow-up recheck:
+  - `cargo tauri build --no-bundle` completed (after extending command timeout once)
+  - Release artifact confirmed present.
+
 H:/Ardanu Fix/Arandu-maxi                                                                                 9909581 [main]
 C:/Users/Gordprime/.local/share/opencode/worktree/b4ce4e27cbb87ed1bf7aace61dd65e2524173d4c/silent-comet   b054396 [opencode/silent-comet]
 ```

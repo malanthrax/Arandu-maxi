@@ -3,3 +3,11 @@ mcpServers:
     httpUrl: "http://127.0.0.1:14242/mcp"
     headers:
       APP: "Gemini"
+  mcp-router:
+    command: "npx"
+    args:
+      - "-y"
+      - "@mcp_router/cli@latest"
+      - "connect"
+    env:
+      MCPR_TOKEN: "mcpr_Is62TklCa3CcTXK0f7QAzNDLkhy0Jj9H"
