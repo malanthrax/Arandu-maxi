@@ -214,3 +214,36 @@ If regression appears:
 - **Locks:** identify and remove/shorten app-level mutex holds that cross `.await` on network operations.
 - **File issues:** verify actual cache path from runtime app_data_dir; ensure cache write errors are visible.
 - **CSV problems:** no CSV-backed discovery/cache path is currently used; keep this explicitly confirmed in notes.
+
+---
+
+## 2026-03-04 Addendum: Cached-Offline Purge + Cross-Network Discovery Documentation
+
+**Goal:** Remove cached-offline peers from surfaced discovery results to eliminate duplicate rows while preserving current frontend behavior and live peer rendering.
+
+### Execution Steps
+
+1. **Backend purge policy**
+   - Add `PeerModelCache` purge method keyed by runtime endpoint set (`ip:api_port`).
+   - Purge cache rows whose endpoints are not currently present in runtime discovery.
+
+2. **Discovery merge behavior**
+   - Keep cache model backfill only for peers that are currently present in runtime (same instance id or same endpoint).
+   - Do not create offline peer rows from cache.
+   - Ensure discovered peer culling always drops `models_from_cache && !is_reachable` rows.
+
+3. **Regression tests**
+   - Update discovery tests to assert cached-offline peers are dropped.
+   - Add peer-cache test to validate endpoint-based purge removes stale entries and retains live endpoints.
+
+4. **Documentation updates**
+   - Update `THIS-PROJECTS-CURRENT-STATE.md` with:
+     - cross-network support via manual peers (host/IP + API/chat ports),
+     - cached-offline purge policy and duplicate suppression outcome.
+   - Update existing discovery duplicate KB entry with the same behavior note.
+
+5. **Verification + builds**
+   - Run targeted tests: discovery + peer cache.
+   - Run `cargo check`.
+   - Build `.exe` and `.msi`.
+   - If canonical target path is locked/unwritable, use fresh target dir and copy artifacts into canonical release paths.

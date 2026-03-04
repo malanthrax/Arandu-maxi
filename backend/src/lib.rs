@@ -3720,11 +3720,53 @@ async fn get_discovered_peers(
 }
 
 #[tauri::command]
+async fn purge_discovery_cache(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let discovery = state.discovery_service.lock().await;
+    let cache = state.peer_model_cache.clone();
+
+    match discovery.as_ref() {
+        Some(service) => {
+            let removed = service.purge_stale_cached_peers().await;
+            Ok(serde_json::json!({
+                "success": true,
+                "message": if removed == 0 {
+                    "No stale discovery cache rows to purge".to_string()
+                } else {
+                    format!("Purged {} stale discovery cache rows", removed)
+                },
+                "removed": removed
+            }))
+        }
+        None => {
+            if let Some(cache) = cache {
+                let removed = cache.clear().await;
+                Ok(serde_json::json!({
+                    "success": true,
+                    "message": if removed == 0 {
+                        "Discovery service is not running. No cached discovery rows to clear".to_string()
+                    } else {
+                        format!("Discovery service is not running. Cleared {} cached discovery row{}", removed, if removed == 1 { "" } else { "s" })
+                    },
+                    "removed": removed
+                }))
+            } else {
+                Ok(serde_json::json!({
+                    "success": true,
+                    "message": "Discovery service is not running and cache is unavailable",
+                    "removed": 0
+                }))
+            }
+        }
+    }
+}
+
+#[tauri::command]
 async fn get_discovery_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<DiscoveryStatus, String> {
     let (
-        cfg_enabled,
         cfg_instance_id,
         cfg_instance_name,
         cfg_port,
@@ -3734,7 +3776,6 @@ async fn get_discovery_status(
     ) = {
         let config = state.config.lock().await;
         (
-            config.discovery_enabled,
             config.discovery_instance_id.clone(),
             config.discovery_instance_name.clone(),
             config.discovery_port,
@@ -3757,7 +3798,7 @@ async fn get_discovery_status(
             cfg_broadcast_interval,
         ),
         None => (
-            cfg_enabled,
+            false,
             cfg_instance_id,
             cfg_instance_name,
             cfg_port,
@@ -4628,7 +4669,6 @@ tauri::Builder::default()
         }))
         .setup(|app| {
             // Initialize app state
-            let rt = tokio::runtime::Runtime::new().unwrap();
             let app_data_dir = match app.path().app_data_dir() {
                 Ok(path) => path,
                 Err(e) => {
@@ -4636,7 +4676,7 @@ tauri::Builder::default()
                     arandu_base_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
                 }
             };
-            let state = rt.block_on(initialize_app_state(app_data_dir))
+            let state = tauri::async_runtime::block_on(initialize_app_state(app_data_dir))
                 .map_err(|e| format!("Failed to initialize app state: {}", e))?;
             
             println!("Application started, process tracking enabled with kill_on_drop");
@@ -4749,10 +4789,10 @@ tauri::Builder::default()
             let startup_state = state.clone();
             app.manage(state);
 
-            rt.block_on(auto_start_network_server_always(&startup_state));
+            tauri::async_runtime::block_on(auto_start_network_server_always(&startup_state));
 
             let app_handle = app.handle().clone();
-            rt.block_on(auto_start_discovery_if_enabled(
+            tauri::async_runtime::block_on(auto_start_discovery_if_enabled(
                 &startup_state,
                 Some(app_handle),
             ));
@@ -4844,6 +4884,7 @@ get_weekly_reports,
             set_fake_discovery_model_enabled,
             get_fake_discovery_model_enabled,
             refresh_remote_models,
+            purge_discovery_cache,
             get_mcp_connections,
             save_mcp_connection,
             delete_mcp_connection,

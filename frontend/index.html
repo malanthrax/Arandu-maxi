@@ -100,15 +100,19 @@
             <div class="desktop-view-toggle" id="desktop-view-toggle" title="Toggle between view modes">
                 <button class="view-toggle-btn active" id="view-icon-btn" title="Icon View">
                     <span class="material-icons">grid_view</span>
+                    <span class="view-toggle-label">Local</span>
                 </button>
                 <button class="view-toggle-btn" id="view-list-btn" title="Local Models (sorted by size)">
                     <span class="material-icons">view_list</span>
+                    <span class="view-toggle-label">List</span>
                 </button>
                 <button class="view-toggle-btn" id="view-remote-btn" title="Remote LLMs">
                     <span class="material-icons">cloud</span>
+                    <span class="view-toggle-label">Remote</span>
                 </button>
                 <button class="view-toggle-btn" id="view-fake-model-btn" title="Toggle fake discovery model broadcast">
                     <span class="material-icons">science</span>
+                    <span class="view-toggle-label">Fake</span>
                 </button>
             </div>
 
@@ -403,6 +407,22 @@
                                 </table>
                             </div>
                             <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 4px;">Other Arandu instances visible on your local network</small>
+                        </div>
+
+                        <!-- Manual Peer Add (Cross-LAN) -->
+                        <div class="property-row" style="flex-direction: column; align-items: stretch; margin-top: 14px;">
+                            <label style="font-size: 12px; color: var(--theme-text); font-weight: 500; margin-bottom: 6px;">Manual Peer (Direct IP/Host)</label>
+                            <div style="display: grid; grid-template-columns: 1.6fr 0.8fr 0.8fr auto; gap: 6px; margin-bottom: 6px;">
+                                <input type="text" class="property-input" id="manual-discovery-ip" placeholder="10.0.0.47 or host.local">
+                                <input type="number" class="property-input" id="manual-discovery-api-port" value="8081" min="1024" max="65535" title="API port">
+                                <input type="number" class="property-input" id="manual-discovery-chat-port" value="8080" min="1024" max="65535" title="Chat port">
+                                <button class="browse-btn" onclick="desktop.addManualDiscoveryPeer()" title="Add manual peer" style="padding: 0 10px;">
+                                    <span class="material-icons" style="font-size: 16px;">add</span>
+                                </button>
+                            </div>
+                            <input type="text" class="property-input" id="manual-discovery-name" placeholder="Optional display name" style="margin-bottom: 6px;">
+                            <div id="manual-discovery-peer-list" style="background: var(--theme-bg-medium); border: 1px solid var(--theme-border); border-radius: 6px; max-height: 110px; overflow-y: auto;"></div>
+                            <small style="color: var(--theme-text-muted); font-size: 10px; margin-top: 4px;">Use this when peers are on different LANs/VPN and UDP discovery cannot cross networks.</small>
                         </div>
                     </div>
                 </div>

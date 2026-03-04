@@ -30,12 +30,17 @@ class DesktopManager {
         this.discoveryPollInterval = null;
         this.discoveryPollInFlight = false;
         this.remoteModelRefreshInFlight = false;
+        this.remoteDiscoveryCachePurgeInFlight = false;
         this.lastRemoteModelRefreshAt = 0;
         this.remoteActiveModelsByPeer = new Map();
         this.remoteActiveModelsFetchInFlight = false;
         this.remoteActiveModelsLastFetchAt = 0;
         this.discoveryStatus = {};
         this.discoveryDebugLogListenerInitialized = false;
+        this.manualDiscoveryPeers = [];
+        this.manualDiscoveryPeersStorageKey = 'Arandu-manual-discovery-peers';
+        this.remoteModelDedupeStorageKey = 'Arandu-remote-model-dedupe';
+        this.remoteModelsDeduplicate = true;
         
         // Debug logging properties
         this.debugLogWindowOpen = false;
@@ -303,6 +308,9 @@ class DesktopManager {
             this.syncFakeDiscoveryModelButton();
         }
 
+        const savedRemoteDedupe = localStorage.getItem(this.remoteModelDedupeStorageKey);
+        this.remoteModelsDeduplicate = savedRemoteDedupe === null ? true : savedRemoteDedupe === 'true';
+
         // Load saved preference
         const savedView = localStorage.getItem('desktop-model-view') || 'icon';
         this.setDesktopView(savedView);
@@ -561,6 +569,48 @@ class DesktopManager {
         
         // Refresh the display based on new view
         this.loadModels(false);
+    }
+
+    isRemoteModelDedupEnabled() {
+        return this.remoteModelsDeduplicate === true;
+    }
+
+    setRemoteModelDedupEnabled(enabled) {
+        const normalized = !!enabled;
+        if (this.remoteModelsDeduplicate === normalized) {
+            return;
+        }
+
+        this.remoteModelsDeduplicate = normalized;
+        localStorage.setItem(this.remoteModelDedupeStorageKey, String(normalized));
+
+        const desktopIcons = document.getElementById('desktop-icons');
+        if (desktopIcons && desktopIcons.classList.contains('remote-view')) {
+            this.renderRemoteModelsList();
+        }
+    }
+
+    toggleRemoteModelDedup() {
+        this.setRemoteModelDedupEnabled(!this.isRemoteModelDedupEnabled());
+    }
+
+    getRemoteModelIdentityKey(model) {
+        const modelPathKey = this.normalizeModelPath(model && model.path ? model.path : '');
+        if (modelPathKey) {
+            return `path:${modelPathKey}`;
+        }
+
+        const idKey = String(model && model.id ? model.id : '').trim().toLowerCase();
+        if (idKey) {
+            return `id:${idKey}`;
+        }
+
+        const nameKey = String(model && model.name ? model.name : '').trim().toLowerCase();
+        if (nameKey) {
+            return `name:${nameKey}|quant:${String(model && model.quantization ? model.quantization : '').trim().toLowerCase()}`;
+        }
+
+        return `size:${Number(model && model.size_gb ? model.size_gb : 0)}`;
     }
 
     async loadConfiguration() {
@@ -986,7 +1036,14 @@ class DesktopManager {
         iconsContainer.addEventListener('mouseover', (e) => {
             const icon = e.target.closest('.desktop-icon');
             if (icon) {
-                this.showModelHint(icon);
+                this.showModelHint(icon, e.clientX, e.clientY);
+            }
+        });
+
+        iconsContainer.addEventListener('mousemove', (e) => {
+            const icon = e.target.closest('.desktop-icon');
+            if (icon) {
+                this.updateModelHintPosition(e.clientX, e.clientY);
             }
         });
 
@@ -1719,7 +1776,7 @@ class DesktopManager {
         dockContextMenu.addEventListener('click', handleMenuClick);
     }
 
-    showModelHint(icon) {
+    showModelHint(icon, mouseX = null, mouseY = null) {
         if (this.hintTimer) {
             clearTimeout(this.hintTimer);
         }
@@ -1750,11 +1807,66 @@ class DesktopManager {
                 <span>Modified:</span> ${dateTime}
             `;
 
-            const rect = icon.getBoundingClientRect();
-            hint.style.left = `${rect.right + 10}px`;
-            hint.style.top = `${rect.top}px`;
+            this.positionModelHint(hint, icon, mouseX, mouseY);
             hint.classList.remove('hidden');
         }, 500);
+    }
+
+    updateModelHintPosition(mouseX, mouseY) {
+        const hint = document.getElementById('model-hint');
+        if (!hint || hint.classList.contains('hidden')) {
+            return;
+        }
+
+        const hoveredIcon = document.querySelector('.desktop-icon:hover');
+        if (!hoveredIcon) {
+            return;
+        }
+
+        this.positionModelHint(hint, hoveredIcon, mouseX, mouseY);
+    }
+
+    positionModelHint(hint, icon, mouseX = null, mouseY = null) {
+        const margin = 12;
+        const cursorOffset = 16;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        const rect = icon.getBoundingClientRect();
+
+        let left = mouseX != null ? mouseX + cursorOffset : rect.right + 10;
+        let top = mouseY != null ? mouseY + cursorOffset : rect.top;
+
+        const wasHidden = hint.classList.contains('hidden');
+        if (wasHidden) {
+            hint.classList.remove('hidden');
+            hint.style.visibility = 'hidden';
+        }
+
+        const hintWidth = hint.offsetWidth || 220;
+        const hintHeight = hint.offsetHeight || 140;
+
+        if (left + hintWidth + margin > viewportWidth) {
+            if (mouseX != null) {
+                left = mouseX - hintWidth - cursorOffset;
+            } else {
+                left = rect.left - hintWidth - 10;
+            }
+        }
+
+        if (top + hintHeight + margin > viewportHeight) {
+            top = viewportHeight - hintHeight - margin;
+        }
+
+        left = Math.max(margin, left);
+        top = Math.max(margin, top);
+
+        hint.style.left = `${left}px`;
+        hint.style.top = `${top}px`;
+
+        if (wasHidden) {
+            hint.style.visibility = '';
+            hint.classList.add('hidden');
+        }
     }
 
     hideModelHint() {
@@ -4704,7 +4816,257 @@ async ensureTerminalManager() {
 
     initDiscovery() {
         console.log('Initializing discovery service...');
+        this.loadManualDiscoveryPeers();
         this.loadDiscoveryStatus();
+    }
+
+    normalizeManualDiscoveryPeer(peer) {
+        if (!peer) return null;
+
+        const host = String(peer.host || peer.ip || '').trim();
+        if (!host) return null;
+
+        const apiPortRaw = Number(peer.api_port ?? peer.apiPort ?? 8081);
+        const chatPortRaw = Number(peer.chat_port ?? peer.chatPort ?? 8080);
+        const apiPort = Number.isFinite(apiPortRaw) && apiPortRaw > 0 ? apiPortRaw : 8081;
+        const chatPort = Number.isFinite(chatPortRaw) && chatPortRaw > 0 ? chatPortRaw : 8080;
+        const name = String(peer.name || '').trim();
+
+        return {
+            host,
+            api_port: apiPort,
+            chat_port: chatPort,
+            name
+        };
+    }
+
+    getManualDiscoveryPeerKey(peer) {
+        return `${peer.host}:${peer.api_port}`.toLowerCase();
+    }
+
+    loadManualDiscoveryPeers() {
+        try {
+            const raw = localStorage.getItem(this.manualDiscoveryPeersStorageKey);
+            if (!raw) {
+                this.manualDiscoveryPeers = [];
+                return;
+            }
+
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                this.manualDiscoveryPeers = [];
+                return;
+            }
+
+            const seen = new Set();
+            this.manualDiscoveryPeers = parsed
+                .map((entry) => this.normalizeManualDiscoveryPeer(entry))
+                .filter((entry) => !!entry)
+                .filter((entry) => {
+                    const key = this.getManualDiscoveryPeerKey(entry);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+        } catch (error) {
+            console.warn('Failed to load manual discovery peers:', error);
+            this.manualDiscoveryPeers = [];
+        }
+    }
+
+    saveManualDiscoveryPeers() {
+        try {
+            localStorage.setItem(
+                this.manualDiscoveryPeersStorageKey,
+                JSON.stringify(this.manualDiscoveryPeers)
+            );
+        } catch (error) {
+            console.warn('Failed to save manual discovery peers:', error);
+        }
+    }
+
+    renderManualDiscoveryPeers() {
+        const list = document.getElementById('manual-discovery-peer-list');
+        if (!list) return;
+
+        if (!this.manualDiscoveryPeers.length) {
+            list.innerHTML = `<div style="padding: 8px; color: var(--theme-text-muted); font-size: 11px;">No manual peers added</div>`;
+            return;
+        }
+
+        list.innerHTML = this.manualDiscoveryPeers.map((peer) => {
+            const label = peer.name || peer.host;
+            const sub = `${peer.host}:${peer.api_port}`;
+            const key = this.getManualDiscoveryPeerKey(peer).replace(/"/g, '&quot;');
+            return `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px solid var(--theme-border);">
+                    <div style="min-width:0;">
+                        <div style="font-size:11px; color: var(--theme-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${label}</div>
+                        <div style="font-size:10px; color: var(--theme-text-muted); font-family: monospace;">${sub}</div>
+                    </div>
+                    <button class="browse-btn" onclick="desktop.removeManualDiscoveryPeer('${key}')" title="Remove manual peer" style="padding:4px 6px;">
+                        <span class="material-icons" style="font-size:14px;">delete</span>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async addManualDiscoveryPeer() {
+        const hostInput = document.getElementById('manual-discovery-ip');
+        const apiPortInput = document.getElementById('manual-discovery-api-port');
+        const chatPortInput = document.getElementById('manual-discovery-chat-port');
+        const nameInput = document.getElementById('manual-discovery-name');
+
+        const normalized = this.normalizeManualDiscoveryPeer({
+            host: hostInput?.value,
+            api_port: apiPortInput?.value,
+            chat_port: chatPortInput?.value,
+            name: nameInput?.value
+        });
+
+        if (!normalized) {
+            this.showNotification('Enter a valid manual peer host/IP', 'error');
+            return;
+        }
+
+        const newKey = this.getManualDiscoveryPeerKey(normalized);
+        const alreadyExists = this.manualDiscoveryPeers.some((peer) => this.getManualDiscoveryPeerKey(peer) === newKey);
+        if (alreadyExists) {
+            this.showNotification('Manual peer already exists', 'info');
+            return;
+        }
+
+        this.manualDiscoveryPeers.push(normalized);
+        this.saveManualDiscoveryPeers();
+        this.renderManualDiscoveryPeers();
+
+        if (nameInput) nameInput.value = '';
+        if (hostInput) hostInput.value = '';
+
+        if (!this.discoveryPollInterval) {
+            await this.startDiscoveryPolling();
+        } else {
+            await this.pollDiscoveredPeers();
+        }
+
+        this.showNotification(`Manual peer added: ${normalized.host}:${normalized.api_port}`, 'success');
+    }
+
+    async removeManualDiscoveryPeer(peerKey) {
+        const before = this.manualDiscoveryPeers.length;
+        this.manualDiscoveryPeers = this.manualDiscoveryPeers.filter(
+            (peer) => this.getManualDiscoveryPeerKey(peer) !== String(peerKey || '').toLowerCase()
+        );
+
+        if (this.manualDiscoveryPeers.length === before) {
+            return;
+        }
+
+        this.saveManualDiscoveryPeers();
+        this.renderManualDiscoveryPeers();
+
+        if (!this.discoveryEnabled && this.manualDiscoveryPeers.length === 0) {
+            this.discoveredPeers = [];
+            this.stopDiscoveryPolling();
+            const desktopIcons = document.getElementById('desktop-icons');
+            if (desktopIcons && desktopIcons.classList.contains('remote-view')) {
+                this.renderRemoteModelsList();
+            }
+        } else {
+            await this.pollDiscoveredPeers();
+        }
+    }
+
+    async fetchManualDiscoveryPeers() {
+        if (!this.manualDiscoveryPeers.length) {
+            return [];
+        }
+
+        const nowIso = new Date().toISOString();
+        const requests = this.manualDiscoveryPeers.map(async (peer) => {
+            const endpoint = `http://${peer.host}:${peer.api_port}`;
+            const instanceId = `manual-${peer.host}-${peer.api_port}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+            try {
+                const response = await fetch(`${endpoint}/v1/models/arandu`, {
+                    signal: AbortSignal.timeout(4000)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const payload = await response.json();
+                const rows = Array.isArray(payload?.data) ? payload.data : [];
+                const models = rows.map((row) => ({
+                    id: row.id || row.name || 'unknown-model',
+                    name: row.name || row.id || 'unknown-model',
+                    object: row.object || 'model',
+                    owned_by: row.owned_by || 'arandu',
+                    size_gb: row.size_gb,
+                    quantization: row.quantization,
+                    architecture: row.architecture,
+                    date: row.date,
+                    path: row.path
+                }));
+
+                return {
+                    instance_id: instanceId,
+                    hostname: peer.name || peer.host,
+                    ip_address: peer.host,
+                    api_port: peer.api_port,
+                    chat_port: peer.chat_port,
+                    api_endpoint: endpoint,
+                    last_seen: nowIso,
+                    is_reachable: true,
+                    models_from_cache: false,
+                    cache_last_updated: null,
+                    models
+                };
+            } catch (_) {
+                return {
+                    instance_id: instanceId,
+                    hostname: peer.name || peer.host,
+                    ip_address: peer.host,
+                    api_port: peer.api_port,
+                    chat_port: peer.chat_port,
+                    api_endpoint: endpoint,
+                    last_seen: nowIso,
+                    is_reachable: false,
+                    models_from_cache: false,
+                    cache_last_updated: null,
+                    models: []
+                };
+            }
+        });
+
+        return Promise.all(requests);
+    }
+
+    mergeDiscoveryPeers(discoveredPeers, manualPeers) {
+        const byEndpoint = new Map();
+
+        (Array.isArray(discoveredPeers) ? discoveredPeers : []).forEach((peer) => {
+            const key = `${peer.ip_address || ''}:${peer.api_port || 0}`.toLowerCase();
+            byEndpoint.set(key, peer);
+        });
+
+        (Array.isArray(manualPeers) ? manualPeers : []).forEach((peer) => {
+            const key = `${peer.ip_address || ''}:${peer.api_port || 0}`.toLowerCase();
+            const existing = byEndpoint.get(key);
+            if (!existing) {
+                byEndpoint.set(key, peer);
+                return;
+            }
+
+            const existingReachable = existing.is_reachable !== false;
+            const peerReachable = peer.is_reachable !== false;
+            if (peerReachable && !existingReachable) {
+                byEndpoint.set(key, peer);
+            }
+        });
+
+        return Array.from(byEndpoint.values());
     }
 
     async loadDiscoveryStatus() {
@@ -4714,12 +5076,15 @@ async ensureTerminalManager() {
                 this.discoveryEnabled = result.enabled || false;
                 this.discoveryStatus = result;
                 
-                if (this.discoveryEnabled) {
+                if (this.discoveryEnabled || this.manualDiscoveryPeers.length > 0) {
                     this.startDiscoveryPolling();
                 }
             }
         } catch (error) {
             console.log('Discovery service not available:', error);
+            if (this.manualDiscoveryPeers.length > 0) {
+                this.startDiscoveryPolling();
+            }
         }
     }
 
@@ -4756,8 +5121,13 @@ async ensureTerminalManager() {
 
         this.discoveryPollInFlight = true;
         try {
-            const result = await invoke('get_discovered_peers');
-            console.log('Got discovered peers:', result);
+            // In this workflow, remote discovery is driven only by manually added peers.
+            // Keep the automatic discovery path disabled here to avoid mixed discovery sources.
+            const discovered = [];
+            const manual = await this.fetchManualDiscoveryPeers();
+            const result = this.mergeDiscoveryPeers(discovered, manual);
+
+            console.log('Got discovered peers (merged):', result);
             if (result && Array.isArray(result)) {
                 const newSignature = this.buildDiscoveredPeersSignature(result);
                 const changed = newSignature !== this._lastDiscoveredPeersSignature;
@@ -4822,8 +5192,127 @@ async ensureTerminalManager() {
         }
     }
 
+    async purgeDiscoveryCacheEntries() {
+        if (this.remoteDiscoveryCachePurgeInFlight) {
+            return;
+        }
+
+        const purgeBtn = document.getElementById('remote-model-cache-purge');
+        const originalText = purgeBtn ? purgeBtn.textContent : 'Purge Cached Entries';
+
+        this.remoteDiscoveryCachePurgeInFlight = true;
+        if (purgeBtn) {
+            purgeBtn.disabled = true;
+            purgeBtn.textContent = 'Purging...';
+        }
+
+        try {
+            const result = await invoke('purge_discovery_cache');
+            if (!result || result.success !== true) {
+                this.showNotification(result?.message || 'Failed to purge stale discovery cache rows', 'error');
+                return;
+            }
+
+            const resultMessage = typeof result.message === 'string' && result.message.trim().length > 0
+                ? result.message
+                : null;
+
+            if (result.removed === 0) {
+                this.showNotification(resultMessage || 'No stale discovery cache rows to purge', 'info');
+            } else {
+                this.showNotification(
+                    resultMessage
+                        || `Purged ${result.removed} stale discovery cache row${result.removed === 1 ? '' : 's'}`,
+                    'success'
+                );
+            }
+
+            await this.pollDiscoveredPeers();
+        } catch (error) {
+            console.error('Failed to purge discovery cache:', error);
+            this.showNotification(`Failed to purge discovery cache: ${error.message}`, 'error');
+        } finally {
+            if (purgeBtn) {
+                purgeBtn.disabled = false;
+                purgeBtn.textContent = originalText;
+            }
+            this.remoteDiscoveryCachePurgeInFlight = false;
+        }
+    }
+
     normalizeModelPath(path) {
         return String(path || '').replace(/\\/g, '/').toLowerCase();
+    }
+
+    getDisplayDiscoveryPeers(peers) {
+        const inputPeers = Array.isArray(peers) ? peers : [];
+        if (inputPeers.length === 0) {
+            return [];
+        }
+
+        const onlineEndpoints = new Set(
+            inputPeers
+                .filter((peer) => peer && peer.is_reachable)
+                .map((peer) => `${peer.ip_address || ''}:${peer.api_port || 0}`)
+        );
+        const onlineHosts = new Set(
+            inputPeers
+                .filter((peer) => peer && peer.is_reachable)
+                .map((peer) => String(peer.hostname || '').trim().toLowerCase())
+        );
+
+        const filtered = inputPeers.filter((peer) => {
+            if (!peer) return false;
+
+            const isCachedOffline = peer.models_from_cache === true && peer.is_reachable === false;
+            if (!isCachedOffline) {
+                return true;
+            }
+
+            const endpointKey = `${peer.ip_address || ''}:${peer.api_port || 0}`;
+            const hostKey = String(peer.hostname || '').trim().toLowerCase();
+
+            return !onlineEndpoints.has(endpointKey) && (!hostKey || !onlineHosts.has(hostKey));
+        });
+
+        const bestCachedOfflineByHost = new Map();
+        const nonCachedOrOnline = [];
+
+        filtered.forEach((peer) => {
+            const isCachedOffline = peer.models_from_cache === true && peer.is_reachable === false;
+            if (!isCachedOffline) {
+                nonCachedOrOnline.push(peer);
+                return;
+            }
+
+            const hostKey = String(peer.hostname || '').trim().toLowerCase()
+                || `${peer.ip_address || ''}:${peer.api_port || 0}`;
+            const existing = bestCachedOfflineByHost.get(hostKey);
+            if (!existing) {
+                bestCachedOfflineByHost.set(hostKey, peer);
+                return;
+            }
+
+            const existingUpdated = Date.parse(existing.cache_last_updated || '') || 0;
+            const peerUpdated = Date.parse(peer.cache_last_updated || '') || 0;
+            const existingSeen = Date.parse(existing.last_seen || '') || 0;
+            const peerSeen = Date.parse(peer.last_seen || '') || 0;
+            const existingModels = Array.isArray(existing.models) ? existing.models.length : 0;
+            const peerModels = Array.isArray(peer.models) ? peer.models.length : 0;
+
+            const replaceExisting =
+                peerUpdated > existingUpdated
+                || (peerUpdated === existingUpdated && peerSeen > existingSeen)
+                || (peerUpdated === existingUpdated && peerSeen === existingSeen && peerModels > existingModels)
+                || (peerUpdated === existingUpdated && peerSeen === existingSeen && peerModels === existingModels
+                    && String(peer.instance_id || '') > String(existing.instance_id || ''));
+
+            if (replaceExisting) {
+                bestCachedOfflineByHost.set(hostKey, peer);
+            }
+        });
+
+        return nonCachedOrOnline.concat(Array.from(bestCachedOfflineByHost.values()));
     }
 
     async refreshRemoteActiveModels(force = false) {
@@ -4837,7 +5326,7 @@ async ensureTerminalManager() {
             return;
         }
 
-        const peers = (this.discoveredPeers || []).filter((peer) =>
+        const peers = this.getDisplayDiscoveryPeers(this.discoveredPeers).filter((peer) =>
             peer && peer.is_reachable !== false && peer.ip_address && peer.api_port
         );
 
@@ -4930,9 +5419,13 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             const result = await invoke('disable_discovery');
             if (result && result.success) {
                 this.discoveryEnabled = false;
-                this.discoveredPeers = [];
                 this._lastDiscoveredPeersSignature = null;
-                this.stopDiscoveryPolling();
+                if (this.manualDiscoveryPeers.length > 0) {
+                    await this.startDiscoveryPolling();
+                } else {
+                    this.discoveredPeers = [];
+                    this.stopDiscoveryPolling();
+                }
                 
                 // Keep network server running; discovery is now independent.
                 this.showNotification('Discovery disabled (network server remains active)', 'info');
@@ -5118,24 +5611,65 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         // Create header for remote models view
         const header = document.createElement('div');
         header.className = 'remote-view-header';
-        // Layout handled by CSS — only structural inline styles here
-        header.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
-        const totalRemoteModels = this.discoveredPeers.reduce((acc, peer) => acc + (peer.models?.length || 0), 0);
-        const totalPeers = this.discoveredPeers.length;
+        const displayPeers = this.getDisplayDiscoveryPeers(this.discoveredPeers);
+        const totalRemoteModels = displayPeers.reduce((acc, peer) => acc + (peer.models?.length || 0), 0);
+        const totalPeers = displayPeers.length;
+
+        const seenRemoteModelKeys = new Set();
+        const dedupeEnabled = this.isRemoteModelDedupEnabled();
+        let duplicateSkipped = 0;
+
+        const dedupeBtn = document.createElement('button');
+        dedupeBtn.type = 'button';
+        dedupeBtn.id = 'remote-model-duplicate-toggle';
+        dedupeBtn.className = 'remote-duplicate-toggle-btn';
+        if (dedupeEnabled) {
+            dedupeBtn.classList.add('active');
+        }
+        dedupeBtn.title = dedupeEnabled ? 'Show duplicate model rows' : 'Hide duplicate model rows';
+        dedupeBtn.textContent = dedupeEnabled ? 'Show duplicates' : 'Hide duplicates';
+        dedupeBtn.addEventListener('click', () => {
+            this.toggleRemoteModelDedup();
+        });
 
         header.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="remote-view-header-left">
                 <span class="material-icons" style="color: var(--theme-primary); font-size: 22px;">cloud</span>
                 <span style="font-weight: 600; color: var(--theme-text); font-size: 15px;">Remote LLMs</span>
             </div>
-            <span style="color: var(--theme-text-muted); font-size: 12px;">${totalPeers} peer${totalPeers !== 1 ? 's' : ''}, ${totalRemoteModels} model${totalRemoteModels !== 1 ? 's' : ''}</span>
         `;
-        
+
+        const headerLeft = header.querySelector('.remote-view-header-left');
+        if (headerLeft) {
+            headerLeft.appendChild(dedupeBtn);
+        }
+
+        const headerRight = document.createElement('div');
+        headerRight.className = 'remote-view-header-right';
+
+        const statsElement = document.createElement('span');
+        statsElement.className = 'remote-view-stats';
+        statsElement.textContent = `${totalPeers} peer${totalPeers !== 1 ? 's' : ''}`;
+
+        const purgeBtn = document.createElement('button');
+        purgeBtn.type = 'button';
+        purgeBtn.id = 'remote-model-cache-purge';
+        purgeBtn.className = 'remote-cache-purge-btn';
+        purgeBtn.textContent = 'Purge Cached Entries';
+        purgeBtn.title = 'Remove stale cached discovery rows';
+        purgeBtn.addEventListener('click', async () => {
+            await this.purgeDiscoveryCacheEntries();
+        });
+
+        headerRight.appendChild(statsElement);
+        headerRight.appendChild(purgeBtn);
+        header.appendChild(headerRight);
+
         desktopIcons.appendChild(header);
 
         // If no peers discovered, show message
-        if (!this.discoveredPeers || this.discoveredPeers.length === 0) {
+        if (!displayPeers || displayPeers.length === 0) {
             const noPeersMsg = document.createElement('div');
             noPeersMsg.style.cssText = `
                 display: flex;
@@ -5149,27 +5683,28 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             noPeersMsg.innerHTML = `
                 <span class="material-icons" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;">cloud_off</span>
                 <p style="font-size: 16px; margin-bottom: 8px;">No remote LLMs discovered</p>
-                <p style="font-size: 12px; opacity: 0.7;">Enable discovery to find models on other PCs</p>
+                <p style="font-size: 12px; opacity: 0.7;">Add manual peers to discover models from other PCs</p>
             `;
             desktopIcons.appendChild(noPeersMsg);
             return;
         }
 
         // Flatten all remote models from all peers into a single list
-        const seenRemoteModelKeys = new Set();
         let allRemoteModels = [];
-        this.discoveredPeers.forEach((peer) => {
+        displayPeers.forEach((peer) => {
             if (peer.models && peer.models.length > 0) {
                 peer.models.forEach((model) => {
-                    const modelPathKey = String(model.path || '').toLowerCase();
-                    const modelIdKey = String(model.id || model.name || '').toLowerCase();
-                    const peerKey = `${peer.ip_address || ''}:${peer.api_port || 0}`;
-                    const dedupeKey = `${peerKey}|${modelPathKey || modelIdKey}`;
+                    const modelKey = this.getRemoteModelIdentityKey(model);
+                    const isDuplicate = dedupeEnabled && seenRemoteModelKeys.has(modelKey);
 
-                    if (seenRemoteModelKeys.has(dedupeKey)) {
+                    if (isDuplicate) {
+                        duplicateSkipped += 1;
                         return;
                     }
-                    seenRemoteModelKeys.add(dedupeKey);
+
+                    if (dedupeEnabled) {
+                        seenRemoteModelKeys.add(modelKey);
+                    }
 
                     allRemoteModels.push({
                         ...model,
@@ -5191,8 +5726,17 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             }
         });
 
+        const uniqueModelCount = allRemoteModels.length;
+        const shownModelCount = dedupeEnabled ? uniqueModelCount : totalRemoteModels;
+        const modelPlural = shownModelCount !== 1 ? 's' : '';
+        const baseModelLabel = `${shownModelCount} model${modelPlural}`;
+        const duplicateLabel = duplicateSkipped > 0
+            ? ` (${duplicateSkipped} duplicate${duplicateSkipped !== 1 ? 's' : ''} removed)`
+            : '';
+        statsElement.textContent = `${totalPeers} peer${totalPeers !== 1 ? 's' : ''}, ${baseModelLabel}${duplicateLabel}`;
+
         if (allRemoteModels.length === 0) {
-            const reachablePeers = this.discoveredPeers.filter((peer) => peer.is_reachable !== false).length;
+            const reachablePeers = displayPeers.filter((peer) => peer.is_reachable !== false).length;
             const pendingMsg = document.createElement('div');
             pendingMsg.style.cssText = `
                 display: flex;
@@ -5208,7 +5752,7 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             pendingMsg.innerHTML = `
                 <span class="material-icons" style="font-size: 46px; opacity: 0.55;">sync</span>
                 <p style="font-size: 16px; margin: 0; color: var(--theme-text);">Peers discovered, waiting for model list</p>
-                <p style="font-size: 12px; margin: 0; opacity: 0.8;">${this.discoveredPeers.length} peer${this.discoveredPeers.length !== 1 ? 's' : ''} found, ${reachablePeers} reachable. If this persists, refresh now.</p>
+                <p style="font-size: 12px; margin: 0; opacity: 0.8;">${displayPeers.length} peer${displayPeers.length !== 1 ? 's' : ''} found, ${reachablePeers} reachable. If this persists, refresh now.</p>
                 <button type="button" id="remote-models-refresh-btn" style="margin-top: 6px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--theme-border); background: var(--theme-surface); color: var(--theme-text); cursor: pointer;">Refresh Remote Models</button>
             `;
 
@@ -5476,8 +6020,8 @@ async enableDiscovery(port, apiPort, name, chatPort) {
 
     async refreshDiscoveredInstances() {
         try {
-            const peers = await invoke('get_discovered_peers');
-            this.updateDiscoveredInstancesList(peers);
+            await this.pollDiscoveredPeers();
+            this.updateDiscoveredInstancesList(this.discoveredPeers);
         } catch (error) {
             console.error('Failed to refresh discovered instances:', error);
         }
@@ -5486,8 +6030,10 @@ async enableDiscovery(port, apiPort, name, chatPort) {
     updateDiscoveredInstancesList(peers) {
         const tbody = document.getElementById('discovered-instances-list');
         if (!tbody) return;
+
+        const displayPeers = this.getDisplayDiscoveryPeers(peers);
         
-        if (!peers || peers.length === 0) {
+        if (!displayPeers || displayPeers.length === 0) {
             tbody.innerHTML = `
                 <tr id="no-instances-row">
                     <td colspan="4" style="padding: 16px; text-align: center; color: var(--theme-text-muted); font-style: italic; font-size: 11px;">
@@ -5498,7 +6044,7 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             return;
         }
         
-        tbody.innerHTML = peers.map(peer => `
+        tbody.innerHTML = displayPeers.map(peer => `
             <tr data-instance-id="${peer.instance_id}">
                 <td style="padding: 6px; border-bottom: 1px solid var(--theme-border);">
                     <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${peer.is_reachable ? '#22c55e' : '#ef4444'}; box-shadow: 0 0 4px ${peer.is_reachable ? '#22c55e' : '#ef4444'};"></span>
@@ -5549,7 +6095,8 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             if (idInput) idInput.value = status.instance_id || '';
             
             // Load discovered instances
-            if (status.enabled) {
+            this.renderManualDiscoveryPeers();
+            if (status.enabled || this.manualDiscoveryPeers.length > 0) {
                 await this.refreshDiscoveredInstances();
             }
         } catch (error) {

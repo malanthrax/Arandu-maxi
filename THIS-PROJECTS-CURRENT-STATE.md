@@ -6,6 +6,77 @@
 - Previous merges/conflicts are non-authoritative unless user explicitly asks to revisit them.
 - Operational rule: prioritize preserving this behavior over reconciling historical branch intent.
 
+## 2026-03-03 Session Update
+
+- ✅ Fixed desktop model hover info popup clipping at far-right edge.
+  - File: `frontend/desktop.js`
+  - Behavior: hint now follows cursor and clamps inside viewport.
+- ✅ Rebuilt exe-only artifact successfully.
+  - Command: `cargo tauri build --no-bundle`
+  - Artifact: `backend/target/release/Arandu.exe`
+
+## 2026-03-03 Startup Reliability Update
+
+- ✅ Fixed discovery startup lifecycle bug where discovery appeared enabled but did not ping until toggled OFF/ON.
+  - Root cause: startup path used a temporary Tokio runtime during setup; spawned discovery tasks did not stay alive on persistent app runtime.
+  - Fix: replaced setup-time startup calls with `tauri::async_runtime::block_on(...)`.
+  - Also updated status behavior so discovery reports `Stopped` when service is not live, even if config flag was previously enabled.
+  - File: `backend/src/lib.rs`
+
+## 2026-03-03 Manual Peer Update (Cross-LAN)
+
+- ✅ Added manual direct IP/host peers in Discovery options for cross-LAN usage.
+  - UI fields: host/IP, API port, chat port, optional display name, add/remove list.
+  - Manual peers persist in local storage and merge into remote/discovered lists.
+  - Polling continues for manual peers even when discovery toggle is OFF.
+  - Files: `frontend/index.html`, `frontend/desktop.js`
+
+## 2026-03-04 Discovery Cache Purge Update
+
+- ✅ Discovery can now find remote model versions across routed networks via **manual peers** (direct host/IP + API/chat ports), not only same-subnet UDP discovery.
+- ✅ Added backend purge behavior to stop surfacing cached-offline discovery entries:
+  - cached-offline rows are no longer returned in discovered peer output,
+  - stale cached endpoints not present in runtime discovery are purged from cache storage,
+  - cache backfill remains for runtime-visible peers (including endpoint match fallback when instance IDs rotate).
+- ✅ Runtime and frontend both participate in stale/offline handling:
+  - `backend/src/discovery.rs` and `backend/src/peer_cache.rs` suppress stale cache rows from output,
+  - `frontend/desktop.js` normalizes merged lists before rendering (runtime + manual peers).
+
+## 2026-03-04 Manual Cache Cleanup Control
+
+- ✅ Added explicit UI control in **Remote LLMs** to purge stale discovery cache rows on demand.
+- ✅ New button beside duplicate-toggle: `Purge Cached Entries`.
+- ✅ Added command `purge_discovery_cache` and backend implementation to remove cached peers not present in current runtime endpoints.
+- ✅ Frontend provides clear user feedback and auto-refreshes remote peers after purge completes, using backend message text when available.
+
+- ✅ Manual purge works even when discovery is stopped:
+  - in that case, the backend clears cached discovery peer entries and returns the removed count.
+  - command response message explains discovery not running and rows cleared.
+
+- Files:
+  - `backend/src/discovery.rs`
+  - `backend/src/lib.rs`
+  - `frontend/desktop.js`
+  - `frontend/css/desktop.css`
+
+## 2026-03-04 Next Phase (Planned) - In-Chat Model Indicator + Live Model Switcher
+
+- 🔜 **Status:** Planned only (no code started yet).
+- **Goal:** In chat UI, show the active model name (filename, truncated) near the Send button in smaller font.
+- **Interaction:** Clicking the model name opens a scrollable model switcher list directly inside chat.
+- **List sections:**
+  - Local available models
+  - Divider
+  - Reachable remote models only
+- **Selected approach:** **Approach 1 (Parent-Orchestrated Switcher)**
+  - Chat iframe (`frontend/llama-custom/index.html`) handles display + click interactions.
+  - Parent app (`frontend/desktop.js`/terminal flow) provides model inventory and executes switch action via existing `postMessage` pattern.
+- **Switch behavior requirements (confirmed):**
+  - Switch immediately when user selects a model.
+  - Keep current chat history in the same thread.
+  - If switch fails, keep current model active and show error.
+- **Frontend scope guard:** implement this phase without unrelated UI rewrites.
+
 ## ⚠️ PROJECT STATE - 2026-03-01 (EVENING - Session 3 Analysis)
 
 **Status: NEW BUGS FOUND - FIXES NEEDED BEFORE TESTING**

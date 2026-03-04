@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(windows)]
 use std::io;
 use std::path::PathBuf;
@@ -82,6 +82,26 @@ impl std::fmt::Debug for PeerModelCache {
 }
 
 impl PeerModelCache {
+    fn dedupe_models(models: Vec<RemoteModel>) -> Vec<RemoteModel> {
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut deduped = Vec::with_capacity(models.len());
+
+        for model in models {
+            let key = model
+                .path
+                .as_ref()
+                .map(|path| path.trim().replace('\\', "/").to_lowercase())
+                .filter(|path| !path.is_empty())
+                .unwrap_or_else(|| model.id.trim().to_lowercase());
+
+            if seen.insert(key) {
+                deduped.push(model);
+            }
+        }
+
+        deduped
+    }
+
     /// Create a new cache manager with the given app data directory
     pub async fn new(app_data_dir: PathBuf) -> Self {
         if let Err(e) = tokio::fs::create_dir_all(&app_data_dir).await {
@@ -91,11 +111,56 @@ impl PeerModelCache {
         info!("Peer model cache file path: {:?}", cache_file_path);
         
         // Load existing cache or create new
+        let mut normalized_on_load = false;
+
         let cache_data = if cache_file_path.exists() {
             match tokio::fs::read_to_string(&cache_file_path).await {
                 Ok(content) => {
                     match serde_json::from_str::<PeerCacheData>(&content) {
-                        Ok(data) => {
+                        Ok(mut data) => {
+                            // Cull duplicate model rows inside each cached peer.
+                            for peer in data.peers.values_mut() {
+                                let before = peer.models.len();
+                                peer.models = Self::dedupe_models(std::mem::take(&mut peer.models));
+                                if peer.models.len() != before {
+                                    peer.model_count = peer.models.len();
+                                    normalized_on_load = true;
+                                }
+                            }
+
+                            // Cull duplicate peer identities that point to same endpoint,
+                            // keeping the most recently updated record.
+                            let mut endpoint_owner: HashMap<String, (String, DateTime<Utc>)> = HashMap::new();
+                            let mut remove_ids: Vec<String> = Vec::new();
+                            for (id, peer) in data.peers.iter() {
+                                let endpoint_key = format!("{}:{}", peer.ip_address, peer.api_port);
+                                if let Some((existing_id, existing_updated)) = endpoint_owner.get(&endpoint_key) {
+                                    let replace_existing = if peer.last_updated > *existing_updated {
+                                        true
+                                    } else if peer.last_updated == *existing_updated {
+                                        // Deterministic tie-break to avoid HashMap-order variance.
+                                        id > existing_id
+                                    } else {
+                                        false
+                                    };
+
+                                    if replace_existing {
+                                        remove_ids.push(existing_id.clone());
+                                        endpoint_owner.insert(endpoint_key, (id.clone(), peer.last_updated));
+                                    } else {
+                                        remove_ids.push(id.clone());
+                                    }
+                                } else {
+                                    endpoint_owner.insert(endpoint_key, (id.clone(), peer.last_updated));
+                                }
+                            }
+
+                            for remove_id in remove_ids {
+                                if data.peers.remove(&remove_id).is_some() {
+                                    normalized_on_load = true;
+                                }
+                            }
+
                             info!("Loaded peer model cache with {} peers", data.peers.len());
                             data
                         }
@@ -115,11 +180,18 @@ impl PeerModelCache {
             PeerCacheData::default()
         };
 
-        Self {
+        let cache = Self {
             cache: Arc::new(Mutex::new(cache_data)),
             cache_file_path,
             persist_lock: Arc::new(Mutex::new(())),
+        };
+
+        if normalized_on_load {
+            info!("Normalized peer model cache duplicates on load and persisted updates");
+            cache.persist().await;
         }
+
+        cache
     }
 
     /// Get all cached peers
@@ -158,6 +230,7 @@ impl PeerModelCache {
         is_reachable: bool,
     ) -> PeerModelDelta {
         let mut cache = self.cache.lock().await;
+        let new_models = Self::dedupe_models(new_models);
 
         // If a peer rotates instance_id across restarts but stays on same endpoint,
         // drop older cache identities to prevent duplicate remote model rows.
@@ -300,22 +373,69 @@ impl PeerModelCache {
         removed
     }
 
-    /// Clear all peers from cache
-    pub async fn clear(&self) {
+    /// Clear all peers from cache. Returns number of removed peers.
+    pub async fn clear(&self) -> usize {
         let mut cache = self.cache.lock().await;
         let count = cache.peers.len();
+        if count == 0 {
+            return 0;
+        }
+
         cache.peers.clear();
         cache.last_saved = Utc::now();
         info!("Cleared {} peers from cache", count);
         
         drop(cache);
         self.persist().await;
+
+        count
     }
 
     /// Get cache statistics
     pub async fn get_stats(&self) -> (usize, DateTime<Utc>) {
         let cache = self.cache.lock().await;
         (cache.peers.len(), cache.last_saved)
+    }
+
+    /// Remove cached peers whose endpoint is not in the current runtime endpoint set.
+    ///
+    /// Endpoint key format: `ip:api_port`.
+    pub async fn purge_peers_not_in_endpoints(&self, keep_endpoints: &HashSet<String>) -> usize {
+        let mut cache = self.cache.lock().await;
+
+        let remove_ids: Vec<String> = cache
+            .peers
+            .iter()
+            .filter_map(|(id, peer)| {
+                let endpoint_key = format!("{}:{}", peer.ip_address, peer.api_port);
+                if keep_endpoints.contains(&endpoint_key) {
+                    None
+                } else {
+                    Some(id.clone())
+                }
+            })
+            .collect();
+
+        let removed = remove_ids.len();
+        for id in remove_ids {
+            cache.peers.remove(&id);
+        }
+
+        if removed > 0 {
+            cache.last_saved = Utc::now();
+            info!(
+                "Purged {} stale cached peer entries not present in runtime endpoints",
+                removed
+            );
+        }
+
+        drop(cache);
+
+        if removed > 0 {
+            self.persist().await;
+        }
+
+        removed
     }
 
     /// Persist cache to disk
@@ -577,5 +697,119 @@ mod tests {
             assert!(peer.is_some(), "Peer should be loaded from cache");
             assert_eq!(peer.unwrap().hostname, "host-1");
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_peer_models_culls_duplicate_models() {
+        let temp_dir = create_test_temp_dir();
+        let cache = PeerModelCache::new(temp_dir).await;
+
+        let model = create_test_remote_model("dup-model");
+        let duplicate_models = vec![model.clone(), model];
+
+        cache
+            .update_peer_models(
+                "peer-dup".to_string(),
+                "host-dup".to_string(),
+                "10.0.0.2".to_string(),
+                8081,
+                8080,
+                "http://10.0.0.2:8081".to_string(),
+                duplicate_models,
+                true,
+            )
+            .await;
+
+        let stored_models = cache.get_peer_models("peer-dup").await;
+        assert_eq!(
+            stored_models.len(),
+            1,
+            "Duplicate models should be culled before persisting"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_purge_peers_not_in_endpoints_removes_stale_cached_rows() {
+        let temp_dir = create_test_temp_dir();
+        let cache = PeerModelCache::new(temp_dir).await;
+
+        cache
+            .update_peer_models(
+                "peer-a".to_string(),
+                "host-a".to_string(),
+                "10.0.0.10".to_string(),
+                8081,
+                8080,
+                "http://10.0.0.10:8081".to_string(),
+                vec![create_test_remote_model("a")],
+                true,
+            )
+            .await;
+
+        cache
+            .update_peer_models(
+                "peer-b".to_string(),
+                "host-b".to_string(),
+                "10.0.0.11".to_string(),
+                8081,
+                8080,
+                "http://10.0.0.11:8081".to_string(),
+                vec![create_test_remote_model("b")],
+                true,
+            )
+            .await;
+
+        let keep_endpoints = HashSet::from(["10.0.0.10:8081".to_string()]);
+        let removed = cache.purge_peers_not_in_endpoints(&keep_endpoints).await;
+        assert_eq!(removed, 1);
+
+        let peers = cache.get_all_peers().await;
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].ip_address, "10.0.0.10");
+        assert_eq!(peers[0].api_port, 8081);
+    }
+
+    #[tokio::test]
+    async fn test_clear_returns_count_and_empties_cache() {
+        let temp_dir = create_test_temp_dir();
+        let cache = PeerModelCache::new(temp_dir).await;
+
+        cache
+            .update_peer_models(
+                "peer-a".to_string(),
+                "host-a".to_string(),
+                "10.0.0.10".to_string(),
+                8081,
+                8080,
+                "http://10.0.0.10:8081".to_string(),
+                vec![create_test_remote_model("a")],
+                true,
+            )
+            .await;
+
+        cache
+            .update_peer_models(
+                "peer-b".to_string(),
+                "host-b".to_string(),
+                "10.0.0.11".to_string(),
+                8081,
+                8080,
+                "http://10.0.0.11:8081".to_string(),
+                vec![create_test_remote_model("b")],
+                true,
+            )
+            .await;
+
+        let peers_before = cache.get_all_peers().await;
+        assert_eq!(peers_before.len(), 2);
+
+        let removed = cache.clear().await;
+        assert_eq!(removed, 2);
+
+        let peers_after = cache.get_all_peers().await;
+        assert!(peers_after.is_empty());
+
+        let removed_again = cache.clear().await;
+        assert_eq!(removed_again, 0);
     }
 }

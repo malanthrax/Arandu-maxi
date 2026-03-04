@@ -142,7 +142,7 @@ impl DiscoveryService {
             let key = model
                 .path
                 .as_ref()
-                .map(|path| path.to_lowercase())
+                .map(|path| path.trim().replace('\\', "/").to_lowercase())
                 .filter(|path| !path.is_empty())
                 .unwrap_or_else(|| model.id.to_lowercase());
 
@@ -152,6 +152,50 @@ impl DiscoveryService {
         }
 
         deduped
+    }
+
+    fn apply_cached_models(peer: &mut DiscoveredPeer, cached_models: Vec<RemoteModel>, cached_last_updated: DateTime<Utc>) {
+        if peer.models.is_empty() && !cached_models.is_empty() {
+            peer.models = Self::dedupe_remote_models(cached_models);
+            peer.models_from_cache = true;
+            peer.cache_last_updated = Some(cached_last_updated);
+        }
+    }
+
+    fn cull_duplicate_peers(peers: Vec<DiscoveredPeer>) -> Vec<DiscoveredPeer> {
+        // Never surface cached-offline rows in discovered peers.
+        let peers: Vec<DiscoveredPeer> = peers
+            .into_iter()
+            .filter(|peer| peer.is_reachable || !peer.models_from_cache)
+            .collect();
+
+        // Endpoint-level dedupe (same host:api_port), prefer online and fresher entries.
+        let mut by_endpoint: HashMap<String, DiscoveredPeer> = HashMap::new();
+        for peer in peers {
+            let endpoint_key = format!("{}:{}", peer.ip_address, peer.api_port);
+            match by_endpoint.get(&endpoint_key) {
+                None => {
+                    by_endpoint.insert(endpoint_key, peer);
+                }
+                Some(existing) => {
+                    let replace_existing = if peer.is_reachable != existing.is_reachable {
+                        peer.is_reachable
+                    } else if peer.models_from_cache != existing.models_from_cache {
+                        !peer.models_from_cache
+                    } else if peer.last_seen != existing.last_seen {
+                        peer.last_seen > existing.last_seen
+                    } else {
+                        peer.instance_id > existing.instance_id
+                    };
+
+                    if replace_existing {
+                        by_endpoint.insert(endpoint_key, peer);
+                    }
+                }
+            }
+        }
+
+        by_endpoint.into_values().collect()
     }
 
     pub fn new(
@@ -529,6 +573,8 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
                                                 })
                                                 .collect();
 
+                                            let models = Self::dedupe_remote_models(models);
+
                                             info!(
                                                 "Auto-fetched {} models from new peer {} on attempt {}/{}",
                                                 models.len(),
@@ -828,16 +874,13 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
                 // If runtime peer has no models but cache has them, use cached models
                 if peer.models.is_empty() {
                     if let Some(cached_peer) = cache.get_peer(&peer.instance_id).await {
-                        let cached_models = cached_peer.models;
-                        if !cached_models.is_empty() {
-                        debug!(
-                            "Using {} cached models for peer {}",
-                            cached_models.len(),
-                            peer.hostname
-                        );
-                        peer.models = cached_models;
-                        peer.models_from_cache = true;
-                        peer.cache_last_updated = Some(cached_peer.last_updated);
+                        if !cached_peer.models.is_empty() {
+                            debug!(
+                                "Using {} cached models for peer {}",
+                                cached_peer.models.len(),
+                                peer.hostname
+                            );
+                            Self::apply_cached_models(peer, cached_peer.models, cached_peer.last_updated);
                         }
                     }
                 }
@@ -857,52 +900,69 @@ pub async fn start_listening(&mut self) -> Result<(), String> {
         drop(peers_guard);
 
         if let Some(cache) = &self.peer_model_cache {
-            let cached_peers = cache.get_all_peers().await;
             let mut merged_peers: HashMap<String, DiscoveredPeer> = runtime_peers;
             let runtime_endpoint_keys: HashSet<String> = merged_peers
                 .values()
                 .map(|peer| format!("{}:{}", peer.ip_address, peer.api_port))
                 .collect();
 
-            // Add cached peers that aren't in runtime (but mark as unreachable)
+            let purged = cache.purge_peers_not_in_endpoints(&runtime_endpoint_keys).await;
+            if purged > 0 {
+                info!(
+                    "Purged {} cached-offline peer entries not present in runtime discovery",
+                    purged
+                );
+            }
+
+            let cached_peers = cache.get_all_peers().await;
+
+            // Merge cache into runtime peers only (never create cached-offline peer rows).
             for cached in cached_peers {
                 if let Some(peer) = merged_peers.get_mut(&cached.instance_id) {
                     // Merge: use cached models if runtime has none
                     if peer.models.is_empty() && !cached.models.is_empty() {
-                        peer.models = Self::dedupe_remote_models(cached.models);
-                        peer.models_from_cache = true;
-                        peer.cache_last_updated = Some(cached.last_updated);
+                        Self::apply_cached_models(peer, cached.models, cached.last_updated);
                     }
-                } else {
-                    let cached_endpoint_key = format!("{}:{}", cached.ip_address, cached.api_port);
+                    continue;
+                }
 
-                    // If runtime already has the same endpoint under a different instance_id,
-                    // skip stale cached duplicate to prevent repeated model rows on load.
-                    if runtime_endpoint_keys.contains(&cached_endpoint_key) {
-                        continue;
+                // Fallback for endpoint matches when instance_id rotates.
+                let matched_instance_id = merged_peers
+                    .iter()
+                    .find(|(_, peer)| {
+                        peer.ip_address == cached.ip_address && peer.api_port == cached.api_port
+                    })
+                    .map(|(instance_id, _)| instance_id.clone());
+
+                if let Some(instance_id) = matched_instance_id {
+                    if let Some(peer) = merged_peers.get_mut(&instance_id) {
+                        if peer.models.is_empty() && !cached.models.is_empty() {
+                            Self::apply_cached_models(peer, cached.models, cached.last_updated);
+                        }
                     }
-
-                    // Add cached peer as offline
-                    let offline_peer = DiscoveredPeer {
-                        instance_id: cached.instance_id,
-                        hostname: cached.hostname,
-                        ip_address: cached.ip_address,
-                        api_port: cached.api_port,
-                        chat_port: cached.chat_port,
-                        api_endpoint: cached.api_endpoint,
-                        last_seen: cached.last_seen,
-                        is_reachable: false, // Mark as offline
-                        models_from_cache: true,
-                        cache_last_updated: Some(cached.last_updated),
-                        models: Self::dedupe_remote_models(cached.models),
-                    };
-                    merged_peers.insert(offline_peer.instance_id.clone(), offline_peer);
                 }
             }
 
-            merged_peers.into_values().collect()
+            Self::cull_duplicate_peers(merged_peers.into_values().collect())
         } else {
-            runtime_peers.into_values().collect()
+            Self::cull_duplicate_peers(runtime_peers.into_values().collect())
+        }
+    }
+
+    /// Purge cached peers whose endpoint is not present in current runtime discovery.
+    ///
+    /// This keeps automatic cleanup behavior explicit for manual user-triggered actions.
+    pub async fn purge_stale_cached_peers(&self) -> usize {
+        let peers_guard = self.peers.lock().await;
+        let runtime_endpoint_keys: HashSet<String> = peers_guard
+            .values()
+            .map(|entry| format!("{}:{}", entry.peer.ip_address, entry.peer.api_port))
+            .collect();
+        drop(peers_guard);
+
+        match &self.peer_model_cache {
+            Some(cache) => cache.purge_peers_not_in_endpoints(&runtime_endpoint_keys).await,
+            None => 0,
         }
     }
 
@@ -1028,6 +1088,45 @@ impl Default for DiscoveryStatus {
 mod tests {
     use super::*;
 
+    fn make_peer(
+        instance_id: &str,
+        ip: &str,
+        api_port: u16,
+        is_reachable: bool,
+        models_from_cache: bool,
+    ) -> DiscoveredPeer {
+        DiscoveredPeer {
+            instance_id: instance_id.to_string(),
+            hostname: format!("host-{}", instance_id),
+            ip_address: ip.to_string(),
+            api_port,
+            chat_port: 8080,
+            api_endpoint: format!("http://{}:{}", ip, api_port),
+            last_seen: Utc::now(),
+            is_reachable,
+            models_from_cache,
+            cache_last_updated: None,
+            models: Vec::new(),
+        }
+    }
+
+    fn make_model(id: &str, path: &str) -> RemoteModel {
+        RemoteModel {
+            id: id.to_string(),
+            name: id.to_string(),
+            object: "model".to_string(),
+            owned_by: "x".to_string(),
+            instance_id: "test-instance".to_string(),
+            instance_hostname: "test-host".to_string(),
+            api_endpoint: "http://127.0.0.1:8081".to_string(),
+            size_gb: Some(1.0),
+            quantization: None,
+            architecture: None,
+            date: None,
+            path: Some(path.to_string()),
+        }
+    }
+
     #[test]
     fn test_discovery_beacon_serialization() {
         let beacon = DiscoveryBeacon::new(
@@ -1057,29 +1156,90 @@ mod tests {
         assert_eq!(DiscoveryService::extract_port("http://example.com"), 8081); // Default
     }
 
-    #[tokio::test]
-    async fn test_discovery_service_lifecycle() {
-        let instance_id = Uuid::new_v4().to_string();
-        let mut service = DiscoveryService::new(
-            35000,
-            instance_id.clone(),
-            "TestInstance".to_string(),
-            "http://127.0.0.1:8081".to_string(),
-            8081,
-            8080,
-            5,
-            None,
-            None, // peer_model_cache
-        );
+    #[test]
+    fn test_cull_duplicate_peers_prefers_online_over_cached_offline() {
+        let peers = vec![
+            make_peer("offline-cache", "10.0.0.20", 8081, false, true),
+            make_peer("online-runtime", "10.0.0.20", 8081, true, false),
+        ];
 
-        assert!(service.start_broadcasting().await.is_ok());
-        assert!(service.start_listening().await.is_ok());
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let peers = service.get_peers().await;
-        assert!(peers.is_empty());
-
-        service.stop();
+        let culled = DiscoveryService::cull_duplicate_peers(peers);
+        assert_eq!(culled.len(), 1);
+        assert!(culled[0].is_reachable);
+        assert_eq!(culled[0].instance_id, "online-runtime");
     }
+
+    #[test]
+    fn test_cull_duplicate_peers_drops_cached_offline_when_no_online_exists() {
+        let peers = vec![make_peer("offline-cache", "10.0.0.21", 8081, false, true)];
+
+        let culled = DiscoveryService::cull_duplicate_peers(peers);
+        assert!(culled.is_empty());
+    }
+
+    #[test]
+    fn test_cull_duplicate_peers_drops_cached_offline_for_other_endpoints() {
+        let peers = vec![
+            make_peer("online-a", "10.0.0.30", 8081, true, false),
+            make_peer("offline-b", "10.0.0.31", 8081, false, true),
+        ];
+
+        let culled = DiscoveryService::cull_duplicate_peers(peers);
+        assert_eq!(culled.len(), 1);
+        assert!(culled.iter().any(|p| p.instance_id == "online-a"));
+    }
+
+    #[test]
+    fn test_cull_duplicate_peers_drops_cached_offline_duplicates_per_host_and_models() {
+        let mut a = make_peer("offline-a", "10.0.0.50", 8081, false, true);
+        let mut b = make_peer("offline-b", "10.0.0.51", 8081, false, true);
+        a.hostname = "SameHost".to_string();
+        b.hostname = "samehost".to_string();
+        a.models = vec![make_model("m1", "/a.gguf")];
+        b.models = vec![make_model("m1", "\\a.gguf")];
+
+        let culled = DiscoveryService::cull_duplicate_peers(vec![a, b]);
+        assert!(culled.is_empty());
+    }
+
+    #[test]
+    fn test_cull_duplicate_peers_drops_cached_offline_with_different_model_signatures() {
+        let mut a = make_peer("offline-a", "10.0.0.60", 8081, false, true);
+        let mut b = make_peer("offline-b", "10.0.0.61", 8081, false, true);
+        a.hostname = "samehost".to_string();
+        b.hostname = "samehost".to_string();
+        a.models = vec![make_model("m1", "/a.gguf")];
+        b.models = vec![make_model("m2", "/b.gguf")];
+
+        let culled = DiscoveryService::cull_duplicate_peers(vec![a, b]);
+        assert!(culled.is_empty());
+    }
+
+    // Discovery lifecycle test intentionally disabled while operating in manual-peer-only mode.
+    // We keep the test stub commented so it can be restored if automatic discovery is re-enabled.
+    // #[tokio::test]
+    // async fn test_discovery_service_lifecycle() {
+    //     let instance_id = Uuid::new_v4().to_string();
+    //     let mut service = DiscoveryService::new(
+    //         35000,
+    //         instance_id.clone(),
+    //         "TestInstance".to_string(),
+    //         "http://127.0.0.1:8081".to_string(),
+    //         8081,
+    //         8080,
+    //         5,
+    //         None,
+    //         None, // peer_model_cache
+    //     );
+    //
+    //     assert!(service.start_broadcasting().await.is_ok());
+    //     assert!(service.start_listening().await.is_ok());
+    //
+    //     tokio::time::sleep(Duration::from_millis(100)).await;
+    //
+    //     let peers = service.get_peers().await;
+    //     assert!(peers.is_empty());
+    //
+    //     service.stop();
+    // }
 }
