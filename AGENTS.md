@@ -221,6 +221,48 @@ pub struct ProcessHandle {
 
 ## Model Management
 
+### Card-Based UI Design (2026-03-04)
+
+The Local Models list uses a modern card-based grid layout with dark blue gradient styling.
+
+**Layout:**
+- **Grid System:** Responsive CSS Grid with `repeat(auto-fill, minmax(320px, 1fr))`
+- **Card Dimensions:** Minimum 120px height, full width within grid cell
+- **Spacing:** 16px gap between cards, 20px padding around grid
+- **Responsive:** Automatically adjusts columns based on viewport width
+
+**Visual Design:**
+- **Background:** Three-stop linear gradient (`#0a1628` → `#1a365d` → `#0d2137`)
+- **Abstract Shapes:** CSS pseudo-elements (`::before`, `::after`) create geometric patterns using radial and conic gradients
+- **Border:** 1px solid with `rgba(59, 130, 246, 0.2)` color
+- **Border Radius:** 16px for rounded corners
+- **Shadows:** Multi-layer box-shadow for depth (base shadow + glow on hover)
+- **Typography:** Inter font (600 weight, 22px) for model names
+
+**Card Content:**
+- **Model Name:** White text, left-aligned, single line with ellipsis overflow
+- **File Size:** Displayed in GB with 2 decimal precision (e.g., "8.50 GB")
+- **Quantization Badge:** Glass-morphism style pill showing quantization level (e.g., "Q4_K_M")
+- **Update Indicator:** Top-right positioned circle with color-coded status
+
+**Interactive States:**
+- **Hover:** Card lifts up 4px, scales to 1.02, blue glow shadow appears
+- **Selected:** Blue border glow, maintained selection state
+- **Dragging:** Slight rotation, reduced opacity, elevated shadow
+
+**View Modes:**
+1. **Card View (Default):** Grid layout with large cards showing model name, size, and quantization
+2. **List View:** Vertical scrolling list with compact rows (toggle via view switcher)
+
+**Files:**
+- `frontend/css/desktop.css` - Card styling and grid layout (lines 1572-1900+)
+- `frontend/desktop.js` - Card HTML generation in `createIcon()` function
+- `frontend/index.html` - Inter font import from Google Fonts
+
+### Legacy Icon System (Deprecated)
+
+*Note: The previous icon-based layout with GGUF logos and architecture labels is no longer used in the default card view. These elements are hidden via CSS but preserved for list view mode.*
+
 **Scanning:**
 - Recursively scans `models_directory` for `*.gguf` files
 - Extracts metadata: architecture, name, quantization from filename patterns
@@ -244,7 +286,8 @@ Visual indicators on desktop icons showing quantization bit-level:
 | Unknown | Gray | `#6B7280` | - |
 
 **Implementation:**
-- Location: Bottom of icon-image div
+- Used in: List view mode only
+- Location: Bottom of icon-image div (when visible)
 - Height: 4px, border-radius: 0 0 8px 8px
 - Extracted from `data-quantization` attribute
 - Same bit-level = same color (e.g., Q4_K_M and Q4_0 both yellow-orange)

@@ -1,5 +1,24 @@
 # Arandu Development Status - 2025-02-23
 
+## 2026-03-04 Card-Based Model List UI Redesign
+
+- ✅ Complete redesign of Local Models list page with modern card-based UI
+  - **Design Reference:** Dark blue gradient cards with abstract geometric shapes
+  - **Layout:** Responsive 3-column grid (320px min-width) replacing vertical icon list
+  - **Visual Style:** Dark navy-to-blue gradient backgrounds with CSS radial/conic gradients creating abstract shapes on right side of each card
+  - **Typography:** Inter font (600 weight, 22px) for model names with white text
+  - **Card Details:** Shows model name, file size (GB), and quantization badge
+  - **Interactive Elements:** 
+    - Hover: Scale up (1.02) + translate (-4px) with glowing blue shadows
+    - Update indicator: Top-right positioned with backdrop blur, color-coded by status
+    - Selection: Blue border glow effect
+  - **Removed:** GGUF logo icons, architecture labels from main card view
+  - **Files Modified:**
+    - `frontend/css/desktop.css` - Complete card styling, grid layout, animations
+    - `frontend/desktop.js` - New card HTML structure with icon-content wrapper
+    - `frontend/index.html` - Added Inter font from Google Fonts
+  - **Commit:** `3229939`
+
 ## Canonical Baseline Policy (2026-03-01)
 
 - User directive: this current working version is the baseline going forward.
