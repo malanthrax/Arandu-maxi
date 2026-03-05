@@ -1,5 +1,23 @@
 # Arandu Development Status - 2025-02-23
 
+## 2026-03-04 In-Chat Active Model Label + Live Model Switcher
+
+- ✅ Added active model label in chat UI near the Send button.
+- ✅ Added live model switcher panel inside chat with:
+  - Local model list
+  - Reachable remote model list
+- ✅ Added parent-orchestrated switch protocol between iframe and terminal manager:
+  - `request-chat-model-switcher-data` / `chat-model-switcher-data`
+  - `request-chat-model-switch` / `chat-model-switch-result`
+  - `chat-active-model-changed`
+- ✅ Local switch now restarts the same server terminal with selected model and keeps the same chat thread visible.
+- ✅ Remote selection opens remote chat through existing launch flow while preserving current embedded chat state.
+- ✅ Added timeout handling for switcher data/switch requests so UI does not remain stuck if response is missing.
+- ✅ Build verification complete:
+  - `cargo check` passed
+  - `cargo tauri build --no-bundle` passed
+  - output: `backend/target/release/Arandu.exe` (updated 2026-03-04 16:11)
+
 ## 2026-03-04 Card-Based Model List UI Redesign
 
 - ✅ Complete redesign of Local Models list page with modern card-based UI

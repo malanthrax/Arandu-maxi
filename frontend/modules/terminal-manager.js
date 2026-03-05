@@ -33,6 +33,10 @@ class TerminalManager {
             if (event.data && event.data.type === 'request-restart') {
                 console.log('[TerminalManager] Restart requested from chat UI:', event.data);
                 await this.handleRestartRequest(event.data, event.source);
+            } else if (event.data && event.data.type === 'request-chat-model-switcher-data') {
+                await this.handleChatModelSwitcherDataRequest(event.source);
+            } else if (event.data && event.data.type === 'request-chat-model-switch') {
+                await this.handleChatModelSwitchRequest(event.data, event.source);
             } else if (event.data && event.data.type === 'request-compatible-models') {
                 console.log('[TerminalManager] Compatible models requested from chat UI');
                 await this.handleCompatibleModelsRequest(event.source);
@@ -72,6 +76,288 @@ class TerminalManager {
             return this.terminals.get(activeWindow.id) || null;
         }
         return null;
+    }
+
+    getTerminalContextBySourceWindow(sourceWindow) {
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (!chatPanel) continue;
+            const iframe = chatPanel.querySelector('iframe');
+            if (iframe && iframe.contentWindow === sourceWindow) {
+                return { windowId, info };
+            }
+        }
+
+        const activeWindow = document.querySelector('.window.active[id^="server_"]');
+        if (activeWindow) {
+            const fallbackWindowId = activeWindow.id;
+            const fallbackInfo = this.terminals.get(fallbackWindowId);
+            if (fallbackInfo) {
+                return { windowId: fallbackWindowId, info: fallbackInfo };
+            }
+        }
+
+        return null;
+    }
+
+    getTerminalContextExactBySourceWindow(sourceWindow) {
+        for (const [windowId, info] of this.terminals.entries()) {
+            const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+            if (!chatPanel) continue;
+            const iframe = chatPanel.querySelector('iframe');
+            if (iframe && iframe.contentWindow === sourceWindow) {
+                return { windowId, info };
+            }
+        }
+        return null;
+    }
+
+    postToTerminalIframe(windowId, payload) {
+        const chatPanel = document.getElementById(`panel-chat-${windowId}`);
+        const iframe = chatPanel ? chatPanel.querySelector('iframe') : null;
+        if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.postMessage(payload, '*');
+        }
+    }
+
+    emitActiveModelChanged(windowId, modelName, modelPath, sourceType = 'local') {
+        this.postToTerminalIframe(windowId, {
+            type: 'chat-active-model-changed',
+            modelName: modelName || '',
+            modelPath: modelPath || '',
+            sourceType
+        });
+    }
+
+    updateTerminalModelPresentation(windowId, modelName, modelPath) {
+        const windowElement = this.desktop.windows.get(windowId) || document.getElementById(windowId);
+        if (!windowElement) {
+            return;
+        }
+
+        const serverDetails = windowElement.querySelector('.server-details');
+        const terminalInfo = this.terminals.get(windowId);
+        const host = terminalInfo?.host || '127.0.0.1';
+        const port = terminalInfo?.port || 8080;
+
+        if (serverDetails) {
+            serverDetails.innerHTML = `${modelName} - <span class="clickable" style="cursor: pointer; text-decoration: underline;" onclick="terminalManager.openUrl('http://${host}:${port}')">${host}:${port}</span><button class="copy-link-btn" style="background: none; border: none; cursor: pointer; margin-left: 5px; padding: 0; font-size: 14px; vertical-align: middle;" onclick="terminalManager.copyToClipboard('http://${host}:${port}', this)" title="Copy link"><span class="material-icons" style="font-size: 14px; color: var(--theme-text-muted);">content_copy</span></button>`;
+        }
+
+        const chatModelLabel = windowElement.querySelector('.chat-section-model-label');
+        if (chatModelLabel) {
+            chatModelLabel.textContent = modelName;
+            if (modelPath) {
+                chatModelLabel.title = modelPath;
+            }
+        }
+    }
+
+    async handleChatModelSwitcherDataRequest(sourceWindow) {
+        const context = this.getTerminalContextBySourceWindow(sourceWindow);
+        if (!context) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switcher-data',
+                success: false,
+                error: 'Unable to identify terminal context',
+                localModels: [],
+                remoteModels: [],
+                current: null
+            }, '*');
+            return;
+        }
+
+        const { info } = context;
+        const invoke = this.getInvoke();
+        if (!invoke) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switcher-data',
+                success: false,
+                error: 'Invoke is unavailable',
+                localModels: [],
+                remoteModels: [],
+                current: null
+            }, '*');
+            return;
+        }
+
+        try {
+            const scanResult = await invoke('scan_models_command');
+            const localModels = (scanResult && scanResult.success && Array.isArray(scanResult.models))
+                ? scanResult.models.map((model) => ({
+                    id: `local:${model.path}`,
+                    name: model.name || (model.path || '').split(/[\\/]/).pop() || 'Unknown',
+                    path: model.path || '',
+                    sourceType: 'local',
+                    sizeGb: Number(model.size_gb) || 0,
+                    quantization: model.quantization || 'Unknown'
+                }))
+                : [];
+
+            const remoteModels = [];
+            const remoteSeen = new Set();
+            const peers = Array.isArray(this.desktop?.discoveredPeers) ? this.desktop.discoveredPeers : [];
+            peers.forEach((peer) => {
+                if (!peer || peer.is_reachable === false || !Array.isArray(peer.models)) {
+                    return;
+                }
+                const peerHost = peer.ip_address || peer.hostname || '';
+                const peerApiPort = Number(peer.api_port) || 8081;
+                const peerChatPort = Number(peer.chat_port) || 8080;
+                peer.models.forEach((model) => {
+                    const modelPath = String(model.path || '');
+                    if (!modelPath) return;
+                    const dedupeKey = `${peerHost}:${peerApiPort}:${modelPath}`.toLowerCase();
+                    if (remoteSeen.has(dedupeKey)) return;
+                    remoteSeen.add(dedupeKey);
+                    remoteModels.push({
+                        id: `remote:${dedupeKey}`,
+                        name: model.name || model.id || modelPath.split(/[\\/]/).pop() || 'Remote model',
+                        path: modelPath,
+                        sourceType: 'remote',
+                        sizeGb: Number(model.size_gb) || 0,
+                        quantization: model.quantization || 'Unknown',
+                        peerHost,
+                        peerApiPort,
+                        peerChatPort,
+                        peerName: peer.hostname || peer.instance_name || peerHost
+                    });
+                });
+            });
+
+            sourceWindow?.postMessage({
+                type: 'chat-model-switcher-data',
+                success: true,
+                localModels,
+                remoteModels,
+                current: {
+                    sourceType: 'local',
+                    modelName: info.modelName || '',
+                    modelPath: info.modelPath || ''
+                }
+            }, '*');
+        } catch (error) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switcher-data',
+                success: false,
+                error: error && error.message ? error.message : String(error),
+                localModels: [],
+                remoteModels: [],
+                current: null
+            }, '*');
+        }
+    }
+
+    async handleChatModelSwitchRequest(data, sourceWindow) {
+        const context = this.getTerminalContextExactBySourceWindow(sourceWindow);
+        if (!context) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switch-result',
+                success: false,
+                message: 'Unable to identify exact chat terminal for model switch.'
+            }, '*');
+            return;
+        }
+
+        const { windowId, info } = context;
+        const payload = (data && data.payload && typeof data.payload === 'object') ? data.payload : {};
+        const sourceType = payload.sourceType === 'remote' ? 'remote' : 'local';
+
+        if (sourceType === 'remote') {
+            const remoteHost = String(payload.peerHost || '').trim();
+            const remoteApiPort = Number(payload.peerApiPort) || 8081;
+            const remoteChatPort = Number(payload.peerChatPort) || 8080;
+            const remoteModelPath = String(payload.path || '').trim();
+            const remoteModelName = String(payload.name || '').trim() || 'Remote model';
+
+            if (!remoteHost || !remoteModelPath) {
+                sourceWindow?.postMessage({
+                    type: 'chat-model-switch-result',
+                    success: false,
+                    message: 'Remote switch failed: missing peer host or model path.'
+                }, '*');
+                return;
+            }
+
+            try {
+                const launchOk = await this.openNativeChatForServer(remoteModelName, remoteHost, remoteApiPort, remoteModelPath, remoteChatPort);
+                if (!launchOk) {
+                    throw new Error('Remote model launch was not successful.');
+                }
+                sourceWindow?.postMessage({
+                    type: 'chat-model-switch-result',
+                    success: true,
+                    sourceType: 'remote',
+                    modelName: remoteModelName,
+                    modelPath: remoteModelPath,
+                    message: `Opened remote model ${remoteModelName} on ${remoteHost}:${remoteApiPort}.`
+                }, '*');
+            } catch (error) {
+                sourceWindow?.postMessage({
+                    type: 'chat-model-switch-result',
+                    success: false,
+                    message: `Remote switch failed: ${error && error.message ? error.message : String(error)}`
+                }, '*');
+            }
+            return;
+        }
+
+        const nextModelPath = String(payload.path || '').trim();
+        const nextModelName = String(payload.name || '').trim() || (nextModelPath.split(/[\\/]/).pop() || 'Model');
+        if (!nextModelPath) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switch-result',
+                success: false,
+                message: 'Local switch failed: model path is missing.'
+            }, '*');
+            return;
+        }
+
+        const previousModelPath = info.modelPath;
+        const previousModelName = info.modelName;
+
+        if (String(previousModelPath || '').toLowerCase() === nextModelPath.toLowerCase()) {
+            sourceWindow?.postMessage({
+                type: 'chat-model-switch-result',
+                success: true,
+                sourceType: 'local',
+                modelName: previousModelName,
+                modelPath: previousModelPath,
+                message: `${previousModelName} is already active.`
+            }, '*');
+            this.emitActiveModelChanged(windowId, previousModelName, previousModelPath, 'local');
+            return;
+        }
+
+        try {
+            info.modelPath = nextModelPath;
+            info.modelName = nextModelName;
+            this.terminals.set(windowId, info);
+            this.updateTerminalModelPresentation(windowId, nextModelName, nextModelPath);
+
+            await this.restartServer(windowId, nextModelPath, nextModelName);
+
+            sourceWindow?.postMessage({
+                type: 'chat-model-switch-result',
+                success: true,
+                sourceType: 'local',
+                modelName: nextModelName,
+                modelPath: nextModelPath,
+                message: `Switched active model to ${nextModelName}.`
+            }, '*');
+            this.emitActiveModelChanged(windowId, nextModelName, nextModelPath, 'local');
+        } catch (error) {
+            info.modelPath = previousModelPath;
+            info.modelName = previousModelName;
+            this.terminals.set(windowId, info);
+            this.updateTerminalModelPresentation(windowId, previousModelName, previousModelPath);
+            sourceWindow?.postMessage({
+                type: 'chat-model-switch-result',
+                success: false,
+                message: `Model switch failed: ${error && error.message ? error.message : String(error)}`
+            }, '*');
+            this.emitActiveModelChanged(windowId, previousModelName, previousModelPath, 'local');
+        }
     }
 
     parseLaunchArgSignature(launchArgs = '') {
@@ -783,6 +1069,13 @@ const content = `
                 if (chatPanel) {
                     const iframe = chatPanel.querySelector('iframe');
                     if (iframe) {
+                        iframe.addEventListener('load', () => {
+                            const latestTerminal = this.terminals.get(windowId);
+                            if (latestTerminal) {
+                                this.emitActiveModelChanged(windowId, latestTerminal.modelName, latestTerminal.modelPath, 'local');
+                            }
+                        });
+
                         const blurHandler = () => {
                             if (document.activeElement === iframe) {
                                 // Bring this window to front
@@ -830,6 +1123,7 @@ const content = `
             activeVersion: activeVersion,
             launchArgs: resolvedLaunchArgs // Store the actual arguments used for launch
         });
+        this.updateTerminalModelPresentation(windowId, modelName, modelPath);
 
         console.log('Adding taskbar item...');
         // Add to taskbar
@@ -1385,6 +1679,8 @@ const content = `
                 terminalInfo.host = result.server_host;
                 terminalInfo.port = result.server_port;
                 terminalInfo.status = 'starting';
+                terminalInfo.modelPath = modelPath;
+                terminalInfo.modelName = modelName;
 
                 // Update chat iframe URL with new host:port
                 const chatPanel = document.getElementById(`panel-chat-${windowId}`);
@@ -1411,6 +1707,12 @@ const content = `
 
                     if (serverDetails) {
                         serverDetails.innerHTML = `${modelName} - <span class="clickable" style="cursor: pointer; text-decoration: underline;" onclick="terminalManager.openUrl('http://${result.server_host}:${result.server_port}')">${result.server_host}:${result.server_port}</span><button class="copy-link-btn" style="background: none; border: none; cursor: pointer; margin-left: 5px; padding: 0; font-size: 14px; vertical-align: middle;" onclick="terminalManager.copyToClipboard('http://${result.server_host}:${result.server_port}', this)" title="Copy link"><span class="material-icons" style="font-size: 14px; color: var(--theme-text-muted);">content_copy</span></button>`;
+                    }
+
+                    const chatModelLabel = window.querySelector('.chat-section-model-label');
+                    if (chatModelLabel) {
+                        chatModelLabel.textContent = modelName;
+                        chatModelLabel.title = modelPath || '';
                     }
 
                     // Change start button back to stop button
@@ -1461,6 +1763,8 @@ const content = `
                 setTimeout(() => {
                     this.checkServerHealth(windowId, result.server_host, result.server_port, modelName);
                 }, 2000);
+
+                this.emitActiveModelChanged(windowId, modelName, modelPath, 'local');
                 
                 // this.desktop.showNotification(`${modelName} restarted`, 'success');
             } else {
@@ -1468,7 +1772,7 @@ const content = `
             }
         } catch (error) {
             console.error('Error restarting server:', error);
-            // this.desktop.showNotification(`Failed to restart ${modelName}: ${error.message}`, 'error');
+            throw error;
         }
     }
 
@@ -1507,7 +1811,7 @@ const content = `
 
         } catch (error) {
             console.error('❌ [RESTART ERROR] Error in restart sequence:', error);
-            // this.desktop.showNotification(`Failed to restart ${modelName}: ${error.message}`, 'error');
+            throw error;
         }
     }
 
@@ -1574,7 +1878,7 @@ async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
         if (!modelPath) {
             this.desktop.showNotification(`Cannot launch: model path is missing`, 'error');
             this.openNativeChatForServerError(host, apiPort, 'Model path is missing. The remote peer may need to be re-discovered.');
-            return;
+            return false;
         }
 
         try {
@@ -1605,7 +1909,7 @@ async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
                 if (this.desktop && typeof this.desktop.refreshRemoteActiveModels === 'function') {
                     void this.desktop.refreshRemoteActiveModels(true);
                 }
-                return;
+                return true;
             }
 
             this.desktop.showNotification(`Requesting model launch: ${modelName}...`, 'info');
@@ -1636,7 +1940,7 @@ async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
             if (!launchResult.success) {
                 this.desktop.showNotification(`Failed to launch model: ${launchResult.message}`, 'error');
                 this.openNativeChatForServerError(host, apiPort, `Model launch failed: ${launchResult.message}`);
-                return;
+                return false;
             }
 
             // Poll for model readiness — llama-server takes time to load the model
@@ -1653,7 +1957,7 @@ async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
             if (!ready) {
                 this.desktop.showNotification(`Model launch timed out`, 'error');
                 this.openNativeChatForServerError(host, apiPort, `Model did not become ready within 60 seconds. It may still be loading — try opening manually at ${chatUrl}`);
-                return;
+                return false;
             }
 
             this.desktop.showNotification(`Model ${modelName} is ready!`, 'success');
@@ -1668,11 +1972,13 @@ async openNativeChatForServer(modelName, host, apiPort, modelPath, chatPort) {
             if (this.desktop && typeof this.desktop.refreshRemoteActiveModels === 'function') {
                 void this.desktop.refreshRemoteActiveModels(true);
             }
+            return true;
 
         } catch (error) {
             console.error('Launch error:', error);
             this.desktop.showNotification(`Error launching model: ${error.message}`, 'error');
             this.openNativeChatForServerError(host, apiPort, `Launch request failed: ${error.message}`);
+            return false;
         }
     }
 

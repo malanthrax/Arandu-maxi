@@ -2,6 +2,32 @@
 
 **Last updated:** 2026-03-04 (Rebuild complete: 13:57 PDT)
 
+## Latest Chat UX Feature (2026-03-04) - In-chat active model label + live model switcher
+
+- Added active model indicator beside Send in `frontend/llama-custom/index.html`.
+- Added in-chat switcher panel with two sections:
+  - Local models (from `scan_models_command`)
+  - Reachable remote models (from discovery/manual peers)
+- Added parent/iframe message protocol:
+  - `request-chat-model-switcher-data` -> `chat-model-switcher-data`
+  - `request-chat-model-switch` -> `chat-model-switch-result`
+  - `chat-active-model-changed` for parent-driven sync events
+- Switch behavior:
+  - Local model: immediate restart in the same terminal window and active label updates.
+  - Remote model: launches remote chat via existing remote launch flow; current embedded chat remains unchanged.
+- Safety/UX updates:
+  - Exact iframe-source matching for switch requests (no active-window fallback for switching).
+  - Timeout recovery for inventory/switch operations to avoid stuck loading/switching state.
+  - `currentModelPath` now updates on confirmed local model changes to keep chat-log model metadata aligned.
+
+### Verification
+
+- `node --check frontend/modules/terminal-manager.js` ✅
+- `cargo check --manifest-path backend/Cargo.toml` ✅
+- `cargo tauri build --no-bundle` (from `backend/`) ✅
+- Artifact: `backend/target/release/Arandu.exe`
+  - Modify time: `2026-03-04 16:11:21 -0800`
+
 ## Latest UI Verification (2026-03-04) - Label readability in top-right controls
 
 - Added explicit text labels to top-right view toggle buttons for faster recognition:
