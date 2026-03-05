@@ -18,6 +18,17 @@
   - `cargo tauri build --no-bundle` passed
   - output: `backend/target/release/Arandu.exe` (updated 2026-03-04 16:11)
 
+## 2026-03-04 Manual Peer Entry Regression Fix
+
+- ✅ Restored manual peer IP/host entry UI in settings (cross-LAN/VPN workflow).
+- ✅ Restored manual peer state + polling merge logic in desktop manager.
+- ✅ Manual peers now participate in remote model polling again.
+- ✅ Verification/build complete:
+  - `node --check frontend/desktop.js` passed
+  - `cargo check` passed
+  - `cargo tauri build` passed
+  - MSI rebuilt: `backend/target/release/bundle/msi/Arandu_0.5.5-1_x64_en-US.msi`
+
 ## 2026-03-04 Card-Based Model List UI Redesign
 
 - ✅ Complete redesign of Local Models list page with modern card-based UI

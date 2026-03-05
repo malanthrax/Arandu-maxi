@@ -36,6 +36,8 @@ class DesktopManager {
         this.remoteActiveModelsLastFetchAt = 0;
         this.discoveryStatus = {};
         this.discoveryDebugLogListenerInitialized = false;
+        this.manualDiscoveryPeers = [];
+        this.manualDiscoveryPeersStorageKey = 'Arandu-manual-discovery-peers';
         
         // Debug logging properties
         this.debugLogWindowOpen = false;
@@ -4704,7 +4706,257 @@ async ensureTerminalManager() {
 
     initDiscovery() {
         console.log('Initializing discovery service...');
+        this.loadManualDiscoveryPeers();
         this.loadDiscoveryStatus();
+    }
+
+    normalizeManualDiscoveryPeer(peer) {
+        if (!peer) return null;
+
+        const host = String(peer.host || peer.ip || '').trim();
+        if (!host) return null;
+
+        const apiPortRaw = Number(peer.api_port ?? peer.apiPort ?? 8081);
+        const chatPortRaw = Number(peer.chat_port ?? peer.chatPort ?? 8080);
+        const apiPort = Number.isFinite(apiPortRaw) && apiPortRaw > 0 ? apiPortRaw : 8081;
+        const chatPort = Number.isFinite(chatPortRaw) && chatPortRaw > 0 ? chatPortRaw : 8080;
+        const name = String(peer.name || '').trim();
+
+        return {
+            host,
+            api_port: apiPort,
+            chat_port: chatPort,
+            name
+        };
+    }
+
+    getManualDiscoveryPeerKey(peer) {
+        return `${peer.host}:${peer.api_port}`.toLowerCase();
+    }
+
+    loadManualDiscoveryPeers() {
+        try {
+            const raw = localStorage.getItem(this.manualDiscoveryPeersStorageKey);
+            if (!raw) {
+                this.manualDiscoveryPeers = [];
+                return;
+            }
+
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                this.manualDiscoveryPeers = [];
+                return;
+            }
+
+            const seen = new Set();
+            this.manualDiscoveryPeers = parsed
+                .map((entry) => this.normalizeManualDiscoveryPeer(entry))
+                .filter((entry) => !!entry)
+                .filter((entry) => {
+                    const key = this.getManualDiscoveryPeerKey(entry);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+        } catch (error) {
+            console.warn('Failed to load manual discovery peers:', error);
+            this.manualDiscoveryPeers = [];
+        }
+    }
+
+    saveManualDiscoveryPeers() {
+        try {
+            localStorage.setItem(
+                this.manualDiscoveryPeersStorageKey,
+                JSON.stringify(this.manualDiscoveryPeers)
+            );
+        } catch (error) {
+            console.warn('Failed to save manual discovery peers:', error);
+        }
+    }
+
+    renderManualDiscoveryPeers() {
+        const list = document.getElementById('manual-discovery-peer-list');
+        if (!list) return;
+
+        if (!this.manualDiscoveryPeers.length) {
+            list.innerHTML = `<div style="padding: 8px; color: var(--theme-text-muted); font-size: 11px;">No manual peers added</div>`;
+            return;
+        }
+
+        list.innerHTML = this.manualDiscoveryPeers.map((peer) => {
+            const label = peer.name || peer.host;
+            const sub = `${peer.host}:${peer.api_port}`;
+            const key = this.getManualDiscoveryPeerKey(peer).replace(/"/g, '&quot;');
+            return `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px solid var(--theme-border);">
+                    <div style="min-width:0;">
+                        <div style="font-size:11px; color: var(--theme-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${label}</div>
+                        <div style="font-size:10px; color: var(--theme-text-muted); font-family: monospace;">${sub}</div>
+                    </div>
+                    <button class="browse-btn" onclick="desktop.removeManualDiscoveryPeer('${key}')" title="Remove manual peer" style="padding:4px 6px;">
+                        <span class="material-icons" style="font-size:14px;">delete</span>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async addManualDiscoveryPeer() {
+        const hostInput = document.getElementById('manual-discovery-ip');
+        const apiPortInput = document.getElementById('manual-discovery-api-port');
+        const chatPortInput = document.getElementById('manual-discovery-chat-port');
+        const nameInput = document.getElementById('manual-discovery-name');
+
+        const normalized = this.normalizeManualDiscoveryPeer({
+            host: hostInput?.value,
+            api_port: apiPortInput?.value,
+            chat_port: chatPortInput?.value,
+            name: nameInput?.value
+        });
+
+        if (!normalized) {
+            this.showNotification('Enter a valid manual peer host/IP', 'error');
+            return;
+        }
+
+        const newKey = this.getManualDiscoveryPeerKey(normalized);
+        const alreadyExists = this.manualDiscoveryPeers.some((peer) => this.getManualDiscoveryPeerKey(peer) === newKey);
+        if (alreadyExists) {
+            this.showNotification('Manual peer already exists', 'info');
+            return;
+        }
+
+        this.manualDiscoveryPeers.push(normalized);
+        this.saveManualDiscoveryPeers();
+        this.renderManualDiscoveryPeers();
+
+        if (nameInput) nameInput.value = '';
+        if (hostInput) hostInput.value = '';
+
+        if (!this.discoveryPollInterval) {
+            await this.startDiscoveryPolling();
+        } else {
+            await this.pollDiscoveredPeers();
+        }
+
+        this.showNotification(`Manual peer added: ${normalized.host}:${normalized.api_port}`, 'success');
+    }
+
+    async removeManualDiscoveryPeer(peerKey) {
+        const before = this.manualDiscoveryPeers.length;
+        this.manualDiscoveryPeers = this.manualDiscoveryPeers.filter(
+            (peer) => this.getManualDiscoveryPeerKey(peer) !== String(peerKey || '').toLowerCase()
+        );
+
+        if (this.manualDiscoveryPeers.length === before) {
+            return;
+        }
+
+        this.saveManualDiscoveryPeers();
+        this.renderManualDiscoveryPeers();
+
+        if (!this.discoveryEnabled && this.manualDiscoveryPeers.length === 0) {
+            this.discoveredPeers = [];
+            this.stopDiscoveryPolling();
+            const desktopIcons = document.getElementById('desktop-icons');
+            if (desktopIcons && desktopIcons.classList.contains('remote-view')) {
+                this.renderRemoteModelsList();
+            }
+        } else {
+            await this.pollDiscoveredPeers();
+        }
+    }
+
+    async fetchManualDiscoveryPeers() {
+        if (!this.manualDiscoveryPeers.length) {
+            return [];
+        }
+
+        const nowIso = new Date().toISOString();
+        const requests = this.manualDiscoveryPeers.map(async (peer) => {
+            const endpoint = `http://${peer.host}:${peer.api_port}`;
+            const instanceId = `manual-${peer.host}-${peer.api_port}`.replace(/[^a-zA-Z0-9._-]/g, '_');
+            try {
+                const response = await fetch(`${endpoint}/v1/models/arandu`, {
+                    signal: AbortSignal.timeout(4000)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const payload = await response.json();
+                const rows = Array.isArray(payload?.data) ? payload.data : [];
+                const models = rows.map((row) => ({
+                    id: row.id || row.name || 'unknown-model',
+                    name: row.name || row.id || 'unknown-model',
+                    object: row.object || 'model',
+                    owned_by: row.owned_by || 'arandu',
+                    size_gb: row.size_gb,
+                    quantization: row.quantization,
+                    architecture: row.architecture,
+                    date: row.date,
+                    path: row.path
+                }));
+
+                return {
+                    instance_id: instanceId,
+                    hostname: peer.name || peer.host,
+                    ip_address: peer.host,
+                    api_port: peer.api_port,
+                    chat_port: peer.chat_port,
+                    api_endpoint: endpoint,
+                    last_seen: nowIso,
+                    is_reachable: true,
+                    models_from_cache: false,
+                    cache_last_updated: null,
+                    models
+                };
+            } catch (_) {
+                return {
+                    instance_id: instanceId,
+                    hostname: peer.name || peer.host,
+                    ip_address: peer.host,
+                    api_port: peer.api_port,
+                    chat_port: peer.chat_port,
+                    api_endpoint: endpoint,
+                    last_seen: nowIso,
+                    is_reachable: false,
+                    models_from_cache: false,
+                    cache_last_updated: null,
+                    models: []
+                };
+            }
+        });
+
+        return Promise.all(requests);
+    }
+
+    mergeDiscoveryPeers(discoveredPeers, manualPeers) {
+        const byEndpoint = new Map();
+
+        (Array.isArray(discoveredPeers) ? discoveredPeers : []).forEach((peer) => {
+            const key = `${peer.ip_address || ''}:${peer.api_port || 0}`.toLowerCase();
+            byEndpoint.set(key, peer);
+        });
+
+        (Array.isArray(manualPeers) ? manualPeers : []).forEach((peer) => {
+            const key = `${peer.ip_address || ''}:${peer.api_port || 0}`.toLowerCase();
+            const existing = byEndpoint.get(key);
+            if (!existing) {
+                byEndpoint.set(key, peer);
+                return;
+            }
+
+            const existingReachable = existing.is_reachable !== false;
+            const peerReachable = peer.is_reachable !== false;
+            if (peerReachable && !existingReachable) {
+                byEndpoint.set(key, peer);
+            }
+        });
+
+        return Array.from(byEndpoint.values());
     }
 
     async loadDiscoveryStatus() {
@@ -4714,12 +4966,15 @@ async ensureTerminalManager() {
                 this.discoveryEnabled = result.enabled || false;
                 this.discoveryStatus = result;
                 
-                if (this.discoveryEnabled) {
+                if (this.discoveryEnabled || this.manualDiscoveryPeers.length > 0) {
                     this.startDiscoveryPolling();
                 }
             }
         } catch (error) {
             console.log('Discovery service not available:', error);
+            if (this.manualDiscoveryPeers.length > 0) {
+                this.startDiscoveryPolling();
+            }
         }
     }
 
@@ -4756,7 +5011,9 @@ async ensureTerminalManager() {
 
         this.discoveryPollInFlight = true;
         try {
-            const result = await invoke('get_discovered_peers');
+            const discovered = this.discoveryEnabled ? await invoke('get_discovered_peers') : [];
+            const manual = await this.fetchManualDiscoveryPeers();
+            const result = this.mergeDiscoveryPeers(discovered, manual);
             console.log('Got discovered peers:', result);
             if (result && Array.isArray(result)) {
                 const newSignature = this.buildDiscoveredPeersSignature(result);
@@ -4930,9 +5187,13 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             const result = await invoke('disable_discovery');
             if (result && result.success) {
                 this.discoveryEnabled = false;
-                this.discoveredPeers = [];
-                this._lastDiscoveredPeersSignature = null;
-                this.stopDiscoveryPolling();
+                if (this.manualDiscoveryPeers.length > 0) {
+                    await this.startDiscoveryPolling();
+                } else {
+                    this.discoveredPeers = [];
+                    this._lastDiscoveredPeersSignature = null;
+                    this.stopDiscoveryPolling();
+                }
                 
                 // Keep network server running; discovery is now independent.
                 this.showNotification('Discovery disabled (network server remains active)', 'info');
@@ -5476,7 +5737,9 @@ async enableDiscovery(port, apiPort, name, chatPort) {
 
     async refreshDiscoveredInstances() {
         try {
-            const peers = await invoke('get_discovered_peers');
+            const discovered = this.discoveryEnabled ? await invoke('get_discovered_peers') : [];
+            const manual = await this.fetchManualDiscoveryPeers();
+            const peers = this.mergeDiscoveryPeers(discovered, manual);
             this.updateDiscoveredInstancesList(peers);
         } catch (error) {
             console.error('Failed to refresh discovered instances:', error);
@@ -5547,9 +5810,10 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             if (apiPortInput) apiPortInput.value = status.api_port || 8081;
             if (intervalInput) intervalInput.value = status.broadcast_interval || 5;
             if (idInput) idInput.value = status.instance_id || '';
+            this.renderManualDiscoveryPeers();
             
             // Load discovered instances
-            if (status.enabled) {
+            if (status.enabled || this.manualDiscoveryPeers.length > 0) {
                 await this.refreshDiscoveredInstances();
             }
         } catch (error) {

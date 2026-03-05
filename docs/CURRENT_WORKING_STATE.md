@@ -28,6 +28,31 @@
 - Artifact: `backend/target/release/Arandu.exe`
   - Modify time: `2026-03-04 16:11:21 -0800`
 
+## Follow-up Fix (2026-03-04) - Manual IP peer entry restored
+
+- Root cause: manual peer UI block and manual peer polling/merge logic were missing, so only UDP discovery controls were visible.
+- Restored manual peer settings UI in `frontend/index.html`:
+  - `manual-discovery-ip`
+  - `manual-discovery-api-port`
+  - `manual-discovery-chat-port`
+  - `manual-discovery-name`
+  - `manual-discovery-peer-list`
+- Restored manual peer logic in `frontend/desktop.js`:
+  - storage key/state initialization
+  - load/save/render helpers
+  - add/remove manual peer handlers
+  - fetch/merge manual peers with discovered peers
+  - polling now runs when manual peers exist, even if discovery toggle is off
+
+### Verification (follow-up)
+
+- `node --check frontend/desktop.js` ✅
+- `cargo check --manifest-path backend/Cargo.toml` ✅
+- `cargo tauri build` ✅
+  - MSI: `backend/target/release/bundle/msi/Arandu_0.5.5-1_x64_en-US.msi`
+  - NSIS: `backend/target/release/bundle/nsis/Arandu_0.5.5-1_x64-setup.exe`
+  - EXE modify time: `2026-03-04 18:50:50 -0800`
+
 ## Latest UI Verification (2026-03-04) - Label readability in top-right controls
 
 - Added explicit text labels to top-right view toggle buttons for faster recognition:
