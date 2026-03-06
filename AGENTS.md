@@ -1105,6 +1105,14 @@ Located at: `H:\Ardanu Fix\Arandu-maxi\Extra skills\`
 
 > **For complete current status, test results, and build information:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
 
+### Current Priority (2026-03-06)
+
+- Active phase focus is MCP runtime integration quality in chat.
+- Goal: MCP entries configured by the user must be visible to model context and actually usable by model workflows.
+- Baseline already present: iframe `request-mcp-context` + parent `mcp-context` response + MCP system-context injection in chat request path.
+- Known likely gap: metadata injection without an execution bridge for tool-calling may not be sufficient for real MCP tool usage.
+- Required process for this phase: checkpoint first, research and validation, subagent coding, subagent verification, final acceptance verification.
+
 ### Quick Overview
 
 **Last Build:** 2025-02-23 - âœ… SUCCESS (Release Build)  

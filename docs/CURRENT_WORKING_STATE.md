@@ -1,6 +1,16 @@
 # Current Working State
 
-**Last updated:** 2026-03-04 (Rebuild complete: 13:57 PDT)
+**Last updated:** 2026-03-06
+
+## Current Active Workflow (2026-03-06)
+
+- Primary objective now is MCP enablement in chat inference flow: models must not only read MCP connection metadata, but be able to actually use MCP-connected tooling.
+- Confirmed current baseline:
+  - local model list tile update to show size in normal list view is already done,
+  - MCP panel fixes were already completed in prior sessions,
+  - chat currently receives/injects MCP context metadata via parent bridge.
+- Active investigation question: why MCP-enabled chat sessions still fail to produce practical MCP tool usage, and what minimal architecture change is required.
+- Execution protocol for this phase: checkpoint -> deep investigation -> expert validation -> subagent implementation -> subagent verification -> final acceptance check.
 
 ## Latest Chat UX Feature (2026-03-04) - In-chat active model label + live model switcher
 

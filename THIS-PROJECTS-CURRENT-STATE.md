@@ -1,5 +1,13 @@
 # Arandu Development Status - 2025-02-23
 
+## 2026-03-06 Active Work Focus (Current)
+
+- 🎯 Current priority is MCP runtime usability in chat: connected MCP servers must be visible to the model and practically usable during model responses.
+- ✅ Confirmed baseline already in code: chat requests `request-mcp-context`, parent returns `mcp-context`, and chat injects MCP context into system messages.
+- ❗ Current gap under investigation: context injection alone does not guarantee executable MCP tool use by the model.
+- 🔬 Next implementation phase is to close the execution gap with the simplest verified approach so connected MCP tools can be actually used by model workflows.
+- Safety rule for this phase: checkpoint first, deep verification next, then coding + independent verification.
+
 ## 2026-03-04 In-Chat Active Model Label + Live Model Switcher
 
 - ✅ Added active model label in chat UI near the Send button.
