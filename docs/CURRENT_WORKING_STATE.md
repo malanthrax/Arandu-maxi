@@ -19,6 +19,7 @@
 - SSE response parsing is now handled for MCP JSON-RPC over event-stream bodies.
 - Stdio path now executes MCP requests with initialize + initialized notification and bounded response read.
 - Frontend callable-tool gating includes all supported transports above.
+- MCP metadata prompt injection is disabled; startup chat context remains normal (no MCP text injection before user/tool flow).
 
 ## Latest Chat UX Feature (2026-03-04) - In-chat active model label + live model switcher
 

@@ -15,6 +15,7 @@
 - ✅ SSE parsing fixed: event-stream (`data:`) MCP responses are parsed correctly for tool discovery/calls.
 - ✅ Stdio execution added: initialize + initialized notification + tools/list/tools/call request handling through child process stdio.
 - ✅ Chat transport gating updated to advertise callable tools for all supported transports above.
+- ✅ MCP system-context injection into chat prompts is removed; chat now starts clean and relies on normal tool-calling only.
 
 ## 2026-03-04 In-Chat Active Model Label + Live Model Switcher
 

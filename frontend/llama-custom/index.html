@@ -4216,14 +4216,7 @@ function applySpeculativeFix() {
                 if (sessionSystemMemory.trim()) {
                     messages.push({ role: 'system', content: sessionSystemMemory.trim() });
                 }
-                const mcpSystemContext = buildMcpSystemContextMessage();
-                if (mcpSystemContext) {
-                    messages.push({ role: 'system', content: mcpSystemContext });
-                    updateMcpDebugStatus(`MCP injected: ${mcpContextState.connections.length} conn / ${mcpToolCatalog.counts.included} included, ${mcpToolCatalog.counts.skipped} skipped`);
-                    console.log('[ChatUI] MCP system context injected into request:', mcpSystemContext);
-                } else {
-                    updateMcpDebugStatus('MCP injected: none');
-                }
+                updateMcpDebugStatus(`MCP context injection: off (${mcpToolCatalog.counts.included} callable, ${mcpToolCatalog.counts.skipped} skipped)`);
                 const historyToInclude = messageHistory.slice(-currentParams.history_limit);
                 messages.push(...historyToInclude.map(m => ({...m})));
                 

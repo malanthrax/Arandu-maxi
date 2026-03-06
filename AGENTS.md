@@ -1117,6 +1117,7 @@ Located at: `H:\Ardanu Fix\Arandu-maxi\Extra skills\`
 
 - Execution bridge is now implemented: model tool_calls are routed to backend MCP `tools/call` and results are fed back into chat completion loop.
 - Supported MCP transports for tool discovery/execution in current implementation: `http`, `json`, `streamable_http`, `sse`, `stdio`.
+- MCP system-context injection in chat request path is disabled; MCP usage now depends on standard tool-calling flow only.
 
 ### Quick Overview
 

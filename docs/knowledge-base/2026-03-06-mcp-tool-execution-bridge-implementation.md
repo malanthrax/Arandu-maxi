@@ -36,3 +36,9 @@
 
 - cargo check --manifest-path backend/Cargo.toml -> pass
 - node --check frontend/modules/terminal-manager.js -> pass
+
+## Final Context Policy Update
+
+- Removed MCP system-context prompt injection from chat request assembly in `frontend/llama-custom/index.html`.
+- Chat startup now remains clean (normal system prompt/session memory only).
+- MCP participation is now tool-calling only (`tools` + model `tool_calls` + backend `call_mcp_tool`).
