@@ -11,6 +11,7 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use tokio::process::Command as TokioCommand;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::{timeout, Duration, Instant};
 
 mod models;
@@ -38,7 +39,7 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport, DiscoveredPeer, DiscoveryStatus, ActiveModel};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport, McpToolCallRequest, McpToolCallResult, DiscoveredPeer, DiscoveryStatus, ActiveModel};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -4073,6 +4074,196 @@ fn parse_mcp_tools_from_response(response: &serde_json::Value) -> Result<Vec<Mcp
     Ok(parsed)
 }
 
+fn parse_mcp_json_error_message(response: &serde_json::Value) -> Option<String> {
+    let error = response.get("error")?;
+    if let Some(message) = error.get("message").and_then(|value| value.as_str()) {
+        return Some(message.to_string());
+    }
+    Some(error.to_string())
+}
+
+fn parse_mcp_response_value(response_text: &str) -> Result<serde_json::Value, String> {
+    let trimmed = response_text.trim();
+    if trimmed.is_empty() {
+        return Err("MCP response body is empty".to_string());
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Ok(value);
+    }
+
+    let mut last_parse_error: Option<String> = None;
+    for line in trimmed.lines() {
+        let line_trimmed = line.trim();
+        if !line_trimmed.starts_with("data:") {
+            continue;
+        }
+
+        let payload = line_trimmed.trim_start_matches("data:").trim();
+        if payload.is_empty() || payload == "[DONE]" {
+            continue;
+        }
+
+        match serde_json::from_str::<serde_json::Value>(payload) {
+            Ok(value) => return Ok(value),
+            Err(err) => last_parse_error = Some(err.to_string()),
+        }
+    }
+
+    Err(last_parse_error.unwrap_or_else(|| "Failed to parse MCP response as JSON or SSE data payload".to_string()))
+}
+
+async fn read_mcp_response_value(
+    response: reqwest::Response,
+) -> Result<serde_json::Value, String> {
+    let body = response.text().await.map_err(|err| err.to_string())?;
+    parse_mcp_response_value(&body)
+}
+
+async fn execute_stdio_mcp_request(
+    connection: &McpServerConfig,
+    method: &str,
+    params: serde_json::Value,
+    timeout_duration: Duration,
+) -> Result<serde_json::Value, String> {
+    if connection.command.trim().is_empty() {
+        return Err("Stdio MCP command is required".to_string());
+    }
+
+    let mut command = TokioCommand::new(&connection.command);
+    command.args(&connection.args);
+    if !connection.env_vars.is_empty() {
+        command.envs(&connection.env_vars);
+    }
+    command.stdin(std::process::Stdio::piped());
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::null());
+
+    #[cfg(windows)]
+    {
+        let cmd_name = connection.command.trim().to_lowercase();
+        let is_cmd_style = matches!(cmd_name.as_str(), "npx" | "npm" | "pnpm" | "yarn" | "bunx");
+        if is_cmd_style {
+            let mut shell_command = TokioCommand::new("cmd");
+            shell_command.arg("/C").arg(&connection.command);
+            shell_command.args(&connection.args);
+            if !connection.env_vars.is_empty() {
+                shell_command.envs(&connection.env_vars);
+            }
+            shell_command.stdin(std::process::Stdio::piped());
+            shell_command.stdout(std::process::Stdio::piped());
+            shell_command.stderr(std::process::Stdio::null());
+            command = shell_command;
+        }
+    }
+
+    let mut child = command.spawn().map_err(|err| err.to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Failed to open stdio MCP stdin".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to open stdio MCP stdout".to_string())?;
+
+    let init_id = "arandu-tools-init-stdio";
+    let call_id = "arandu-tools-call-stdio";
+    let initialize_payload = default_mcp_initialize_payload();
+    let initialized_notification = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    });
+    let request_payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": call_id,
+        "method": method,
+        "params": params
+    });
+
+    let initialize_line = serde_json::to_string(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": init_id,
+        "method": "initialize",
+        "params": initialize_payload.get("params").cloned().unwrap_or_else(|| serde_json::json!({}))
+    }))
+    .map_err(|err| err.to_string())?;
+    let initialized_line = serde_json::to_string(&initialized_notification).map_err(|err| err.to_string())?;
+    let request_line = serde_json::to_string(&request_payload).map_err(|err| err.to_string())?;
+
+    stdin
+        .write_all(format!("{}\n{}\n{}\n", initialize_line, initialized_line, request_line).as_bytes())
+        .await
+        .map_err(|err| err.to_string())?;
+    stdin.flush().await.map_err(|err| err.to_string())?;
+    drop(stdin);
+
+    let mut reader = BufReader::new(stdout);
+    let mut buffer = String::new();
+
+    let read_result = timeout(timeout_duration, async {
+        loop {
+            buffer.clear();
+            let bytes = reader.read_line(&mut buffer).await.map_err(|err| err.to_string())?;
+            if bytes == 0 {
+                return Err("Stdio MCP process exited before returning response".to_string());
+            }
+
+            let line = buffer.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let parsed = match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+
+            let is_call_response = parsed
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| id == call_id)
+                .unwrap_or(false);
+
+            if is_call_response {
+                return Ok(parsed);
+            }
+        }
+    })
+    .await
+    .map_err(|_| "MCP request timed out".to_string())?;
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+
+    read_result
+}
+
+fn extract_mcp_tool_text_content(result: &serde_json::Value) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Some(content_items) = result.get("content").and_then(|value| value.as_array()) {
+        for item in content_items {
+            if let Some(text) = item.get("text").and_then(|value| value.as_str()) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if !parts.is_empty() {
+        return parts.join("\n");
+    }
+
+    if let Some(text) = result.get("text").and_then(|value| value.as_str()) {
+        return text.to_string();
+    }
+
+    serde_json::to_string(result).unwrap_or_else(|_| "{}".to_string())
+}
+
 fn mcp_accept_header(transport: &McpTransport) -> &'static str {
     match transport {
         McpTransport::Json => "application/json",
@@ -4185,10 +4376,7 @@ async fn run_mcp_tool_discovery(
         };
     }
 
-    let tools_response_body = match tools_response
-        .json::<serde_json::Value>()
-        .await
-    {
+    let tools_response_body = match read_mcp_response_value(tools_response).await {
         Ok(body) => body,
         Err(error) => {
             return McpToolsResult {
@@ -4285,28 +4473,61 @@ async fn list_mcp_tools(
         });
     }
 
-    if matches!(connection.transport, McpTransport::Stdio) {
-        return Ok(McpToolsResult {
-            success: true,
-            latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "Stdio connection is configured. Tool discovery UI is not required for this transport.".to_string(),
-            tool_count: 0,
-            tools: Vec::new(),
-            status_code: None,
-            error: None,
-        });
-    }
+    let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
 
-    if matches!(connection.transport, McpTransport::Sse) {
-        return Ok(McpToolsResult {
-            success: false,
-            latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "Tool discovery is not yet available for SSE transport in this phase".to_string(),
-            tool_count: 0,
-            tools: Vec::new(),
-            status_code: None,
-            error: Some("unsupported_transport".to_string()),
-        });
+    if matches!(connection.transport, McpTransport::Stdio) {
+        let stdio_result = execute_stdio_mcp_request(
+            &connection,
+            "tools/list",
+            serde_json::json!({}),
+            timeout_duration,
+        )
+        .await;
+
+        let result = match stdio_result {
+            Ok(body) => match parse_mcp_tools_from_response(&body) {
+                Ok(tools) => McpToolsResult {
+                    success: true,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: format!("Found {} tool(s)", tools.len()),
+                    tool_count: tools.len(),
+                    tools,
+                    status_code: None,
+                    error: None,
+                },
+                Err(error) => McpToolsResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "Tools list parse failed".to_string(),
+                    tool_count: 0,
+                    tools: Vec::new(),
+                    status_code: None,
+                    error: Some(error),
+                },
+            },
+            Err(error) => McpToolsResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Tools list request failed".to_string(),
+                tool_count: 0,
+                tools: Vec::new(),
+                status_code: None,
+                error: Some(error),
+            },
+        };
+
+        let mut config = state.config.lock().await;
+        if let Some(conn) = config.mcp_servers.iter_mut().find(|item| item.id == id) {
+            conn.tools_last_refresh_at = Some(Utc::now().to_rfc3339());
+            conn.tools_last_status = Some(if result.success { "ok".to_string() } else { "error".to_string() });
+            conn.tools_last_message = Some(result.message.clone());
+            conn.tools_last_error = result.error.clone();
+            conn.tools = result.tools.clone();
+        }
+        drop(config);
+        let _ = save_settings(&state).await;
+
+        return Ok(result);
     }
 
     let resolved_url = resolve_mcp_url(&connection);
@@ -4323,7 +4544,6 @@ async fn list_mcp_tools(
     }
 
     let url = resolved_url.unwrap_or_default();
-    let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
 
     let result = run_mcp_tool_discovery(
         connection.transport.clone(),
@@ -4345,6 +4565,294 @@ async fn list_mcp_tools(
     let _ = save_settings(&state).await;
 
     Ok(result)
+}
+
+#[tauri::command]
+async fn call_mcp_tool(
+    request: McpToolCallRequest,
+    state: tauri::State<'_, AppState>,
+) -> Result<McpToolCallResult, String> {
+    let start_time = Instant::now();
+    let connection_id = request.connection_id.trim().to_string();
+    let tool_name = request.tool_name.trim().to_string();
+
+    if connection_id.is_empty() {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Connection id is required".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("missing_connection_id".to_string()),
+            status_code: None,
+        });
+    }
+
+    if tool_name.is_empty() {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Tool name is required".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("missing_tool_name".to_string()),
+            status_code: None,
+        });
+    }
+
+    let connection = {
+        let config = state.config.lock().await;
+        config
+            .mcp_servers
+            .iter()
+            .find(|item| item.id == connection_id)
+            .cloned()
+            .ok_or_else(|| "MCP connection not found".to_string())?
+    };
+
+    if !connection.enabled {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Connection is disabled. Enable it before calling tools.".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("disabled".to_string()),
+            status_code: None,
+        });
+    }
+
+    let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+
+    if matches!(connection.transport, McpTransport::Stdio) {
+        let response_body = match execute_stdio_mcp_request(
+            &connection,
+            "tools/call",
+            serde_json::json!({
+                "name": tool_name,
+                "arguments": request.arguments
+            }),
+            timeout_duration,
+        )
+        .await
+        {
+            Ok(body) => body,
+            Err(error) => {
+                return Ok(McpToolCallResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "Tool call request failed".to_string(),
+                    content: String::new(),
+                    is_error: true,
+                    raw_result: None,
+                    error: Some(error),
+                    status_code: None,
+                });
+            }
+        };
+
+        if let Some(error_message) = parse_mcp_json_error_message(&response_body) {
+            return Ok(McpToolCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "MCP tool call returned an error".to_string(),
+                content: error_message.clone(),
+                is_error: true,
+                raw_result: Some(response_body),
+                error: Some(error_message),
+                status_code: None,
+            });
+        }
+
+        let result_value = response_body
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+
+        let is_error = result_value
+            .get("isError")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let content = extract_mcp_tool_text_content(&result_value);
+
+        return Ok(McpToolCallResult {
+            success: !is_error,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: if is_error {
+                "Tool call completed with MCP error".to_string()
+            } else {
+                "Tool call completed".to_string()
+            },
+            content,
+            is_error,
+            raw_result: Some(result_value),
+            error: if is_error { Some("tool_execution_error".to_string()) } else { None },
+            status_code: None,
+        });
+    }
+
+    let resolved_url = resolve_mcp_url(&connection);
+    if resolved_url.is_none() {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "URL is required for MCP tool calls. For JSON transport, include URL in URL field or JSON payload.".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("missing_url".to_string()),
+            status_code: None,
+        });
+    }
+
+    let url = resolved_url.unwrap_or_default();
+    let client = reqwest::Client::new();
+
+    let initialize_payload = default_mcp_initialize_payload();
+    let initialize_response = match post_mcp_request(
+        &client,
+        &connection.transport,
+        &url,
+        initialize_payload,
+        &connection.headers,
+        timeout_duration,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(McpToolCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Initialize request failed".to_string(),
+                content: String::new(),
+                is_error: true,
+                raw_result: None,
+                error: Some(error),
+                status_code: None,
+            });
+        }
+    };
+
+    if !initialize_response.status().is_success() {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: format!("Initialize request returned HTTP {}", initialize_response.status()),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("initialize_failed".to_string()),
+            status_code: Some(initialize_response.status().as_u16()),
+        });
+    }
+
+    let call_payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "arandu-tools-call",
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": request.arguments
+        }
+    });
+
+    let call_response = match post_mcp_request(
+        &client,
+        &connection.transport,
+        &url,
+        call_payload,
+        &connection.headers,
+        timeout_duration,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok(McpToolCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Tool call request failed".to_string(),
+                content: String::new(),
+                is_error: true,
+                raw_result: None,
+                error: Some(error),
+                status_code: None,
+            });
+        }
+    };
+
+    let status_code = Some(call_response.status().as_u16());
+    if !call_response.status().is_success() {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: format!("Tool call request returned HTTP {}", call_response.status()),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("tool_call_failed".to_string()),
+            status_code,
+        });
+    }
+
+    let response_body = match read_mcp_response_value(call_response).await {
+        Ok(body) => body,
+        Err(error) => {
+            return Ok(McpToolCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Failed to parse tool call response JSON".to_string(),
+                content: String::new(),
+                is_error: true,
+                raw_result: None,
+                error: Some(error.to_string()),
+                status_code,
+            });
+        }
+    };
+
+    if let Some(error_message) = parse_mcp_json_error_message(&response_body) {
+        return Ok(McpToolCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "MCP tool call returned an error".to_string(),
+            content: error_message.clone(),
+            is_error: true,
+            raw_result: Some(response_body),
+            error: Some(error_message),
+            status_code,
+        });
+    }
+
+    let result_value = response_body
+        .get("result")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let is_error = result_value
+        .get("isError")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let content = extract_mcp_tool_text_content(&result_value);
+
+    Ok(McpToolCallResult {
+        success: !is_error,
+        latency_ms: start_time.elapsed().as_millis() as i64,
+        message: if is_error {
+            "Tool call completed with MCP error".to_string()
+        } else {
+            "Tool call completed".to_string()
+        },
+        content,
+        is_error,
+        raw_result: Some(result_value),
+        error: if is_error { Some("tool_execution_error".to_string()) } else { None },
+        status_code,
+    })
 }
 
 #[tauri::command]
@@ -4944,6 +5452,7 @@ get_weekly_reports,
             toggle_mcp_connection,
             test_mcp_connection,
             list_mcp_tools,
+            call_mcp_tool,
             correct_mcp_json_with_active_model,
             list_chat_logs,
             create_chat_log,

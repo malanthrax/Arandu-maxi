@@ -12,6 +12,14 @@
 - Active investigation question: why MCP-enabled chat sessions still fail to produce practical MCP tool usage, and what minimal architecture change is required.
 - Execution protocol for this phase: checkpoint -> deep investigation -> expert validation -> subagent implementation -> subagent verification -> final acceptance check.
 
+## MCP Runtime Execution Status (2026-03-06)
+
+- MCP chat flow now has a real tool-calling loop (model tool_calls -> MCP execution -> role: tool -> final response).
+- Backend MCP tool execution now supports transports: `http`, `json`, `streamable_http`, `sse`, `stdio`.
+- SSE response parsing is now handled for MCP JSON-RPC over event-stream bodies.
+- Stdio path now executes MCP requests with initialize + initialized notification and bounded response read.
+- Frontend callable-tool gating includes all supported transports above.
+
 ## Latest Chat UX Feature (2026-03-04) - In-chat active model label + live model switcher
 
 - Added active model indicator beside Send in `frontend/llama-custom/index.html`.

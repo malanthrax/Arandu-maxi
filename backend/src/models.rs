@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,8 +128,8 @@ mod tests {
             "network_server_port": 8080
         }"#;
 
-        let config: GlobalConfig = serde_json::from_str(legacy_payload)
-            .expect("legacy config should deserialize");
+        let config: GlobalConfig =
+            serde_json::from_str(legacy_payload).expect("legacy config should deserialize");
 
         assert_eq!(config.mcp_servers.len(), 0);
         // Network discovery fields should have defaults
@@ -155,14 +155,17 @@ mod tests {
             "discovery_instance_id": "550e8400-e29b-41d4-a716-446655440000"
         }"#;
 
-        let config: GlobalConfig = serde_json::from_str(payload)
-            .expect("config with discovery fields should deserialize");
+        let config: GlobalConfig =
+            serde_json::from_str(payload).expect("config with discovery fields should deserialize");
 
         assert!(config.discovery_enabled);
         assert_eq!(config.discovery_port, 8080);
         assert_eq!(config.discovery_broadcast_interval, 10);
         assert_eq!(config.discovery_instance_name, "My-Arandu-Instance");
-        assert_eq!(config.discovery_instance_id, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(
+            config.discovery_instance_id,
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 
     #[test]
@@ -173,8 +176,8 @@ mod tests {
             "transport": "streamable_http"
         }"#;
 
-        let connection: McpServerConfig = serde_json::from_str(payload)
-            .expect("streamable_http transport should deserialize");
+        let connection: McpServerConfig =
+            serde_json::from_str(payload).expect("streamable_http transport should deserialize");
 
         assert_eq!(connection.transport, McpTransport::StreamableHttp);
     }
@@ -187,8 +190,8 @@ mod tests {
             "transport": "json"
         }"#;
 
-        let connection: McpServerConfig = serde_json::from_str(payload)
-            .expect("json transport should deserialize");
+        let connection: McpServerConfig =
+            serde_json::from_str(payload).expect("json transport should deserialize");
 
         assert_eq!(connection.transport, McpTransport::Json);
     }
@@ -200,8 +203,8 @@ mod tests {
             "name": "Test"
         }"#;
 
-        let connection: McpServerConfig = serde_json::from_str(payload)
-            .expect("tool fields should default when missing");
+        let connection: McpServerConfig =
+            serde_json::from_str(payload).expect("tool fields should default when missing");
 
         assert_eq!(connection.tools.len(), 0);
         assert!(connection.tools_last_status.is_none());
@@ -219,8 +222,8 @@ mod tests {
             "outputSchema": {"type":"object"}
         }"#;
 
-        let tool: McpToolInfo = serde_json::from_str(payload)
-            .expect("tool info should deserialize");
+        let tool: McpToolInfo =
+            serde_json::from_str(payload).expect("tool info should deserialize");
 
         assert_eq!(tool.name, "list_models");
         assert_eq!(tool.description.as_deref(), Some("List models"));
@@ -283,6 +286,35 @@ pub struct McpToolsResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolCallRequest {
+    pub connection_id: String,
+    pub tool_name: String,
+    #[serde(default = "default_mcp_tool_call_arguments")]
+    pub arguments: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolCallResult {
+    pub success: bool,
+    pub latency_ms: i64,
+    pub message: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub is_error: bool,
+    #[serde(default)]
+    pub raw_result: Option<Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+}
+
+fn default_mcp_tool_call_arguments() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
 fn default_background_color() -> String {
     "dark-gray".to_string()
 }
@@ -323,9 +355,17 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         let base_dir = dirs::home_dir().unwrap_or_default().join(".Arandu");
         Self {
-            models_directory: base_dir.join("models").to_str().unwrap_or_default().to_string(),
+            models_directory: base_dir
+                .join("models")
+                .to_str()
+                .unwrap_or_default()
+                .to_string(),
             additional_models_directories: Vec::new(),
-            executable_folder: base_dir.join("llama.cpp").to_str().unwrap_or_default().to_string(),
+            executable_folder: base_dir
+                .join("llama.cpp")
+                .to_str()
+                .unwrap_or_default()
+                .to_string(),
             active_executable_folder: None,
             active_executable_version: None,
             theme_color: "dark-gray".to_string(),
@@ -368,30 +408,30 @@ pub struct ModelConfig {
     pub default_preset_id: Option<String>,
     #[serde(default)]
     pub env_vars: HashMap<String, String>,
-    
+
     // HF Update tracking fields
     #[serde(default)]
-    pub hf_model_id: Option<String>,           // "author/model" format (legacy field)
+    pub hf_model_id: Option<String>, // "author/model" format (legacy field)
     #[serde(default)]
-    pub hf_link_source: Option<String>,        // "download", "guess", "manual" (legacy field)
+    pub hf_link_source: Option<String>, // "download", "guess", "manual" (legacy field)
     #[serde(default)]
-    pub local_file_modified: Option<i64>,      // Unix timestamp (legacy field)
+    pub local_file_modified: Option<i64>, // Unix timestamp (legacy field)
     #[serde(default)]
-    pub file_size_bytes: Option<i64>,          // For additional comparison (legacy field)
+    pub file_size_bytes: Option<i64>, // For additional comparison (legacy field)
     #[serde(default)]
-    pub last_hf_check: Option<i64>,            // When we last queried HF (legacy field)
+    pub last_hf_check: Option<i64>, // When we last queried HF (legacy field)
     #[serde(default)]
-    pub hf_file_modified: Option<i64>,         // HF file timestamp (legacy field)
+    pub hf_file_modified: Option<i64>, // HF file timestamp (legacy field)
     #[serde(default)]
-    pub hf_file_size: Option<i64>,             // HF file size (legacy field)
+    pub hf_file_size: Option<i64>, // HF file size (legacy field)
     #[serde(default)]
-    pub update_available: bool,                // Computed flag (legacy field)
+    pub update_available: bool, // Computed flag (legacy field)
     #[serde(default)]
-    pub hf_metadata: Option<HfMetadata>,       // New HF metadata from update_checker
+    pub hf_metadata: Option<HfMetadata>, // New HF metadata from update_checker
 }
 
 impl ModelConfig {
-pub fn new(model_path: String) -> Self {
+    pub fn new(model_path: String) -> Self {
         Self {
             custom_args: String::new(),
             server_host: "127.0.0.1".to_string(),
@@ -433,10 +473,10 @@ pub struct GgufMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HfMetadata {
-    pub model_id: String,             // "author/model-name"
-    pub filename: String,             // "model-Q4_K_M.gguf"
-    pub commit_date: Option<String>,  // ISO 8601 from HF API
-    pub linked_at: String,            // ISO 8601 when link was created
+    pub model_id: String,            // "author/model-name"
+    pub filename: String,            // "model-Q4_K_M.gguf"
+    pub commit_date: Option<String>, // ISO 8601 from HF API
+    pub linked_at: String,           // ISO 8601 when link was created
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

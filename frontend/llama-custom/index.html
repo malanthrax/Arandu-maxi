@@ -1696,6 +1696,8 @@
         let chatHistoryRequestSeq = 0;
         let chatSearchDebounceTimer = null;
         const pendingChatRequests = new Map();
+        const pendingMcpToolRequests = new Map();
+        let mcpToolRequestCounter = 0;
         const ATTACHMENT_TEXT_CHAR_LIMIT = 12000;
         const CONTEXT_COUNTER_REFRESH_MS = 15000;
         const CONTEXT_COUNTER_UNAVAILABLE_TEXT = 'Context: unavailable';
@@ -3013,6 +3015,151 @@
             return `MCP capability context (full debug):\n${JSON.stringify(payload)}`;
         }
 
+        function encodeMcpToolNameSegment(value) {
+            const input = String(value || '');
+            if (!input) return '';
+            try {
+                return btoa(unescape(encodeURIComponent(input)))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/g, '');
+            } catch (_) {
+                return input.replace(/[^a-zA-Z0-9_-]/g, '_');
+            }
+        }
+
+        function buildMcpToolCatalog() {
+            const tools = [];
+            const toolMap = {};
+            const executionCapableTransports = new Set(['http', 'json', 'streamable_http', 'sse', 'stdio']);
+            const counts = {
+                included: 0,
+                skipped: 0
+            };
+            const enabledConnections = Array.isArray(mcpContextState.connections)
+                ? mcpContextState.connections.filter((connection) => connection && connection.enabled)
+                : [];
+
+            enabledConnections.forEach((connection) => {
+                const connectionId = String(connection.id || '').trim();
+                if (!connectionId || !Array.isArray(connection.tools)) return;
+
+                const transport = String(connection.transport || '').trim().toLowerCase();
+                const canExecute = executionCapableTransports.has(transport);
+
+                connection.tools.forEach((tool) => {
+                    const toolName = String(tool && tool.name ? tool.name : '').trim();
+                    if (!toolName) return;
+
+                    if (!canExecute) {
+                        counts.skipped += 1;
+                        return;
+                    }
+
+                    const encodedConnection = encodeMcpToolNameSegment(connectionId);
+                    const encodedTool = encodeMcpToolNameSegment(toolName);
+                    const aliasedToolName = `mcp__${encodedConnection}__${encodedTool}`.slice(0, 180);
+
+                    const description = String(tool.description || '').trim();
+                    const parameters = tool.inputSchema && typeof tool.inputSchema === 'object'
+                        ? tool.inputSchema
+                        : { type: 'object', properties: {} };
+
+                    tools.push({
+                        type: 'function',
+                        function: {
+                            name: aliasedToolName,
+                            description: description || `${connection.name || connectionId}: ${toolName}`,
+                            parameters
+                        }
+                    });
+
+                    toolMap[aliasedToolName] = {
+                        connectionId,
+                        toolName
+                    };
+
+                    counts.included += 1;
+                });
+            });
+
+            return { tools, toolMap, counts };
+        }
+
+        function requestMcpToolCall(payload) {
+            return new Promise((resolve, reject) => {
+                mcpToolRequestCounter += 1;
+                const requestId = `mcptool_${Date.now()}_${mcpToolRequestCounter}`;
+
+                pendingMcpToolRequests.set(requestId, { resolve, reject });
+                window.parent.postMessage({
+                    type: 'request-mcp-tool-call',
+                    request_id: requestId,
+                    payload: {
+                        connectionId: String(payload && payload.connectionId ? payload.connectionId : ''),
+                        toolName: String(payload && payload.toolName ? payload.toolName : ''),
+                        arguments: payload && payload.arguments && typeof payload.arguments === 'object' && !Array.isArray(payload.arguments)
+                            ? payload.arguments
+                            : {}
+                    }
+                }, '*');
+
+                setTimeout(() => {
+                    if (pendingMcpToolRequests.has(requestId)) {
+                        pendingMcpToolRequests.delete(requestId);
+                        reject(new Error('MCP tool call timed out'));
+                    }
+                }, 30000);
+            });
+        }
+
+        function normalizeToolArguments(rawArguments) {
+            if (rawArguments === null || rawArguments === undefined) {
+                return {};
+            }
+
+            if (typeof rawArguments === 'string') {
+                const trimmed = rawArguments.trim();
+                if (!trimmed) return {};
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        return parsed;
+                    }
+                } catch (_) {
+                    return {};
+                }
+                return {};
+            }
+
+            if (typeof rawArguments === 'object' && !Array.isArray(rawArguments)) {
+                return rawArguments;
+            }
+
+            return {};
+        }
+
+        function extractAssistantMessageContent(message) {
+            if (!message) return '';
+
+            if (typeof message.content === 'string') {
+                return message.content;
+            }
+
+            if (Array.isArray(message.content)) {
+                return message.content
+                    .map((part) => {
+                        if (typeof part === 'string') return part;
+                        if (part && typeof part.text === 'string') return part.text;
+                        return '';
+                    })
+                    .join('\n')
+                    .trim();
+            }
+
+            return '';
+        }
+
         function shortenModelLabel(name) {
             const value = String(name || '').trim() || 'Unknown';
             return value.length > 24 ? `${value.slice(0, 21)}...` : value;
@@ -3483,6 +3630,20 @@
                     pending.resolve(data.result);
                 } else {
                     pending.reject(new Error(data.error || 'Chat logs request failed'));
+                }
+                return;
+            }
+
+            if (data && data.type === 'mcp-tool-call-result') {
+                const requestId = data.request_id;
+                const pending = requestId ? pendingMcpToolRequests.get(requestId) : null;
+                if (!pending) return;
+
+                pendingMcpToolRequests.delete(requestId);
+                if (data.ok) {
+                    pending.resolve(data.result || {});
+                } else {
+                    pending.reject(new Error(data.error || 'MCP tool call bridge failed'));
                 }
                 return;
             }
@@ -4048,6 +4209,7 @@ function applySpeculativeFix() {
 
             try {
                 const messages = [];
+                const mcpToolCatalog = buildMcpToolCatalog();
                 if (currentParams.system_prompt.trim()) {
                     messages.push({ role: 'system', content: currentParams.system_prompt.trim() });
                 }
@@ -4057,8 +4219,7 @@ function applySpeculativeFix() {
                 const mcpSystemContext = buildMcpSystemContextMessage();
                 if (mcpSystemContext) {
                     messages.push({ role: 'system', content: mcpSystemContext });
-                    const toolCount = mcpContextState.connections.reduce((sum, conn) => sum + (Array.isArray(conn.tools) ? conn.tools.length : 0), 0);
-                    updateMcpDebugStatus(`MCP injected: ${mcpContextState.connections.length} conn / ${toolCount} tools`);
+                    updateMcpDebugStatus(`MCP injected: ${mcpContextState.connections.length} conn / ${mcpToolCatalog.counts.included} included, ${mcpToolCatalog.counts.skipped} skipped`);
                     console.log('[ChatUI] MCP system context injected into request:', mcpSystemContext);
                 } else {
                     updateMcpDebugStatus('MCP injected: none');
@@ -4069,6 +4230,197 @@ function applySpeculativeFix() {
                 // Update the last message with the full content (text + docs)
                 if (messages.length > 0) {
                     messages[messages.length-1].content = userContent;
+                }
+
+                if (mcpToolCatalog.tools.length > 0) {
+                    const maxIterations = 6;
+                    const requestMessages = messages.map((item) => ({ ...item }));
+                    let loopIteration = 0;
+                    let completed = false;
+                    let stopReason = 'max-iterations';
+
+                    updateMcpDebugStatus(`MCP tools sent: ${mcpToolCatalog.counts.included} included, ${mcpToolCatalog.counts.skipped} skipped`);
+                    console.log('[ChatUI][MCP] Tool-capable completion path enabled', {
+                        tools: mcpToolCatalog.tools.length,
+                        maxIterations
+                    });
+
+                    bodyDiv.innerHTML = '';
+
+                    while (loopIteration < maxIterations) {
+                        loopIteration += 1;
+
+                        const completionResponse = await fetch('/v1/chat/completions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            signal: abortController.signal,
+                            body: JSON.stringify({
+                                model: '',
+                                messages: requestMessages,
+                                tools: mcpToolCatalog.tools,
+                                tool_choice: 'auto',
+                                temperature: currentParams.temperature,
+                                top_p: currentParams.top_p,
+                                min_p: currentParams.min_p,
+                                top_k: currentParams.top_k,
+                                max_tokens: currentParams.max_tokens,
+                                repeat_penalty: currentParams.repeat_penalty,
+                                repeat_last_n: currentParams.repeat_last_n,
+                                presence_penalty: currentParams.presence_penalty,
+                                frequency_penalty: currentParams.frequency_penalty,
+                                xtc_probability: currentParams.xtc_probability,
+                                xtc_threshold: currentParams.xtc_threshold,
+                                dry_multiplier: currentParams.dry_multiplier,
+                                dry_base: currentParams.dry_base,
+                                dry_allowed_length: currentParams.dry_allowed_length,
+                                'speculative.n_max': currentParams.launch_draft_max,
+                                'speculative.p_min': currentParams.launch_draft_p_min,
+                                reasoning_format: currentParams.reasoning_format,
+                                reasoning_budget: currentParams.reasoning_budget,
+                                stream: false
+                            })
+                        });
+
+                        if (!completionResponse.ok) {
+                            throw new Error(`MCP chat request failed (${completionResponse.status})`);
+                        }
+
+                        const completionData = await completionResponse.json();
+                        const choice = completionData && Array.isArray(completionData.choices)
+                            ? completionData.choices[0]
+                            : null;
+                        const assistantMessage = choice && choice.message ? choice.message : null;
+
+                        if (!assistantMessage) {
+                            throw new Error('MCP chat response missing assistant message');
+                        }
+
+                        if (!ttft) {
+                            ttft = Date.now() - startTime;
+                        }
+
+                        const usage = completionData && completionData.usage ? completionData.usage : null;
+                        if (usage && typeof usage.completion_tokens === 'number') {
+                            totalTokens = usage.completion_tokens;
+                        }
+
+                        const toolCalls = Array.isArray(assistantMessage.tool_calls)
+                            ? assistantMessage.tool_calls
+                            : [];
+
+                        if (toolCalls.length === 0) {
+                            fullText = extractAssistantMessageContent(assistantMessage);
+                            bodyDiv.innerHTML = fullText.replace(/\n/g, '<br>');
+                            completed = true;
+                            stopReason = 'assistant-content';
+                            updateMcpDebugStatus(`MCP loop done (${loopIteration}/${maxIterations}): content`);
+                            break;
+                        }
+
+                        updateMcpDebugStatus(`MCP loop ${loopIteration}/${maxIterations}: ${toolCalls.length} tool call(s)`);
+                        console.log('[ChatUI][MCP] Tool calls received', {
+                            iteration: loopIteration,
+                            count: toolCalls.length
+                        });
+
+                        requestMessages.push({
+                            role: 'assistant',
+                            content: assistantMessage.content || '',
+                            tool_calls: toolCalls
+                        });
+
+                        for (const toolCall of toolCalls) {
+                            const functionPayload = toolCall && toolCall.function ? toolCall.function : {};
+                            const aliasedName = String(functionPayload.name || '').trim();
+                            const mappedTool = mcpToolCatalog.toolMap[aliasedName];
+                            let toolResultText = '';
+
+                            if (!mappedTool) {
+                                toolResultText = `MCP tool unavailable: unknown tool mapping for ${aliasedName || 'unnamed tool'}.`;
+                            } else {
+                                try {
+                                    const toolArguments = normalizeToolArguments(functionPayload.arguments);
+                                    const toolResult = await requestMcpToolCall({
+                                        connectionId: mappedTool.connectionId,
+                                        toolName: mappedTool.toolName,
+                                        arguments: toolArguments
+                                    });
+
+                                    if (toolResult && toolResult.success && !toolResult.is_error) {
+                                        toolResultText = String(toolResult.content || '').trim() || 'Tool completed successfully with empty output.';
+                                        console.log('[ChatUI][MCP] Tool execution success', {
+                                            connectionId: mappedTool.connectionId,
+                                            toolName: mappedTool.toolName
+                                        });
+                                    } else {
+                                        const failureText = toolResult && (toolResult.content || toolResult.message || toolResult.error)
+                                            ? String(toolResult.content || toolResult.message || toolResult.error)
+                                            : 'Tool returned an unknown error.';
+                                        toolResultText = `Tool failed: ${failureText}`;
+                                        console.warn('[ChatUI][MCP] Tool execution returned failure', {
+                                            connectionId: mappedTool.connectionId,
+                                            toolName: mappedTool.toolName,
+                                            failureText
+                                        });
+                                    }
+                                } catch (toolError) {
+                                    const toolErrorText = toolError && toolError.message ? toolError.message : String(toolError);
+                                    toolResultText = `Tool unavailable: ${toolErrorText || 'request failed'}`;
+                                    console.error('[ChatUI][MCP] Tool execution bridge error', {
+                                        connectionId: mappedTool.connectionId,
+                                        toolName: mappedTool.toolName,
+                                        error: toolErrorText
+                                    });
+                                }
+                            }
+
+                            requestMessages.push({
+                                role: 'tool',
+                                tool_call_id: toolCall && toolCall.id ? String(toolCall.id) : `tool_call_${Date.now()}`,
+                                content: toolResultText
+                            });
+                        }
+                    }
+
+                    if (!completed) {
+                        stopReason = loopIteration >= maxIterations ? 'max-iterations' : stopReason;
+                        fullText = 'MCP tool loop stopped before a final assistant message. Try simplifying the request or checking tool availability.';
+                        bodyDiv.innerHTML = fullText.replace(/\n/g, '<br>');
+                        updateMcpDebugStatus(`MCP loop stopped: ${stopReason}`);
+                        console.warn('[ChatUI][MCP] Tool loop stopped without final content', { stopReason, loopIteration, maxIterations });
+                    }
+
+                    const finalDraftTokens = 0;
+                    const mainTokens = Math.max(0, (totalTokens || 0) - finalDraftTokens);
+                    const generationDurationMs = Math.max(1, Date.now() - startTime);
+                    const tokensPerSecond = ((totalTokens || 0) / (generationDurationMs / 1000)).toFixed(2);
+                    const statsHtml = `<div class="message-stats">
+                    <span class="stat-item"><b>Total:</b> ${totalTokens || 0}</span>
+                    <span class="stat-item"><b>Main:</b> ${mainTokens || 0}</span>
+                    <span class="stat-item"><b>Draft:</b> ${finalDraftTokens || 0}</span>
+                    <span class="stat-item"><b>TTFT:</b> ${ttft}ms</span>
+                    <span class="stat-item"><b>TPS:</b> ${tokensPerSecond}</span>
+                </div>`;
+
+                    assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
+
+                    appendBenchmarkLogEntry({
+                        model: getBenchmarkModelName(),
+                        total: totalTokens || 0,
+                        main: mainTokens || 0,
+                        draft: finalDraftTokens || 0,
+                        ttft: ttft || 0
+                    });
+
+                    messageHistory.push({ role: 'assistant', content: fullText });
+                    if (CHAT_HISTORY_ENABLED && activeChatId) {
+                        await appendChatHistoryMessage(activeChatId, 'assistant', fullText);
+                    }
+                    await maybeAutoGenerateTitle();
+                    await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
+                    await refreshContextCounter();
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    return;
                 }
 
                 const response = await fetch('/v1/chat/completions', {

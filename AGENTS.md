@@ -1113,6 +1113,11 @@ Located at: `H:\Ardanu Fix\Arandu-maxi\Extra skills\`
 - Known likely gap: metadata injection without an execution bridge for tool-calling may not be sufficient for real MCP tool usage.
 - Required process for this phase: checkpoint first, research and validation, subagent coding, subagent verification, final acceptance verification.
 
+### MCP Runtime Status Update (2026-03-06)
+
+- Execution bridge is now implemented: model tool_calls are routed to backend MCP `tools/call` and results are fed back into chat completion loop.
+- Supported MCP transports for tool discovery/execution in current implementation: `http`, `json`, `streamable_http`, `sse`, `stdio`.
+
 ### Quick Overview
 
 **Last Build:** 2025-02-23 - âœ… SUCCESS (Release Build)  

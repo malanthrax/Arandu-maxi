@@ -8,6 +8,14 @@
 - 🔬 Next implementation phase is to close the execution gap with the simplest verified approach so connected MCP tools can be actually used by model workflows.
 - Safety rule for this phase: checkpoint first, deep verification next, then coding + independent verification.
 
+### 2026-03-06 MCP Runtime Tool Usage - Status Update
+
+- ✅ MCP execution bridge implemented: model tool_calls now route to backend MCP `tools/call` and tool outputs are returned to model loop.
+- ✅ Tool discovery/calling now supports `http`, `json`, `streamable_http`, `sse`, and `stdio` transports.
+- ✅ SSE parsing fixed: event-stream (`data:`) MCP responses are parsed correctly for tool discovery/calls.
+- ✅ Stdio execution added: initialize + initialized notification + tools/list/tools/call request handling through child process stdio.
+- ✅ Chat transport gating updated to advertise callable tools for all supported transports above.
+
 ## 2026-03-04 In-Chat Active Model Label + Live Model Switcher
 
 - ✅ Added active model label in chat UI near the Send button.

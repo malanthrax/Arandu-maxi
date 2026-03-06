@@ -46,6 +46,8 @@ class TerminalManager {
             } else if (event.data && event.data.type === 'request-mcp-context') {
                 console.log('[TerminalManager] MCP context requested from chat UI');
                 await this.handleMcpContextRequest(event.source);
+            } else if (event.data && event.data.type === 'request-mcp-tool-call') {
+                await this.handleMcpToolCallRequest(event.data, event.source);
             } else if (event.data && event.data.type === 'chat-logs-request') {
                 console.log('[TerminalManager] Chat logs request received:', event.data.op);
                 await this.handleChatLogsRequest(event.data, event.source);
@@ -757,6 +759,72 @@ class TerminalManager {
                 type: 'mcp-context',
                 connections: []
             }, '*');
+        }
+    }
+
+    async handleMcpToolCallRequest(data, sourceWindow) {
+        const requestId = data && typeof data.request_id === 'string' && data.request_id.trim()
+            ? data.request_id
+            : '';
+        const payload = data && data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload)
+            ? data.payload
+            : {};
+
+        const sendResult = (ok, result, errorMessage) => {
+            if (!sourceWindow || typeof sourceWindow.postMessage !== 'function') {
+                return;
+            }
+
+            sourceWindow.postMessage({
+                type: 'mcp-tool-call-result',
+                request_id: requestId,
+                ok,
+                ...(ok ? { result } : { error: errorMessage || 'MCP tool call failed' })
+            }, '*');
+        };
+
+        if (!requestId) {
+            return;
+        }
+
+        const connectionId = typeof payload.connectionId === 'string' ? payload.connectionId.trim() : '';
+        const toolName = typeof payload.toolName === 'string' ? payload.toolName.trim() : '';
+        const argumentsPayload = payload.arguments;
+
+        if (!connectionId) {
+            sendResult(false, null, 'connectionId is required');
+            return;
+        }
+
+        if (!toolName) {
+            sendResult(false, null, 'toolName is required');
+            return;
+        }
+
+        if (argumentsPayload === undefined || argumentsPayload === null || typeof argumentsPayload !== 'object' || Array.isArray(argumentsPayload)) {
+            sendResult(false, null, 'arguments must be a JSON object');
+            return;
+        }
+
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) {
+                throw new Error('Invoke not available');
+            }
+
+            const result = await invoke('call_mcp_tool', {
+                request: {
+                    connection_id: connectionId,
+                    tool_name: toolName,
+                    arguments: argumentsPayload
+                }
+            });
+
+            sendResult(true, result, null);
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            console.error('[TerminalManager] MCP tool call bridge failed:', message);
+            sendResult(false, null, message || 'MCP tool call failed');
         }
     }
 
