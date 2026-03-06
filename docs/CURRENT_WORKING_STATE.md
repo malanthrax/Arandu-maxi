@@ -53,6 +53,16 @@
   - NSIS: `backend/target/release/bundle/nsis/Arandu_0.5.5-1_x64-setup.exe`
   - EXE modify time: `2026-03-04 18:50:50 -0800`
 
+## Launch UX Update (2026-03-04) - Targeted restart rules + reload action
+
+- Restart warning logic is now aligned to true launch-time options.
+- `launch_draft_p_min` and `launch_draft_max` no longer trigger restart warnings by themselves; they are applied at request time.
+- Added request payload mapping for speculative runtime tuning:
+  - `speculative.n_max`
+  - `speculative.p_min`
+- Added small red `R` marker beside options that require model/server restart.
+- Added `Reload with Changes` button near the Context & Launch section title to force immediate reload with current launch settings.
+
 ## Latest UI Verification (2026-03-04) - Label readability in top-right controls
 
 - Added explicit text labels to top-right view toggle buttons for faster recognition:

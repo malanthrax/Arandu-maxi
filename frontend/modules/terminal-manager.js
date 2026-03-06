@@ -43,6 +43,9 @@ class TerminalManager {
             } else if (event.data && event.data.type === 'request-current-config') {
                 console.log('[TerminalManager] Current config requested from chat UI');
                 await this.handleCurrentConfigRequest(event.source);
+            } else if (event.data && event.data.type === 'request-mcp-context') {
+                console.log('[TerminalManager] MCP context requested from chat UI');
+                await this.handleMcpContextRequest(event.source);
             } else if (event.data && event.data.type === 'chat-logs-request') {
                 console.log('[TerminalManager] Chat logs request received:', event.data.op);
                 await this.handleChatLogsRequest(event.data, event.source);
@@ -381,6 +384,11 @@ class TerminalManager {
             '--rope-scaling': 'rope_scaling',
             '--rope-scale': 'rope_scale',
             '--rope-freq-base': 'rope_freq_base',
+            '--yarn-orig-ctx': 'yarn_orig_ctx',
+            '--yarn-ext-factor': 'yarn_ext_factor',
+            '--yarn-attn-factor': 'yarn_attn_factor',
+            '--yarn-beta-slow': 'yarn_beta_slow',
+            '--yarn-beta-fast': 'yarn_beta_fast',
             '--model-draft': 'model_draft',
             '-md': 'model_draft',
             '--draft-p-min': 'draft_p_min',
@@ -696,6 +704,60 @@ class TerminalManager {
             draftModelPath: draftModelPath,
             env_vars: envVars
         }, '*');
+    }
+
+    async handleMcpContextRequest(sourceWindow) {
+        const safeSourceWindow = sourceWindow;
+        if (!safeSourceWindow || typeof safeSourceWindow.postMessage !== 'function') {
+            return;
+        }
+
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) {
+                safeSourceWindow.postMessage({
+                    type: 'mcp-context',
+                    connections: []
+                }, '*');
+                return;
+            }
+
+            const rawConnections = await invoke('get_mcp_connections');
+            const connections = Array.isArray(rawConnections) ? rawConnections : [];
+            const safeConnections = connections
+                .filter((connection) => connection && connection.enabled)
+                .map((connection) => ({
+                    id: connection.id ? String(connection.id) : '',
+                    name: connection.name ? String(connection.name) : '',
+                    transport: connection.transport ? String(connection.transport) : '',
+                    enabled: Boolean(connection.enabled),
+                    url: connection.url ? String(connection.url) : '',
+                    command: connection.command ? String(connection.command) : '',
+                    args: Array.isArray(connection.args) ? connection.args.map((arg) => String(arg)) : [],
+                    env_vars: connection.env_vars && typeof connection.env_vars === 'object' ? connection.env_vars : {},
+                    headers: connection.headers && typeof connection.headers === 'object' ? connection.headers : {},
+                    json_payload: connection.json_payload ? String(connection.json_payload) : '',
+                    tools: Array.isArray(connection.tools)
+                        ? connection.tools.map((tool) => ({
+                            name: tool && tool.name ? String(tool.name) : '',
+                            description: tool && tool.description ? String(tool.description) : '',
+                            inputSchema: tool && tool.inputSchema ? tool.inputSchema : null,
+                            outputSchema: tool && tool.outputSchema ? tool.outputSchema : null
+                        }))
+                        : []
+                }));
+
+            safeSourceWindow.postMessage({
+                type: 'mcp-context',
+                connections: safeConnections
+            }, '*');
+        } catch (error) {
+            console.error('[TerminalManager] Failed to get MCP context:', error);
+            safeSourceWindow.postMessage({
+                type: 'mcp-context',
+                connections: []
+            }, '*');
+        }
     }
 
     async handleChatLogsRequest(data, sourceWindow) {

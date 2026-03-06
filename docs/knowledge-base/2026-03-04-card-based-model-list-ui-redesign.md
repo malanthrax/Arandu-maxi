@@ -207,3 +207,10 @@ The traditional list view (vertical scrolling) is preserved via the `.desktop-ic
 - Design reference: Dark blue gradient cards with abstract geometric shapes (user-provided image)
 - AGENTS.md: Frontend architecture and CSS patterns
 - THIS-PROJECTS-CURRENT-STATE.md: Session update entry
+
+## 2026-03-05 Follow-up: List Tile Path Text Update
+
+- Local model list-view tiles no longer display truncated file path text in the second line.
+- The second line now shows file size in GB (`${modelSizeGb.toFixed(2)} GB`).
+- Full model path remains available on hover via the `title` attribute.
+- Updated file: `frontend/desktop.js` (list-view branch in icon rendering).

@@ -29,6 +29,13 @@
   - `cargo tauri build` passed
   - MSI rebuilt: `backend/target/release/bundle/msi/Arandu_0.5.5-1_x64_en-US.msi`
 
+## 2026-03-04 Launch Settings UX Refinement
+
+- ✅ Restart prompts now trigger only for true launch-time settings.
+- ✅ Speculative runtime controls (`draft p-min`, `draft max`) are request-time and no longer force restart prompts.
+- ✅ Added red `R` indicator beside settings that require restart.
+- ✅ Added `Reload with Changes` button in launch section to force immediate reload/restart with current options.
+
 ## 2026-03-04 Card-Based Model List UI Redesign
 
 - ✅ Complete redesign of Local Models list page with modern card-based UI

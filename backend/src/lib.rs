@@ -4085,12 +4085,22 @@ async fn post_mcp_request(
     transport: &McpTransport,
     url: &str,
     payload: serde_json::Value,
+    headers: &std::collections::HashMap<String, String>,
     timeout_duration: Duration,
 ) -> Result<reqwest::Response, String> {
-    let request = client
+    let mut request = client
         .post(url)
         .header("accept", mcp_accept_header(transport))
         .json(&payload);
+
+    for (key, value) in headers {
+        let header_name = key.trim();
+        let header_value = value.trim();
+        if header_name.is_empty() || header_value.is_empty() {
+            continue;
+        }
+        request = request.header(header_name, header_value);
+    }
 
     timeout(timeout_duration, request.send())
         .await
@@ -4101,6 +4111,7 @@ async fn post_mcp_request(
 async fn run_mcp_tool_discovery(
     transport: McpTransport,
     url: String,
+    headers: std::collections::HashMap<String, String>,
     timeout_duration: Duration,
 ) -> McpToolsResult {
     let start_time = Instant::now();
@@ -4114,7 +4125,7 @@ async fn run_mcp_tool_discovery(
         "params": {}
     });
 
-    let initialize_response = match post_mcp_request(&client, &transport, &url, initialize_payload, timeout_duration).await {
+    let initialize_response = match post_mcp_request(&client, &transport, &url, initialize_payload, &headers, timeout_duration).await {
         Ok(resp) => resp,
         Err(error) => {
             return McpToolsResult {
@@ -4147,7 +4158,7 @@ async fn run_mcp_tool_discovery(
         true => {}
     }
 
-    let tools_response = match post_mcp_request(&client, &transport, &url, tools_payload, timeout_duration).await {
+    let tools_response = match post_mcp_request(&client, &transport, &url, tools_payload, &headers, timeout_duration).await {
         Ok(resp) => resp,
         Err(error) => {
             return McpToolsResult {
@@ -4276,13 +4287,13 @@ async fn list_mcp_tools(
 
     if matches!(connection.transport, McpTransport::Stdio) {
         return Ok(McpToolsResult {
-            success: false,
+            success: true,
             latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "Tool discovery is not yet available for stdio transport in this phase".to_string(),
+            message: "Stdio connection is configured. Tool discovery UI is not required for this transport.".to_string(),
             tool_count: 0,
             tools: Vec::new(),
             status_code: None,
-            error: Some("unsupported_transport".to_string()),
+            error: None,
         });
     }
 
@@ -4314,7 +4325,12 @@ async fn list_mcp_tools(
     let url = resolved_url.unwrap_or_default();
     let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
 
-    let result = run_mcp_tool_discovery(connection.transport.clone(), url, timeout_duration).await;
+    let result = run_mcp_tool_discovery(
+        connection.transport.clone(),
+        url,
+        connection.headers.clone(),
+        timeout_duration,
+    ).await;
 
     let mut config = state.config.lock().await;
     if let Some(conn) = config.mcp_servers.iter_mut().find(|item| item.id == id) {
@@ -4401,7 +4417,32 @@ async fn test_mcp_connection(
 
     let mut result = match connection.transport {
         McpTransport::Stdio => {
-            match TokioCommand::new(&connection.command).args(&connection.args).spawn() {
+            let mut cmd = TokioCommand::new(&connection.command);
+            cmd.args(&connection.args);
+            if !connection.env_vars.is_empty() {
+                cmd.envs(&connection.env_vars);
+            }
+
+            let mut spawned = cmd.spawn();
+
+            #[cfg(windows)]
+            {
+                if let Err(err) = &spawned {
+                    let cmd_name = connection.command.trim().to_lowercase();
+                    let is_cmd_style = matches!(cmd_name.as_str(), "npx" | "npm" | "pnpm" | "yarn" | "bunx");
+                    if err.kind() == std::io::ErrorKind::NotFound && is_cmd_style {
+                        let mut shell_cmd = TokioCommand::new("cmd");
+                        shell_cmd.arg("/C").arg(&connection.command);
+                        shell_cmd.args(&connection.args);
+                        if !connection.env_vars.is_empty() {
+                            shell_cmd.envs(&connection.env_vars);
+                        }
+                        spawned = shell_cmd.spawn();
+                    }
+                }
+            }
+
+            match spawned {
                 Ok(mut child) => {
                     // Track Python processes if command is python/python3
                     let cmd_lower = connection.command.to_lowercase();
@@ -4451,7 +4492,10 @@ async fn test_mcp_connection(
             Err(err) => McpTestResult {
                     success: false,
                     latency_ms: start_time.elapsed().as_millis() as i64,
-                    message: "Failed to start stdio process".to_string(),
+                    message: format!(
+                        "Failed to start stdio process '{}'. Ensure command exists on PATH and required env vars are set.",
+                        connection.command
+                    ),
                     status_code: None,
                     exit_code: None,
                     error: Some(err.to_string()),
@@ -4498,6 +4542,15 @@ async fn test_mcp_connection(
                         request = request.header("accept", "application/json");
                     } else {
                         request = request.header("accept", "application/json, text/event-stream");
+                    }
+
+                    for (key, value) in &connection.headers {
+                        let header_name = key.trim();
+                        let header_value = value.trim();
+                        if header_name.is_empty() || header_value.is_empty() {
+                            continue;
+                        }
+                        request = request.header(header_name, header_value);
                     }
 
                     Some(request)

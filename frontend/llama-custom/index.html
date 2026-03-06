@@ -177,6 +177,99 @@
             flex-direction: column;
         }
 
+        .chat-system-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 10px;
+            border: 1px solid #3a3a3a;
+            border-radius: 10px;
+            background: #242424;
+            color: #cfcfcf;
+            font-size: 12px;
+        }
+
+        .chat-system-tools .system-label {
+            color: #89c78c;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            font-size: 11px;
+            margin-right: 4px;
+        }
+
+        .context-counter {
+            min-width: 138px;
+            color: #d0d0d0;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .context-compress-btn,
+        .context-mode-select {
+            height: 30px;
+            border: 1px solid #4b4b4b;
+            border-radius: 6px;
+            background: #1f1f1f;
+            color: #e4e4e4;
+            font-size: 12px;
+        }
+
+        .context-compress-btn {
+            padding: 0 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .context-compress-btn:hover {
+            border-color: #5f5f5f;
+            background: #2a2a2a;
+        }
+
+        .context-compress-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
+
+        .context-mode-select {
+            min-width: 170px;
+            padding: 0 8px;
+        }
+
+        .panel-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .reload-changes-btn {
+            border: 1px solid #2f6f3f;
+            background: #1f3326;
+            color: #d8f5df;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 8px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .reload-changes-btn:hover {
+            background: #294431;
+            border-color: #3b8a4f;
+        }
+
+        .reset-required-badge {
+            display: inline-block;
+            margin-left: 6px;
+            color: #ef4444;
+            font-weight: 700;
+            font-size: 10px;
+            line-height: 1;
+            vertical-align: middle;
+        }
+
         .chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -217,7 +310,7 @@
             text-shadow: 0 0 1px rgba(135, 206, 235, 0.2);
         }
 
-        /* Feature 4: Stats Readout - Tripled font size as requested */
+        /* Feature 4: Stats Readout */
         .message-stats {
             display: flex;
             flex-wrap: wrap;
@@ -225,7 +318,7 @@
             margin-top: 15px;
             padding-top: 15px;
             border-top: 2px solid #444;
-            font-size: 30px; /* Tripled from ~10px */
+            font-size: 12.6px;
             color: #aaa;
             font-family: 'Consolas', monospace;
             background: rgba(0,0,0,0.2);
@@ -870,12 +963,152 @@
             opacity: 1;
             pointer-events: auto;
         }
+
+        .floating-benchmark-toggle {
+            top: 68px;
+        }
+
+        .benchmark-log-panel {
+            position: fixed;
+            top: 10px;
+            right: 58px;
+            width: min(620px, calc(100vw - 80px));
+            max-height: calc(100vh - 20px);
+            background: #232323;
+            border: 2px solid #444;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 998;
+            display: none;
+            flex-direction: column;
+        }
+
+        .benchmark-log-panel.visible {
+            display: flex;
+        }
+
+        .benchmark-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            border-bottom: 1px solid #444;
+            font-size: 13px;
+            font-weight: bold;
+            color: #4caf50;
+        }
+
+        .benchmark-log-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .benchmark-clear-btn {
+            border: none;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            background: #b71c1c;
+            color: #fff;
+        }
+
+        .benchmark-clear-btn:hover {
+            background: #8f1414;
+        }
+
+        .benchmark-log-close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 18px;
+            width: 26px;
+            height: 26px;
+            border-radius: 4px;
+        }
+
+        .benchmark-log-close-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .benchmark-log-body {
+            padding: 10px 12px 12px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            color: #ddd;
+            min-height: 130px;
+        }
+
+        .benchmark-log-columns,
+        .benchmark-log-row {
+            display: grid;
+            grid-template-columns: 20ch 10ch 10ch 10ch 10ch;
+            column-gap: 10px;
+            align-items: center;
+            white-space: pre;
+        }
+
+        .benchmark-log-columns {
+            color: #8f8f8f;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 6px;
+        }
+
+        .benchmark-log-row {
+            padding: 3px 0;
+            color: #e3e3e3;
+        }
+
+        .benchmark-col-model,
+        .benchmark-col-value {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .benchmark-col-value {
+            text-align: right;
+        }
+
+        .benchmark-log-empty {
+            color: #888;
+            padding: 16px 4px;
+        }
     </style>
 </head>
 <body>
     <!-- Floating toggle button for when panel is collapsed -->
     <div class="floating-toggle" id="floatingToggle" onclick="togglePanel()" title="Open Model Options">
         <span>⚙️</span>
+    </div>
+
+    <div class="floating-toggle floating-benchmark-toggle" id="benchmarkToggle" onclick="toggleBenchmarkPanel()" title="Open Benchmark Log">
+        <span>📖</span>
+    </div>
+
+    <div class="benchmark-log-panel" id="benchmarkLogPanel" role="complementary" aria-label="Benchmark log">
+        <div class="benchmark-log-header">
+            <span>📖 Benchmark Log</span>
+            <div class="benchmark-log-controls">
+                <button type="button" class="benchmark-clear-btn" onclick="clearBenchmarkLog()">Clear</button>
+                <button type="button" class="benchmark-log-close-btn" onclick="toggleBenchmarkPanel(false)" aria-label="Close benchmark log">×</button>
+            </div>
+        </div>
+        <div class="benchmark-log-body" id="benchmarkLogBody">
+            <div class="benchmark-log-columns">
+                <span>Model</span>
+                <span class="benchmark-col-value">Total</span>
+                <span class="benchmark-col-value">Main</span>
+                <span class="benchmark-col-value">Draft</span>
+                <span class="benchmark-col-value">TTFT(ms)</span>
+            </div>
+            <div id="benchmarkLogList"></div>
+            <div class="benchmark-log-empty" id="benchmarkLogEmpty">No benchmark entries yet.</div>
+        </div>
     </div>
 
     <!-- Parameter Panel - Starts collapsed per user request -->
@@ -1044,7 +1277,10 @@
             </div>
 
             <!-- Section: Context & Launch (Restart Required) -->
-            <div class="panel-section-title">Context & Launch (Requires Restart)</div>
+            <div class="panel-section-header">
+                <div class="panel-section-title">Context & Launch (Requires Restart)</div>
+                <button class="reload-changes-btn" type="button" onclick="reloadWithChanges()">Reload with Changes</button>
+            </div>
 
             <div class="parameter">
                 <div class="parameter-label">
@@ -1254,6 +1490,36 @@
             </div>
 
             <div class="parameter">
+                <div class="parameter-label"><label for="launch_yarn_orig_ctx">YaRN Original Context</label></div>
+                <input type="number" id="launch_yarn_orig_ctx" min="0" value="0">
+                <div class="parameter-desc">--yarn-orig-ctx (0 = model default)</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_yarn_ext_factor">YaRN Extrapolation Factor</label></div>
+                <input type="number" id="launch_yarn_ext_factor" step="0.1" value="-1.0">
+                <div class="parameter-desc">--yarn-ext-factor (-1.0 = auto)</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_yarn_attn_factor">YaRN Attention Factor</label></div>
+                <input type="number" id="launch_yarn_attn_factor" step="0.1" value="1.0">
+                <div class="parameter-desc">--yarn-attn-factor</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_yarn_beta_slow">YaRN Beta Slow</label></div>
+                <input type="number" id="launch_yarn_beta_slow" step="0.1" value="1.0">
+                <div class="parameter-desc">--yarn-beta-slow</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label"><label for="launch_yarn_beta_fast">YaRN Beta Fast</label></div>
+                <input type="number" id="launch_yarn_beta_fast" step="0.1" value="32.0">
+                <div class="parameter-desc">--yarn-beta-fast</div>
+            </div>
+
+            <div class="parameter">
                 <div class="parameter-label">
                     <label for="launch_env_vars">Environment Variables</label>
                 </div>
@@ -1289,6 +1555,16 @@
             </aside>
 
         <div class="chat-main">
+            <div class="chat-system-tools" id="chatSystemTools" role="toolbar" aria-label="Context tools">
+                <span class="system-label">System</span>
+                <span class="context-counter" id="contextCounter">Context: unavailable</span>
+                <button type="button" class="context-compress-btn" id="forceContextCompressBtn" onclick="forceContextCompression()">Force Context Compression</button>
+                <select class="context-mode-select" id="contextCompressionMode" aria-label="Context compression mode">
+                    <option value="slot">Slot-level compress</option>
+                    <option value="soft-reset">Soft reset context</option>
+                    <option value="summarize">Summarize + compress</option>
+                </select>
+            </div>
             <div class="chat-messages" id="chatMessages">
                 <div class="message system">
                     <div class="message-label">System</div>
@@ -1341,6 +1617,7 @@
     <!-- Status Bar -->
     <div class="status-bar">
         <span id="connectionStatus">Connected to llama-server</span>
+        <span id="mcpDebugStatus">MCP: waiting...</span>
         <span id="lastMessageTime"></span>
     </div>
 
@@ -1387,6 +1664,11 @@
             launch_rope_scaling: "none",
             launch_rope_scale: 1.0,
             launch_rope_freq_base: 0,
+            launch_yarn_orig_ctx: 0,
+            launch_yarn_ext_factor: -1.0,
+            launch_yarn_attn_factor: 1.0,
+            launch_yarn_beta_slow: 1.0,
+            launch_yarn_beta_fast: 32.0,
             launch_model_draft: "",
             launch_draft_p_min: 0.1,
             launch_draft_max: 16,
@@ -1415,7 +1697,43 @@
         let chatSearchDebounceTimer = null;
         const pendingChatRequests = new Map();
         const ATTACHMENT_TEXT_CHAR_LIMIT = 12000;
+        const CONTEXT_COUNTER_REFRESH_MS = 15000;
+        const CONTEXT_COUNTER_UNAVAILABLE_TEXT = 'Context: unavailable';
         let isChatHistoryProcessing = false; // Prevents concurrent operations
+        let contextCounterTimer = null;
+        let contextCompressionBusy = false;
+        let sessionSystemMemory = '';
+        let mcpContextState = {
+            connections: []
+        };
+        const restartRequiredLaunchParamIds = [
+            'launch_ctx_size',
+            'launch_slots',
+            'launch_cont_batching',
+            'launch_context_shift',
+            'launch_gpu_layers',
+            'launch_cpu_moe_layers',
+            'launch_split_mode',
+            'launch_main_gpu',
+            'launch_flash_attn',
+            'launch_mmap',
+            'launch_cache_type_k',
+            'launch_cache_type_v',
+            'launch_rope_scaling',
+            'launch_rope_scale',
+            'launch_rope_freq_base',
+            'launch_yarn_orig_ctx',
+            'launch_yarn_ext_factor',
+            'launch_yarn_attn_factor',
+            'launch_yarn_beta_slow',
+            'launch_yarn_beta_fast',
+            'launch_model_draft',
+            'launch_ngld',
+            'launch_numa',
+            'launch_pinned',
+            'launch_jinja',
+            'launch_env_vars'
+        ];
         let chatModelSwitcherState = {
             open: false,
             loading: false,
@@ -1428,6 +1746,10 @@
         };
         let chatModelSwitcherLoadTimeout = null;
         let chatModelSwitcherSwitchTimeout = null;
+        const BENCHMARK_LOG_KEY = 'aranduBenchmarkLogV1';
+        const BENCHMARK_LOG_LIMIT = 100;
+        const BENCHMARK_MODEL_COL_WIDTH = 20;
+        let benchmarkLogEntries = [];
 
         function getFileKind(file) {
             const name = String(file.name || '').toLowerCase();
@@ -1488,6 +1810,11 @@
             launch_rope_scaling: defaultParams.launch_rope_scaling,
             launch_rope_scale: defaultParams.launch_rope_scale,
             launch_rope_freq_base: defaultParams.launch_rope_freq_base,
+            launch_yarn_orig_ctx: defaultParams.launch_yarn_orig_ctx,
+            launch_yarn_ext_factor: defaultParams.launch_yarn_ext_factor,
+            launch_yarn_attn_factor: defaultParams.launch_yarn_attn_factor,
+            launch_yarn_beta_slow: defaultParams.launch_yarn_beta_slow,
+            launch_yarn_beta_fast: defaultParams.launch_yarn_beta_fast,
             launch_model_draft: defaultParams.launch_model_draft,
             launch_draft_p_min: defaultParams.launch_draft_p_min,
             launch_draft_max: defaultParams.launch_draft_max,
@@ -1581,6 +1908,217 @@
 
         function parseSnapshotFloat(value, fallback) {
             return normalizeNumericFallback(Number.parseFloat(value), fallback);
+        }
+
+        function setContextCounterText(text) {
+            const el = document.getElementById('contextCounter');
+            if (!el) return;
+            el.textContent = text || CONTEXT_COUNTER_UNAVAILABLE_TEXT;
+        }
+
+        function parseContextMetricsFromObject(payload) {
+            if (!payload || typeof payload !== 'object') return null;
+
+            const candidates = Array.isArray(payload)
+                ? payload
+                : [payload, payload.slot, payload.metrics, payload.data].filter(Boolean);
+
+            for (let i = 0; i < candidates.length; i += 1) {
+                const item = candidates[i];
+                if (!item || typeof item !== 'object') continue;
+
+                const usedRaw = item.n_past ?? item.n_ctx_used ?? item.context_used ?? item.tokens_used ?? item.kv_used;
+                const totalRaw = item.n_ctx ?? item.n_ctx_slot ?? item.context_total ?? item.context_size ?? item.max_context;
+                const used = Number(usedRaw);
+                const total = Number(totalRaw);
+
+                if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
+                    return {
+                        used: Math.max(0, Math.trunc(used)),
+                        total: Math.max(1, Math.trunc(total))
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        function parseContextMetricsFromText(metricsText) {
+            const text = String(metricsText || '');
+            if (!text) return null;
+
+            const usedMatch = text.match(/llama(?:_server)?_n_past\s+(\d+)/i) || text.match(/context_used\s+(\d+)/i);
+            const totalMatch = text.match(/llama(?:_server)?_n_ctx\s+(\d+)/i) || text.match(/context_total\s+(\d+)/i);
+
+            if (!usedMatch || !totalMatch) return null;
+            const used = Number.parseInt(usedMatch[1], 10);
+            const total = Number.parseInt(totalMatch[1], 10);
+
+            if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0) return null;
+            return { used, total };
+        }
+
+        async function fetchContextMetrics() {
+            const jsonEndpoints = ['/slots/0', '/slots', '/v1/slots/0', '/v1/slots'];
+
+            for (let i = 0; i < jsonEndpoints.length; i += 1) {
+                const endpoint = jsonEndpoints[i];
+                try {
+                    const resp = await fetch(endpoint, { method: 'GET' });
+                    if (!resp.ok) continue;
+                    const payload = await resp.json();
+                    const metrics = parseContextMetricsFromObject(payload);
+                    if (metrics) return metrics;
+                } catch (_) {
+                    // Try the next endpoint.
+                }
+            }
+
+            try {
+                const metricsResp = await fetch('/metrics', { method: 'GET' });
+                if (metricsResp.ok) {
+                    const text = await metricsResp.text();
+                    const metrics = parseContextMetricsFromText(text);
+                    if (metrics) return metrics;
+                }
+            } catch (_) {
+                // Optional endpoint.
+            }
+
+            return null;
+        }
+
+        async function refreshContextCounter() {
+            try {
+                const metrics = await fetchContextMetrics();
+                if (!metrics) {
+                    setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+                    return;
+                }
+
+                setContextCounterText(`Context: ${metrics.used}/${metrics.total}`);
+            } catch (_) {
+                setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+            }
+        }
+
+        function buildAssistantOnlySummary() {
+            const assistantMessages = messageHistory
+                .filter((msg) => msg && msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.trim())
+                .slice(-6);
+
+            const turnCount = messageHistory.filter((msg) => msg && (msg.role === 'assistant' || msg.role === 'user')).length;
+
+            if (assistantMessages.length === 0) {
+                return `Session memory: ${turnCount} turns so far. No assistant outputs available to summarize yet.`;
+            }
+
+            const keywordStopWords = new Set(['about', 'after', 'again', 'also', 'been', 'being', 'between', 'could', 'does', 'from', 'have', 'into', 'just', 'more', 'most', 'over', 'such', 'than', 'that', 'their', 'there', 'these', 'this', 'those', 'very', 'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your']);
+            const freq = new Map();
+            const corpus = assistantMessages.map((msg) => String(msg.content || '').toLowerCase()).join(' ');
+            const tokens = corpus.match(/[a-z][a-z0-9_-]{2,}/g) || [];
+            for (let i = 0; i < tokens.length; i += 1) {
+                const token = tokens[i];
+                if (keywordStopWords.has(token)) continue;
+                freq.set(token, (freq.get(token) || 0) + 1);
+            }
+
+            const topKeywords = Array.from(freq.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map((entry) => entry[0]);
+
+            const latestAssistant = assistantMessages[assistantMessages.length - 1].content
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 180);
+
+            const keywordText = topKeywords.length > 0 ? topKeywords.join(', ') : 'general assistance';
+            return `Session memory: ${turnCount} turns. Recent focus: ${keywordText}. Latest assistant guidance: ${latestAssistant}`;
+        }
+
+        async function runSlotOperation(action, body = {}) {
+            const endpoints = [
+                `/slots/0?action=${encodeURIComponent(action)}`,
+                `/slots?action=${encodeURIComponent(action)}&id=0`,
+                `/v1/slots/0?action=${encodeURIComponent(action)}`,
+                `/v1/slots?action=${encodeURIComponent(action)}&id=0`
+            ];
+
+            let lastError = null;
+            for (let i = 0; i < endpoints.length; i += 1) {
+                try {
+                    const resp = await fetch(endpoints[i], {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    if (resp.ok) {
+                        return true;
+                    }
+                    lastError = new Error(`HTTP ${resp.status}`);
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+
+            throw lastError || new Error(`Slot operation failed: ${action}`);
+        }
+
+        async function runCompressionMode(mode) {
+            if (mode === 'slot') {
+                let compactOk = false;
+                let shiftOk = false;
+                let resetOk = false;
+
+                try { compactOk = await runSlotOperation('compact'); } catch (_) {}
+                try { shiftOk = await runSlotOperation('shift', { n_discard: 256 }); } catch (_) {}
+                try { resetOk = await runSlotOperation('reset', { keep_tokens: 64 }); } catch (_) {}
+
+                if (!compactOk && !shiftOk && !resetOk) {
+                    throw new Error('Slot-level compression endpoint unavailable');
+                }
+                return 'Slot-level compression requested.';
+            }
+
+            if (mode === 'soft-reset') {
+                await runSlotOperation('reset', {});
+                sessionSystemMemory = '';
+                messageHistory = [];
+                return 'Backend context reset completed (chat list preserved).';
+            }
+
+            sessionSystemMemory = buildAssistantOnlySummary();
+            await runSlotOperation('reset', {});
+            messageHistory = [];
+            return 'Summary memory captured and backend context reset.';
+        }
+
+        async function forceContextCompression() {
+            if (contextCompressionBusy) return;
+
+            const button = document.getElementById('forceContextCompressBtn');
+            const mode = document.getElementById('contextCompressionMode')?.value || 'slot';
+            contextCompressionBusy = true;
+
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Compressing...';
+            }
+
+            try {
+                const statusMessage = await runCompressionMode(mode);
+                addMessage('system', statusMessage);
+            } catch (error) {
+                addMessage('system', `Context compression failed: ${error && error.message ? error.message : 'unknown error'}`);
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = 'Force Context Compression';
+                }
+                contextCompressionBusy = false;
+                await refreshContextCounter();
+            }
         }
 
         function parseChatHistoryDate(rawDate) {
@@ -1854,6 +2392,11 @@
                 launch_rope_scaling: String(params.launch_rope_scaling || launchRestartArgDefaults.launch_rope_scaling),
                 launch_rope_scale: parseSnapshotFloat(params.launch_rope_scale, launchRestartArgDefaults.launch_rope_scale),
                 launch_rope_freq_base: parseSnapshotFloat(params.launch_rope_freq_base, launchRestartArgDefaults.launch_rope_freq_base),
+                launch_yarn_orig_ctx: parseSnapshotInt(params.launch_yarn_orig_ctx, launchRestartArgDefaults.launch_yarn_orig_ctx),
+                launch_yarn_ext_factor: parseSnapshotFloat(params.launch_yarn_ext_factor, launchRestartArgDefaults.launch_yarn_ext_factor),
+                launch_yarn_attn_factor: parseSnapshotFloat(params.launch_yarn_attn_factor, launchRestartArgDefaults.launch_yarn_attn_factor),
+                launch_yarn_beta_slow: parseSnapshotFloat(params.launch_yarn_beta_slow, launchRestartArgDefaults.launch_yarn_beta_slow),
+                launch_yarn_beta_fast: parseSnapshotFloat(params.launch_yarn_beta_fast, launchRestartArgDefaults.launch_yarn_beta_fast),
                 launch_model_draft: normalizeDraftModelPath(normalizedDraft),
                 launch_draft_p_min: parseSnapshotFloat(params.launch_draft_p_min, launchRestartArgDefaults.launch_draft_p_min),
                 launch_draft_max: parseSnapshotInt(params.launch_draft_max, launchRestartArgDefaults.launch_draft_max),
@@ -1874,27 +2417,7 @@
         }
 
         function launchConfigHasRestartImpact(snapA, snapB) {
-            const coreFields = [
-                'launch_ctx_size',
-                'launch_slots',
-                'launch_cont_batching',
-                'launch_context_shift',
-                'launch_gpu_layers',
-                'launch_cpu_moe_layers',
-                'launch_split_mode',
-                'launch_main_gpu',
-                'launch_flash_attn',
-                'launch_mmap',
-                'launch_cache_type_k',
-                'launch_cache_type_v',
-                'launch_rope_scaling',
-                'launch_rope_scale',
-                'launch_rope_freq_base',
-                'launch_numa',
-                'launch_pinned',
-                'launch_jinja',
-                'launch_env_vars'
-            ];
+            const coreFields = restartRequiredLaunchParamIds;
 
             const draftFields = [
                 'launch_model_draft',
@@ -1927,6 +2450,21 @@
 
         function updateLaunchBaseline() {
             launchConfigBaseline = createLaunchConfigSnapshot(currentParams);
+        }
+
+        function applyRestartRequiredBadges() {
+            restartRequiredLaunchParamIds.forEach((paramId) => {
+                const label = document.querySelector(`label[for="${paramId}"]`);
+                if (!label || label.querySelector('.reset-required-badge')) {
+                    return;
+                }
+
+                const badge = document.createElement('span');
+                badge.className = 'reset-required-badge';
+                badge.textContent = 'R';
+                badge.title = 'Requires model/server restart';
+                label.appendChild(badge);
+            });
         }
 
         function syncSpecFixButton() {
@@ -1986,6 +2524,11 @@
                 launch_rope_scaling: parseLaunchArgString(launchArgs, /--rope-scaling\s+(\w+)/, defaultParams.launch_rope_scaling),
                 launch_rope_scale: parseLaunchArgFloat(launchArgs, /--rope-scale\s+([0-9.]+)/, defaultParams.launch_rope_scale),
                 launch_rope_freq_base: parseLaunchArgFloat(launchArgs, /--rope-freq-base\s+(\d+(?:\.\d+)?)/, defaultParams.launch_rope_freq_base),
+                launch_yarn_orig_ctx: parseLaunchArgInt(launchArgs, /--yarn-orig-ctx\s+(\d+)/, defaultParams.launch_yarn_orig_ctx),
+                launch_yarn_ext_factor: parseLaunchArgFloat(launchArgs, /--yarn-ext-factor\s+(-?[0-9.]+)/, defaultParams.launch_yarn_ext_factor),
+                launch_yarn_attn_factor: parseLaunchArgFloat(launchArgs, /--yarn-attn-factor\s+(-?[0-9.]+)/, defaultParams.launch_yarn_attn_factor),
+                launch_yarn_beta_slow: parseLaunchArgFloat(launchArgs, /--yarn-beta-slow\s+(-?[0-9.]+)/, defaultParams.launch_yarn_beta_slow),
+                launch_yarn_beta_fast: parseLaunchArgFloat(launchArgs, /--yarn-beta-fast\s+(-?[0-9.]+)/, defaultParams.launch_yarn_beta_fast),
                 launch_model_draft: parseLaunchArgString(launchArgs, /-md\s+"([^"]+)"/, '') || parseLaunchArgString(launchArgs, /-md\s+(\S+)/, ''),
                 launch_draft_p_min: parseLaunchArgFloat(launchArgs, /--draft-p-min\s+([0-9.]+)/, defaultParams.launch_draft_p_min),
                 launch_draft_max: parseLaunchArgInt(launchArgs, /--draft-max\s+(\d+)/, defaultParams.launch_draft_max),
@@ -2023,6 +2566,11 @@
             if (currentParams.launch_rope_scaling !== 'none') args += ` --rope-scaling ${currentParams.launch_rope_scaling}`;
             args += ` --rope-scale ${currentParams.launch_rope_scale}`;
             if (currentParams.launch_rope_freq_base > 0) args += ` --rope-freq-base ${currentParams.launch_rope_freq_base}`;
+            if (currentParams.launch_yarn_orig_ctx > 0) args += ` --yarn-orig-ctx ${currentParams.launch_yarn_orig_ctx}`;
+            if (currentParams.launch_yarn_ext_factor !== -1.0) args += ` --yarn-ext-factor ${currentParams.launch_yarn_ext_factor}`;
+            if (currentParams.launch_yarn_attn_factor !== 1.0) args += ` --yarn-attn-factor ${currentParams.launch_yarn_attn_factor}`;
+            if (currentParams.launch_yarn_beta_slow !== 1.0) args += ` --yarn-beta-slow ${currentParams.launch_yarn_beta_slow}`;
+            if (currentParams.launch_yarn_beta_fast !== 32.0) args += ` --yarn-beta-fast ${currentParams.launch_yarn_beta_fast}`;
 
             if (currentParams.launch_model_draft.trim()) {
                 args += ` -md "${currentParams.launch_model_draft.trim()}"`;
@@ -2195,6 +2743,7 @@
             if (!CHAT_HISTORY_ENABLED) {
                 activeChatId = '';
                 messageHistory = [];
+                sessionSystemMemory = '';
                 autoTitleDone = false;
                 restoreChatToUI();
                 await refreshChatHistoryList();
@@ -2207,6 +2756,7 @@
                 const created = await requestChatLogs('create', { model: currentModelPath || '' });
                 activeChatId = created.chat_id;
                 messageHistory = [];
+                sessionSystemMemory = '';
                 setPersistedMessageCount(activeChatId, 0);
                 autoTitleDone = false;
                 restoreChatToUI();
@@ -2230,6 +2780,7 @@
                 const result = await requestChatLogs('load', { chat_id: normalizedChatId });
                 activeChatId = normalizedChatId;
                 messageHistory = parseChatMarkdown(result.markdown);
+                sessionSystemMemory = '';
                 const loadedCount = Number(result?.entry?.message_count);
                 setPersistedMessageCount(
                     normalizedChatId,
@@ -2394,12 +2945,222 @@
             window.parent.postMessage({
                 type: 'request-current-config'
             }, '*');
+            window.parent.postMessage({
+                type: 'request-mcp-context'
+            }, '*');
             requestChatModelSwitcherData();
         });
+
+        function sanitizeMcpSummaryText(value, maxLength) {
+            const cleaned = String(value || '').replace(/\s+/g, ' ').trim();
+            if (!cleaned) return '';
+            if (cleaned.length <= maxLength) return cleaned;
+            return `${cleaned.slice(0, Math.max(0, maxLength - 3))}...`;
+        }
+
+        function updateMcpDebugStatus(text) {
+            const el = document.getElementById('mcpDebugStatus');
+            if (el) {
+                el.textContent = text;
+            }
+        }
+
+        function setMcpContext(connections) {
+            const list = Array.isArray(connections) ? connections : [];
+            mcpContextState.connections = list
+                .filter((connection) => connection && connection.enabled)
+                .map((connection) => ({
+                    id: connection.id ? String(connection.id) : '',
+                    name: String(connection.name || 'Unnamed MCP'),
+                    transport: String(connection.transport || 'unknown'),
+                    enabled: Boolean(connection.enabled),
+                    url: connection.url ? String(connection.url) : '',
+                    command: connection.command ? String(connection.command) : '',
+                    args: Array.isArray(connection.args) ? connection.args.map((arg) => String(arg)) : [],
+                    env_vars: connection.env_vars && typeof connection.env_vars === 'object' ? connection.env_vars : {},
+                    headers: connection.headers && typeof connection.headers === 'object' ? connection.headers : {},
+                    json_payload: connection.json_payload ? String(connection.json_payload) : '',
+                    tools: Array.isArray(connection.tools)
+                        ? connection.tools.map((tool) => ({
+                            name: String(tool && tool.name ? tool.name : ''),
+                            description: String(tool && tool.description ? tool.description : ''),
+                            inputSchema: tool && tool.inputSchema ? tool.inputSchema : null,
+                            outputSchema: tool && tool.outputSchema ? tool.outputSchema : null
+                        }))
+                        : []
+                }));
+
+            const toolCount = mcpContextState.connections.reduce((sum, conn) => sum + (Array.isArray(conn.tools) ? conn.tools.length : 0), 0);
+            updateMcpDebugStatus(`MCP: ${mcpContextState.connections.length} conn / ${toolCount} tools loaded`);
+            console.log('[ChatUI] MCP context loaded:', mcpContextState.connections);
+        }
+
+        function buildMcpSystemContextMessage() {
+            const enabledConnections = Array.isArray(mcpContextState.connections)
+                ? mcpContextState.connections.filter((connection) => connection && connection.enabled)
+                : [];
+
+            if (!enabledConnections.length) {
+                return '';
+            }
+
+            const payload = {
+                generated_at: new Date().toISOString(),
+                enabled_connection_count: enabledConnections.length,
+                connections: enabledConnections
+            };
+
+            return `MCP capability context (full debug):\n${JSON.stringify(payload)}`;
+        }
 
         function shortenModelLabel(name) {
             const value = String(name || '').trim() || 'Unknown';
             return value.length > 24 ? `${value.slice(0, 21)}...` : value;
+        }
+
+        function getBenchmarkModelName() {
+            const activeName = String(chatModelSwitcherState.activeModelName || '').trim();
+            if (activeName && activeName !== 'Unknown' && activeName !== 'Loading...') {
+                return activeName;
+            }
+
+            const pathName = String(currentModelPath || '').split(/[\\/]/).pop();
+            if (pathName) {
+                return pathName;
+            }
+
+            return activeName || 'Unknown';
+        }
+
+        function formatBenchmarkModelColumn(value) {
+            const text = String(value || 'Unknown');
+            const truncated = text.length > BENCHMARK_MODEL_COL_WIDTH
+                ? `${text.slice(0, BENCHMARK_MODEL_COL_WIDTH - 3)}...`
+                : text;
+            return truncated.padEnd(BENCHMARK_MODEL_COL_WIDTH, ' ');
+        }
+
+        function persistBenchmarkLog() {
+            try {
+                localStorage.setItem(BENCHMARK_LOG_KEY, JSON.stringify(benchmarkLogEntries));
+            } catch (error) {
+                console.warn('[ChatUI] Failed to persist benchmark log:', error);
+            }
+        }
+
+        function renderBenchmarkLog() {
+            const list = document.getElementById('benchmarkLogList');
+            const empty = document.getElementById('benchmarkLogEmpty');
+            if (!list || !empty) return;
+
+            list.innerHTML = '';
+
+            if (!Array.isArray(benchmarkLogEntries) || benchmarkLogEntries.length === 0) {
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            for (let i = benchmarkLogEntries.length - 1; i >= 0; i -= 1) {
+                const entry = benchmarkLogEntries[i] || {};
+                const row = document.createElement('div');
+                row.className = 'benchmark-log-row';
+
+                const modelSpan = document.createElement('span');
+                modelSpan.className = 'benchmark-col-model';
+                modelSpan.textContent = formatBenchmarkModelColumn(entry.model || 'Unknown');
+                modelSpan.title = String(entry.model || 'Unknown');
+
+                const totalSpan = document.createElement('span');
+                totalSpan.className = 'benchmark-col-value';
+                totalSpan.textContent = String(entry.total || 0);
+
+                const mainSpan = document.createElement('span');
+                mainSpan.className = 'benchmark-col-value';
+                mainSpan.textContent = String(entry.main || 0);
+
+                const draftSpan = document.createElement('span');
+                draftSpan.className = 'benchmark-col-value';
+                draftSpan.textContent = String(entry.draft || 0);
+
+                const ttftSpan = document.createElement('span');
+                ttftSpan.className = 'benchmark-col-value';
+                ttftSpan.textContent = String(entry.ttft || 0);
+
+                row.appendChild(modelSpan);
+                row.appendChild(totalSpan);
+                row.appendChild(mainSpan);
+                row.appendChild(draftSpan);
+                row.appendChild(ttftSpan);
+                list.appendChild(row);
+            }
+        }
+
+        function loadBenchmarkLog() {
+            try {
+                const raw = localStorage.getItem(BENCHMARK_LOG_KEY);
+                if (!raw) {
+                    benchmarkLogEntries = [];
+                    renderBenchmarkLog();
+                    return;
+                }
+
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) {
+                    benchmarkLogEntries = [];
+                    renderBenchmarkLog();
+                    return;
+                }
+
+                benchmarkLogEntries = parsed
+                    .map((entry) => ({
+                        model: String(entry && entry.model ? entry.model : 'Unknown'),
+                        total: Number.isFinite(Number(entry && entry.total)) ? Math.max(0, Math.trunc(Number(entry.total))) : 0,
+                        main: Number.isFinite(Number(entry && entry.main)) ? Math.max(0, Math.trunc(Number(entry.main))) : 0,
+                        draft: Number.isFinite(Number(entry && entry.draft)) ? Math.max(0, Math.trunc(Number(entry.draft))) : 0,
+                        ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0
+                    }))
+                    .slice(-BENCHMARK_LOG_LIMIT);
+
+                renderBenchmarkLog();
+                persistBenchmarkLog();
+            } catch (error) {
+                console.warn('[ChatUI] Failed to load benchmark log:', error);
+                benchmarkLogEntries = [];
+                renderBenchmarkLog();
+            }
+        }
+
+        function appendBenchmarkLogEntry(entry) {
+            benchmarkLogEntries.push({
+                model: String(entry && entry.model ? entry.model : 'Unknown'),
+                total: Number.isFinite(Number(entry && entry.total)) ? Math.max(0, Math.trunc(Number(entry.total))) : 0,
+                main: Number.isFinite(Number(entry && entry.main)) ? Math.max(0, Math.trunc(Number(entry.main))) : 0,
+                draft: Number.isFinite(Number(entry && entry.draft)) ? Math.max(0, Math.trunc(Number(entry.draft))) : 0,
+                ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0
+            });
+
+            if (benchmarkLogEntries.length > BENCHMARK_LOG_LIMIT) {
+                benchmarkLogEntries = benchmarkLogEntries.slice(-BENCHMARK_LOG_LIMIT);
+            }
+
+            renderBenchmarkLog();
+            persistBenchmarkLog();
+        }
+
+        function clearBenchmarkLog() {
+            benchmarkLogEntries = [];
+            renderBenchmarkLog();
+            persistBenchmarkLog();
+        }
+
+        function toggleBenchmarkPanel(forceOpen = null) {
+            const panel = document.getElementById('benchmarkLogPanel');
+            if (!panel) return;
+
+            const shouldOpen = forceOpen === null ? !panel.classList.contains('visible') : Boolean(forceOpen);
+            panel.classList.toggle('visible', shouldOpen);
         }
 
         function updateActiveModelSwitcherLabel() {
@@ -2648,6 +3409,7 @@
         function togglePanel() {
             const panel = document.getElementById('parameterPanel');
             const floatingToggle = document.getElementById('floatingToggle');
+            const benchmarkToggle = document.getElementById('benchmarkToggle');
             const header = document.getElementById('panelHeader');
             
             const isCollapsed = panel.classList.toggle('collapsed');
@@ -2657,8 +3419,10 @@
             
             if (isCollapsed) {
                 floatingToggle.classList.add('visible');
+                if (benchmarkToggle) benchmarkToggle.classList.add('visible');
             } else {
                 floatingToggle.classList.remove('visible');
+                if (benchmarkToggle) benchmarkToggle.classList.remove('visible');
             }
         }
 
@@ -2771,6 +3535,10 @@
                 updateParameterDisplay();
                 syncSpecFixButton();
                 markLaunchChange();
+            }
+
+            if (data && data.type === 'mcp-context') {
+                setMcpContext(data.connections);
             }
 
             if (data && data.type === 'chat-model-switcher-data') {
@@ -2987,6 +3755,11 @@ function applySpeculativeFix() {
             document.getElementById('launch_rope_scaling').value = currentParams.launch_rope_scaling;
             document.getElementById('launch_rope_scale').value = currentParams.launch_rope_scale;
             document.getElementById('launch_rope_freq_base').value = currentParams.launch_rope_freq_base;
+            document.getElementById('launch_yarn_orig_ctx').value = currentParams.launch_yarn_orig_ctx;
+            document.getElementById('launch_yarn_ext_factor').value = currentParams.launch_yarn_ext_factor;
+            document.getElementById('launch_yarn_attn_factor').value = currentParams.launch_yarn_attn_factor;
+            document.getElementById('launch_yarn_beta_slow').value = currentParams.launch_yarn_beta_slow;
+            document.getElementById('launch_yarn_beta_fast').value = currentParams.launch_yarn_beta_fast;
             
             document.getElementById('draftPMinValue').textContent = currentParams.launch_draft_p_min;
             document.getElementById('launch_draft_p_min').value = currentParams.launch_draft_p_min;
@@ -3056,6 +3829,7 @@ function applySpeculativeFix() {
                 'launch_ctx_size', 'launch_slots', 'launch_cont_batching', 'launch_context_shift', 'launch_gpu_layers', 'launch_cpu_moe_layers', 'launch_split_mode', 
                 'launch_main_gpu', 'launch_flash_attn', 'launch_mmap', 'launch_cache_type_k', 
                 'launch_cache_type_v', 'launch_rope_scaling', 'launch_rope_scale', 'launch_rope_freq_base',
+                'launch_yarn_orig_ctx', 'launch_yarn_ext_factor', 'launch_yarn_attn_factor', 'launch_yarn_beta_slow', 'launch_yarn_beta_fast',
                 'launch_draft_p_min', 'launch_draft_max',
                 'launch_ngld', 'launch_numa', 'launch_pinned', 'launch_jinja',
                 'launch_env_vars'
@@ -3098,15 +3872,17 @@ function applySpeculativeFix() {
         }
 
         // Request a restart from the parent Arandu app
-        function requestRestart() {
+        function requestRestart(options = {}) {
+            const forceRestart = !!options.forceRestart;
             const args = buildLaunchArgsFromParams();
             const normalizedEnvVars = normalizeEnvVars(currentParams.launch_env_vars || '');
             const nextSnapshot = createLaunchConfigSnapshot(currentParams);
             const requiresRestart = launchConfigBaseline
                 ? launchConfigHasRestartImpact(launchConfigBaseline, nextSnapshot)
                 : true;
+            const shouldRestart = forceRestart || requiresRestart;
 
-            if (requiresRestart) {
+            if (shouldRestart) {
                 // Full restart required
                 addMessage('system', 'Restarting server with new parameters... This may take a moment while models are loaded.');
                 document.getElementById('connectionStatus').textContent = 'Restarting...';
@@ -3118,19 +3894,24 @@ function applySpeculativeFix() {
                 type: 'request-restart',
                 args: args.trim(),
                 env_vars: normalizedEnvVars,
-                requiresRestart: requiresRestart
+                requiresRestart: shouldRestart
             }, '*');
 
-            if (!requiresRestart) {
+            if (!shouldRestart) {
                 launchConfigBaseline = nextSnapshot;
             }
 
             document.getElementById('restartWarning').style.display = 'none';
         }
 
+        function reloadWithChanges() {
+            requestRestart({ forceRestart: true });
+        }
+
         // Clear Conversation History (Context)
         function clearContext() {
             messageHistory = [];
+            sessionSystemMemory = '';
             const messagesDiv = document.getElementById('chatMessages');
             messagesDiv.innerHTML = `
                 <div class="message system">
@@ -3150,11 +3931,13 @@ function applySpeculativeFix() {
             html += `<div class="message-body">${content.replace(/\n/g, '<br>')}</div>`;
             
             if (stats) {
+                const restoredTps = typeof stats.tps === 'number' ? stats.tps.toFixed(2) : '0.00';
                 html += `<div class="message-stats">
                     <span class="stat-item"><b>Total:</b> ${stats.total} tokens</span>
                     <span class="stat-item"><b>Main:</b> ${stats.main}</span>
                     <span class="stat-item"><b>Draft:</b> ${stats.draft}</span>
                     <span class="stat-item"><b>TTFT:</b> ${stats.ttft}ms</span>
+                    <span class="stat-item"><b>TPS:</b> ${restoredTps}</span>
                 </div>`;
             }
             
@@ -3268,6 +4051,18 @@ function applySpeculativeFix() {
                 if (currentParams.system_prompt.trim()) {
                     messages.push({ role: 'system', content: currentParams.system_prompt.trim() });
                 }
+                if (sessionSystemMemory.trim()) {
+                    messages.push({ role: 'system', content: sessionSystemMemory.trim() });
+                }
+                const mcpSystemContext = buildMcpSystemContextMessage();
+                if (mcpSystemContext) {
+                    messages.push({ role: 'system', content: mcpSystemContext });
+                    const toolCount = mcpContextState.connections.reduce((sum, conn) => sum + (Array.isArray(conn.tools) ? conn.tools.length : 0), 0);
+                    updateMcpDebugStatus(`MCP injected: ${mcpContextState.connections.length} conn / ${toolCount} tools`);
+                    console.log('[ChatUI] MCP system context injected into request:', mcpSystemContext);
+                } else {
+                    updateMcpDebugStatus('MCP injected: none');
+                }
                 const historyToInclude = messageHistory.slice(-currentParams.history_limit);
                 messages.push(...historyToInclude.map(m => ({...m})));
                 
@@ -3297,12 +4092,22 @@ function applySpeculativeFix() {
                         dry_multiplier: currentParams.dry_multiplier,
                         dry_base: currentParams.dry_base,
                         dry_allowed_length: currentParams.dry_allowed_length,
+                        'speculative.n_max': currentParams.launch_draft_max,
+                        'speculative.p_min': currentParams.launch_draft_p_min,
                         reasoning_format: currentParams.reasoning_format,
                         reasoning_budget: currentParams.reasoning_budget,
                         stream: true,
                         stream_options: { include_usage: true }
                     })
                 });
+
+                if (!response.ok) {
+                    throw new Error(`Chat request failed (${response.status})`);
+                }
+
+                if (!response.body) {
+                    throw new Error('Missing response body');
+                }
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -3426,15 +4231,28 @@ function applySpeculativeFix() {
                 // Final stats readout display
                 const finalDraftTokens = hasUsageDraftTokens ? draftTokens : draftTokensFromSignals;
                 const mainTokens = Math.max(0, (totalTokens || 0) - (finalDraftTokens || 0));
+                const generationDurationMs = Math.max(1, Date.now() - startTime);
+                const tokensPerSecond = ((totalTokens || 0) / (generationDurationMs / 1000)).toFixed(2);
                 const statsHtml = `<div class="message-stats">
                     <span class="stat-item"><b>Total:</b> ${totalTokens || 0}</span>
                     <span class="stat-item"><b>Main:</b> ${mainTokens || 0}</span>
                     <span class="stat-item"><b>Draft:</b> ${finalDraftTokens || 0}</span>
                     <span class="stat-item"><b>TTFT:</b> ${ttft}ms</span>
+                    <span class="stat-item"><b>TPS:</b> ${tokensPerSecond}</span>
                 </div>`;
 
                 // Append stats to the specific message
                 assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
+
+                if (streamDone) {
+                    appendBenchmarkLogEntry({
+                        model: getBenchmarkModelName(),
+                        total: totalTokens || 0,
+                        main: mainTokens || 0,
+                        draft: finalDraftTokens || 0,
+                        ttft: ttft || 0
+                    });
+                }
 
                 messageHistory.push({ role: 'assistant', content: fullText });
                 if (CHAT_HISTORY_ENABLED && activeChatId) {
@@ -3442,6 +4260,7 @@ function applySpeculativeFix() {
                 }
                 await maybeAutoGenerateTitle();
                 await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
+                await refreshContextCounter();
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -3476,7 +4295,14 @@ function applySpeculativeFix() {
         document.addEventListener('DOMContentLoaded', () => {
             setupParameterListeners();
             updateParameterDisplay();
+            applyRestartRequiredBadges();
             updateActiveModelSwitcherLabel();
+            loadBenchmarkLog();
+            refreshContextCounter();
+            if (contextCounterTimer) {
+                clearInterval(contextCounterTimer);
+            }
+            contextCounterTimer = setInterval(refreshContextCounter, CONTEXT_COUNTER_REFRESH_MS);
 
             const switcherButton = document.getElementById('activeModelSwitcherButton');
             const switcherPanel = document.getElementById('activeModelSwitcherPanel');
@@ -3510,6 +4336,10 @@ function applySpeculativeFix() {
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape' && chatModelSwitcherState.open) {
                     toggleChatModelSwitcher(false);
+                }
+
+                if (event.key === 'Escape') {
+                    toggleBenchmarkPanel(false);
                 }
             });
 
@@ -3619,8 +4449,10 @@ function applySpeculativeFix() {
             // Set initial state for floating toggle
             const panel = document.getElementById('parameterPanel');
             const floatingToggle = document.getElementById('floatingToggle');
+            const benchmarkToggle = document.getElementById('benchmarkToggle');
             if (panel.classList.contains('collapsed')) {
                 floatingToggle.classList.add('visible');
+                if (benchmarkToggle) benchmarkToggle.classList.add('visible');
             }
             
             document.getElementById('chatInput').focus();

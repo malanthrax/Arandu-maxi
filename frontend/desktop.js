@@ -4531,13 +4531,11 @@ async ensureTerminalManager() {
             // Render differently based on view mode
             if (isListView) {
                 // List view - vertical scrolling list (file manager style)
-                // Truncate path to last 30 characters if too long
-                const displayPath = modelPath.length > 30 ? '...' + modelPath.slice(-30) : modelPath;
                 iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
                     <div class="icon-info">
                         <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
-                        <div class="model-path" title="${modelPath}">${displayPath}</div>
+                        <div class="model-path" title="${modelPath}">${modelSizeGb.toFixed(2)} GB</div>
                     </div>
                     <div class="model-quant">${modelQuantization}</div>
                     <div class="update-indicator ${indicatorClass}"
@@ -7534,6 +7532,68 @@ vramFill.style.background = getBarColor(0);
         this.showNotification('MCP form reset', 'info');
     }
 
+    applyMcpJsonAutofill(transport, jsonPayload, currentName) {
+        if ((transport || '').toLowerCase() !== 'json') {
+            return null;
+        }
+
+        const raw = (jsonPayload || '').trim();
+        if (!raw) {
+            return null;
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        } catch (_error) {
+            return null;
+        }
+
+        const servers = parsed && parsed.mcpServers && typeof parsed.mcpServers === 'object'
+            ? parsed.mcpServers
+            : null;
+        if (!servers) {
+            return null;
+        }
+
+        const entries = Object.entries(servers);
+        if (!entries.length) {
+            return null;
+        }
+
+        const [serverKey, serverConfig] = entries[0];
+        if (!serverConfig || typeof serverConfig !== 'object') {
+            return null;
+        }
+
+        const inferredName = (currentName || '').trim() || String(serverKey || '').trim() || 'MCP Server';
+        const inferredCommand = typeof serverConfig.command === 'string' ? serverConfig.command.trim() : '';
+        const inferredArgs = Array.isArray(serverConfig.args)
+            ? serverConfig.args.filter((item) => item !== null && item !== undefined).map((item) => String(item))
+            : [];
+        const inferredEnv = serverConfig.env && typeof serverConfig.env === 'object' && !Array.isArray(serverConfig.env)
+            ? Object.fromEntries(Object.entries(serverConfig.env).map(([k, v]) => [String(k), v === undefined || v === null ? '' : String(v)]))
+            : {};
+        const inferredHeaders = serverConfig.headers && typeof serverConfig.headers === 'object' && !Array.isArray(serverConfig.headers)
+            ? Object.fromEntries(Object.entries(serverConfig.headers).map(([k, v]) => [String(k), v === undefined || v === null ? '' : String(v)]))
+            : {};
+        const inferredUrl = ['url', 'endpoint', 'serverUrl', 'server_url']
+            .map((key) => (typeof serverConfig[key] === 'string' ? serverConfig[key].trim() : ''))
+            .find((value) => !!value) || '';
+
+        const inferredTransport = inferredCommand ? 'stdio' : (inferredUrl ? 'json' : 'json');
+
+        return {
+            name: inferredName,
+            transport: inferredTransport,
+            command: inferredCommand,
+            args: inferredArgs,
+            env_vars: inferredEnv,
+            headers: inferredHeaders,
+            url: inferredUrl,
+        };
+    }
+
     async buildMcpConnectionPayload() {
         const root = this.getMcpManagerScope();
         const editIdInput = this.getMcpElement('mcp-edit-id', root);
@@ -7558,13 +7618,20 @@ vramFill.style.background = getBarColor(0);
         const transport = transportInput.value || 'stdio';
         const url = urlInput.value.trim();
         const command = commandInput.value.trim();
+        const jsonPayload = jsonPayloadInput.value.trim();
 
-        if (transport === 'stdio' && !command) {
+        const autofill = this.applyMcpJsonAutofill(transport, jsonPayload, name);
+        const effectiveName = autofill && autofill.name ? autofill.name : name;
+        const effectiveTransport = autofill && autofill.transport ? autofill.transport : transport;
+        const effectiveUrl = autofill && typeof autofill.url === 'string' ? autofill.url : url;
+        const effectiveCommand = autofill && typeof autofill.command === 'string' ? autofill.command : command;
+
+        if (effectiveTransport === 'stdio' && !effectiveCommand) {
             this.showNotification('Command is required for Stdio transport', 'error');
             return null;
         }
 
-        if (transport !== 'stdio' && transport !== 'json' && !url) {
+        if (effectiveTransport !== 'stdio' && effectiveTransport !== 'json' && !effectiveUrl) {
             this.showNotification('URL is required for non-stdio transport', 'error');
             return null;
         }
@@ -7579,7 +7646,9 @@ vramFill.style.background = getBarColor(0);
         const envPairs = this.collectMcpPairRows('mcp-env-vars-list');
         const headerPairs = this.collectMcpPairRows('mcp-headers-list');
 
-        const args = argRows
+        const args = autofill && Array.isArray(autofill.args)
+            ? autofill.args
+            : argRows
             .flatMap(pair => {
                 const name = pair.name;
                 const value = pair.value;
@@ -7594,21 +7663,29 @@ vramFill.style.background = getBarColor(0);
                 return [name, value];
             });
 
-        const env_vars = {};
-        envPairs.forEach((pair) => {
-            if (!pair.name) {
-                return;
-            }
-            env_vars[pair.name] = pair.value;
-        });
+        const env_vars = autofill && autofill.env_vars
+            ? autofill.env_vars
+            : {};
+        if (!(autofill && autofill.env_vars)) {
+            envPairs.forEach((pair) => {
+                if (!pair.name) {
+                    return;
+                }
+                env_vars[pair.name] = pair.value;
+            });
+        }
 
-        const headers = {};
-        headerPairs.forEach((pair) => {
-            if (!pair.name) {
-                return;
-            }
-            headers[pair.name] = pair.value;
-        });
+        const headers = autofill && autofill.headers
+            ? autofill.headers
+            : {};
+        if (!(autofill && autofill.headers)) {
+            headerPairs.forEach((pair) => {
+                if (!pair.name) {
+                    return;
+                }
+                headers[pair.name] = pair.value;
+            });
+        }
 
         if (args.includes(undefined) || args.includes(null)) {
             return null;
@@ -7637,12 +7714,12 @@ vramFill.style.background = getBarColor(0);
 
         return {
             id: connectionId || '',
-            name,
-            transport,
+            name: effectiveName,
+            transport: effectiveTransport,
             enabled: !!enabledInput.checked,
-            url,
-            command,
-            json_payload: jsonPayloadInput.value.trim(),
+            url: effectiveUrl,
+            command: effectiveCommand,
+            json_payload: jsonPayload,
             args,
             env_vars,
             headers,
@@ -7663,6 +7740,10 @@ vramFill.style.background = getBarColor(0);
             const connection = await this.buildMcpConnectionPayload();
             if (!connection) {
                 return;
+            }
+
+            if (connection.transport === 'stdio' && connection.json_payload && connection.json_payload.includes('"mcpServers"')) {
+                this.showNotification('Applied mcpServers JSON autofill and saved as Stdio connection', 'info');
             }
 
             await invoke('save_mcp_connection', { connection });
