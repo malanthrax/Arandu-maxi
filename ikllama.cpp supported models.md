@@ -1,0 +1,25 @@
+- LLaMA-3-Nemotron
+- Qwen3
+- GLM-4
+- Command-A
+- bitnet-b1.58-2B-4T
+- LLaMA-4
+- Gemma 3
+- DeepSeek-V3
+- Kimi-2
+- dots.llm1
+- Hunyuan
+- GLM-4.5 / 4.6 / 4.7 / AIR
+- ERNIE 4.5 MoE and 0.3B
+- grok-2
+- Ling / Ring (Bailing-MoE2)
+- Qwen3-VL
+- SmolLM3
+- GigaChat3
+- ministral3
+- Mimo-V2-Flash
+- GLM-4.7-Flash
+- Seed-OSS
+- Step-3.5-Flash
+- GLM-5
+- Qwen3-Next

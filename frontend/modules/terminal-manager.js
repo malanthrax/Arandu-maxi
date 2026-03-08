@@ -27,28 +27,99 @@ class TerminalManager {
         }, 0);
     }
 
+    getSupermemoryToolDefinitions() {
+        return [
+            {
+                name: 'supermemory_search',
+                description: 'Search Supermemory memories/doc chunks for relevant context.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        q: { type: 'string' },
+                        containerTag: { type: 'string' },
+                        searchMode: { type: 'string' },
+                        limit: { type: 'integer' }
+                    },
+                    required: ['q']
+                },
+                outputSchema: null
+            },
+            {
+                name: 'supermemory_add_memory',
+                description: 'Add a memory/document to Supermemory.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        content: { type: 'string' },
+                        containerTag: { type: 'string' }
+                    },
+                    required: ['content']
+                },
+                outputSchema: null
+            },
+            {
+                name: 'supermemory_profile',
+                description: 'Get Supermemory user profile and optional query context.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        containerTag: { type: 'string' },
+                        q: { type: 'string' }
+                    },
+                    required: []
+                },
+                outputSchema: null
+            },
+            {
+                name: 'supermemory_configure_settings',
+                description: 'Update Supermemory settings (filter prompt and filtering flag).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        shouldLLMFilter: { type: 'boolean' },
+                        filterPrompt: { type: 'string' }
+                    },
+                    required: []
+                },
+                outputSchema: null
+            }
+        ];
+    }
+
     initTauriAPI() {
         // Add message listener for iframe communication (always, even if Tauri not ready yet)
         window.addEventListener('message', async (event) => {
+            const fromKnownTerminal = this.getTerminalContextExactBySourceWindow(event.source) !== null;
             if (event.data && event.data.type === 'request-restart') {
+                if (!fromKnownTerminal) return;
                 console.log('[TerminalManager] Restart requested from chat UI:', event.data);
                 await this.handleRestartRequest(event.data, event.source);
             } else if (event.data && event.data.type === 'request-chat-model-switcher-data') {
+                if (!fromKnownTerminal) return;
                 await this.handleChatModelSwitcherDataRequest(event.source);
             } else if (event.data && event.data.type === 'request-chat-model-switch') {
+                if (!fromKnownTerminal) return;
                 await this.handleChatModelSwitchRequest(event.data, event.source);
             } else if (event.data && event.data.type === 'request-compatible-models') {
+                if (!fromKnownTerminal) return;
                 console.log('[TerminalManager] Compatible models requested from chat UI');
                 await this.handleCompatibleModelsRequest(event.source);
             } else if (event.data && event.data.type === 'request-current-config') {
+                if (!fromKnownTerminal) return;
                 console.log('[TerminalManager] Current config requested from chat UI');
                 await this.handleCurrentConfigRequest(event.source);
             } else if (event.data && event.data.type === 'request-mcp-context') {
+                if (!fromKnownTerminal) return;
                 console.log('[TerminalManager] MCP context requested from chat UI');
                 await this.handleMcpContextRequest(event.source);
             } else if (event.data && event.data.type === 'request-mcp-tool-call') {
+                if (!fromKnownTerminal) return;
                 await this.handleMcpToolCallRequest(event.data, event.source);
+            } else if (event.data && event.data.type === 'request-supermemory-toggle') {
+                if (!fromKnownTerminal) return;
+                await this.handleSupermemoryToggleRequest(event.data, event.source);
             } else if (event.data && event.data.type === 'chat-logs-request') {
+                if (!fromKnownTerminal) return;
                 console.log('[TerminalManager] Chat logs request received:', event.data.op);
                 await this.handleChatLogsRequest(event.data, event.source);
             }
@@ -122,6 +193,19 @@ class TerminalManager {
         const iframe = chatPanel ? chatPanel.querySelector('iframe') : null;
         if (iframe && iframe.contentWindow) {
             iframe.contentWindow.postMessage(payload, '*');
+        }
+    }
+
+    broadcastGlobalSystemPromptOverride() {
+        const override = this.getGlobalSystemPromptOverride();
+        for (const [windowId] of this.terminals.entries()) {
+            this.postToTerminalIframe(windowId, {
+                type: 'global-system-prompt-override-changed',
+                global_system_prompt_override: override.prompt || '',
+                global_system_prompt_name: override.name || 'Default',
+                global_system_prompt_selected_id: override.id || 'default',
+                global_system_prompt_is_default: override.isDefault !== false
+            });
         }
     }
 
@@ -464,6 +548,62 @@ class TerminalManager {
         return { pairs, normalized };
     }
 
+    getGlobalSystemPromptOverride() {
+        try {
+            if (this.desktop && typeof this.desktop.getSelectedSystemPromptOverride === 'function') {
+                const selected = this.desktop.getSelectedSystemPromptOverride();
+                if (selected && typeof selected === 'object') {
+                    return {
+                        id: String(selected.id || 'default'),
+                        name: String(selected.name || 'Default'),
+                        prompt: String(selected.prompt || ''),
+                        isDefault: selected.isDefault !== false
+                    };
+                }
+            }
+        } catch (error) {
+            console.warn('[TerminalManager] Failed to read global system prompt override:', error);
+        }
+
+        return {
+            id: 'default',
+            name: 'Default',
+            prompt: '',
+            isDefault: true
+        };
+    }
+
+    stripSystemPromptArg(launchArgs = '') {
+        return String(launchArgs || '')
+            .replace(/\s*--system-prompt\s+("(?:\\.|[^"\\])*"|\S+)/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    quoteLaunchArgValue(value) {
+        const escaped = String(value || '')
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"');
+        return `"${escaped}"`;
+    }
+
+    applySystemPromptOverrideToLaunchArgs(launchArgs = '', runtimeSystemPrompt = '') {
+        const typedPrompt = String(runtimeSystemPrompt || '').trim();
+        const globalOverride = this.getGlobalSystemPromptOverride();
+        const globalPrompt = globalOverride && !globalOverride.isDefault
+            ? String(globalOverride.prompt || '').trim()
+            : '';
+        const effectivePrompt = typedPrompt || globalPrompt;
+
+        if (!effectivePrompt) {
+            return this.stripSystemPromptArg(launchArgs);
+        }
+
+        const withoutSystemPrompt = this.stripSystemPromptArg(launchArgs);
+        const quotedPrompt = this.quoteLaunchArgValue(effectivePrompt);
+        return `${withoutSystemPrompt} --system-prompt ${quotedPrompt}`.trim();
+    }
+
     envVarsToComparableString(rawEnvVars = '') {
         let envMap = {};
 
@@ -699,12 +839,18 @@ class TerminalManager {
             console.error('[TerminalManager] Failed to fetch env vars for current config:', error);
         }
         
+        const globalOverride = this.getGlobalSystemPromptOverride();
+
         // Send config back to iframe
         sourceWindow.postMessage({
             type: 'current-config',
             launchArgs: sourceTerminal.launchArgs || '',
             draftModelPath: draftModelPath,
-            env_vars: envVars
+            env_vars: envVars,
+            global_system_prompt_override: globalOverride.prompt || '',
+            global_system_prompt_name: globalOverride.name || 'Default',
+            global_system_prompt_selected_id: globalOverride.id || 'default',
+            global_system_prompt_is_default: globalOverride.isDefault !== false
         }, '*');
     }
 
@@ -726,9 +872,47 @@ class TerminalManager {
 
             const rawConnections = await invoke('get_mcp_connections');
             const connections = Array.isArray(rawConnections) ? rawConnections : [];
-            const safeConnections = connections
-                .filter((connection) => connection && connection.enabled)
-                .map((connection) => ({
+            const enabledConnections = connections.filter((connection) => connection && connection.enabled);
+
+            const safeConnections = [];
+            for (const connection of enabledConnections) {
+                let tools = Array.isArray(connection.tools)
+                    ? connection.tools.map((tool) => ({
+                        name: tool && tool.name ? String(tool.name) : '',
+                        description: tool && tool.description ? String(tool.description) : '',
+                        inputSchema: tool && tool.inputSchema ? tool.inputSchema : null,
+                        outputSchema: tool && tool.outputSchema ? tool.outputSchema : null
+                    }))
+                    : [];
+
+                let toolsStatus = '';
+                let toolsError = '';
+
+                try {
+                    const connectionId = connection && connection.id ? String(connection.id) : '';
+                    if (connectionId) {
+                        const refreshResult = await invoke('list_mcp_tools', { id: connectionId });
+                        if (refreshResult && Array.isArray(refreshResult.tools)) {
+                            tools = refreshResult.tools.map((tool) => ({
+                                name: tool && tool.name ? String(tool.name) : '',
+                                description: tool && tool.description ? String(tool.description) : '',
+                                inputSchema: tool && tool.inputSchema ? tool.inputSchema : null,
+                                outputSchema: tool && tool.outputSchema ? tool.outputSchema : null
+                            }));
+                        }
+                        toolsStatus = refreshResult && typeof refreshResult.message === 'string'
+                            ? refreshResult.message
+                            : '';
+                        toolsError = refreshResult && typeof refreshResult.error === 'string'
+                            ? refreshResult.error
+                            : '';
+                    }
+                } catch (refreshError) {
+                    toolsError = refreshError && refreshError.message ? refreshError.message : String(refreshError);
+                    console.warn('[TerminalManager] MCP tools refresh failed for context request:', toolsError);
+                }
+
+                safeConnections.push({
                     id: connection.id ? String(connection.id) : '',
                     name: connection.name ? String(connection.name) : '',
                     transport: connection.transport ? String(connection.transport) : '',
@@ -739,15 +923,35 @@ class TerminalManager {
                     env_vars: connection.env_vars && typeof connection.env_vars === 'object' ? connection.env_vars : {},
                     headers: connection.headers && typeof connection.headers === 'object' ? connection.headers : {},
                     json_payload: connection.json_payload ? String(connection.json_payload) : '',
-                    tools: Array.isArray(connection.tools)
-                        ? connection.tools.map((tool) => ({
-                            name: tool && tool.name ? String(tool.name) : '',
-                            description: tool && tool.description ? String(tool.description) : '',
-                            inputSchema: tool && tool.inputSchema ? tool.inputSchema : null,
-                            outputSchema: tool && tool.outputSchema ? tool.outputSchema : null
-                        }))
-                        : []
-                }));
+                    tools,
+                    tools_status: toolsStatus,
+                    tools_error: toolsError
+                });
+            }
+
+            try {
+                const supermemoryEnabled = localStorage.getItem('aranduSupermemoryEnabled') === '1';
+                const supermemoryApiKey = String(localStorage.getItem('aranduSupermemoryApiKey') || '').trim();
+                if (supermemoryEnabled && supermemoryApiKey) {
+                    safeConnections.push({
+                        id: 'native-supermemory',
+                        name: 'Supermemory (Native)',
+                        transport: 'native',
+                        enabled: true,
+                        url: '',
+                        command: '',
+                        args: [],
+                        env_vars: {},
+                        headers: {},
+                        json_payload: '',
+                        tools: this.getSupermemoryToolDefinitions(),
+                        tools_status: 'native tools loaded',
+                        tools_error: ''
+                    });
+                }
+            } catch (error) {
+                console.warn('[TerminalManager] Failed to read Supermemory local state:', error);
+            }
 
             safeSourceWindow.postMessage({
                 type: 'mcp-context',
@@ -812,6 +1016,22 @@ class TerminalManager {
                 throw new Error('Invoke not available');
             }
 
+            if (connectionId === 'native-supermemory') {
+                const apiKey = String(localStorage.getItem('aranduSupermemoryApiKey') || '').trim();
+                if (!apiKey) {
+                    throw new Error('Missing Supermemory API key');
+                }
+                const result = await invoke('call_supermemory_native_tool', {
+                    request: {
+                        api_key: apiKey,
+                        tool_name: toolName,
+                        arguments: argumentsPayload
+                    }
+                });
+                sendResult(true, result, null);
+                return;
+            }
+
             const result = await invoke('call_mcp_tool', {
                 request: {
                     connection_id: connectionId,
@@ -825,6 +1045,60 @@ class TerminalManager {
             const message = error && error.message ? error.message : String(error);
             console.error('[TerminalManager] MCP tool call bridge failed:', message);
             sendResult(false, null, message || 'MCP tool call failed');
+        }
+    }
+
+    async handleSupermemoryToggleRequest(data, sourceWindow) {
+        const requestId = data && typeof data.request_id === 'string' && data.request_id.trim()
+            ? data.request_id
+            : '';
+        const payload = data && data.payload && typeof data.payload === 'object' && !Array.isArray(data.payload)
+            ? data.payload
+            : {};
+
+        const sendResult = (ok, result, errorMessage) => {
+            if (!sourceWindow || typeof sourceWindow.postMessage !== 'function') {
+                return;
+            }
+            sourceWindow.postMessage({
+                type: 'supermemory-toggle-result',
+                request_id: requestId,
+                ok,
+                ...(ok ? { result } : { error: errorMessage || 'Supermemory toggle failed' })
+            }, '*');
+        };
+
+        if (!requestId) return;
+
+        try {
+            const enabled = payload.enabled !== false;
+            const apiKey = typeof payload.apiKey === 'string' ? payload.apiKey.trim() : '';
+            const clearApiKey = payload.clearApiKey === true;
+            if (enabled && !apiKey) {
+                throw new Error('Supermemory API key is required to enable');
+            }
+
+            try {
+                localStorage.setItem('aranduSupermemoryEnabled', enabled ? '1' : '0');
+                if (apiKey) {
+                    localStorage.setItem('aranduSupermemoryApiKey', apiKey);
+                } else if (clearApiKey) {
+                    localStorage.removeItem('aranduSupermemoryApiKey');
+                }
+            } catch (storageError) {
+                console.warn('[TerminalManager] Failed to persist Supermemory state in parent storage:', storageError);
+            }
+
+            sendResult(true, {
+                enabled,
+                connectionId: 'native-supermemory',
+                toolCount: enabled ? this.getSupermemoryToolDefinitions().length : 0,
+                message: enabled ? 'Supermemory native tools enabled' : 'Supermemory native tools disabled'
+            }, null);
+        } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            console.error('[TerminalManager] Supermemory toggle failed:', message);
+            sendResult(false, null, message || 'Supermemory toggle failed');
         }
     }
 
@@ -963,6 +1237,7 @@ class TerminalManager {
 
         const requestedArgs = typeof data?.args === 'string' ? data.args : '';
         const requestedEnvVars = data && data.env_vars !== undefined ? data.env_vars : '';
+        const requestedSystemPrompt = typeof data?.system_prompt === 'string' ? data.system_prompt : '';
         const requestSaysRestart = data && data.requiresRestart === true;
         const requestSaysNoRestart = data && data.requiresRestart === false;
 
@@ -1008,7 +1283,7 @@ class TerminalManager {
         }
 
         const env_vars = this.parseEnvVarsToObject(requestedEnvVars);
-        const normalizedArgs = requestedArgs.trim();
+        const normalizedArgs = this.applySystemPromptOverrideToLaunchArgs(requestedArgs.trim(), requestedSystemPrompt);
 
         if (shouldNotRestart && !shouldRestart) {
             console.log('[TerminalManager] No restart required, just saving settings...');
@@ -1120,6 +1395,7 @@ class TerminalManager {
             resolvedLaunchArgs = '';
         }
 
+        resolvedLaunchArgs = this.applySystemPromptOverrideToLaunchArgs(resolvedLaunchArgs, '');
         resolvedLaunchArgs = resolvedLaunchArgs.trim();
         console.log('OpenServerTerminal called with:', {
             processId,
@@ -1249,6 +1525,7 @@ const content = `
             host,
             port,
             status: 'starting',
+            launchFailed: false,
             output: [], // Store terminal output lines
             activeVersion: activeVersion,
             launchArgs: resolvedLaunchArgs // Store the actual arguments used for launch
@@ -1418,6 +1695,18 @@ const content = `
                         }
                     }
 
+                    const hasUsageDump = data.output.some((line) => {
+                        const text = String(line || '').toLowerCase();
+                        return text.includes('usage:') && text.includes('llama-server');
+                    });
+                    if (hasUsageDump) {
+                        const latest = this.terminals.get(windowId);
+                        if (latest) {
+                            latest.launchFailed = true;
+                            this.terminals.set(windowId, latest);
+                        }
+                    }
+
                     // Save output to terminal data (keep last 1000 lines)
                     const terminalData = this.terminals.get(windowId);
                     if (terminalData) {
@@ -1462,6 +1751,18 @@ const content = `
                     }
                     flushOutputBuffer(outputDiv);
                     this.updateServerStatus(windowId, 'stopped', data.return_code || 0);
+                    if ((data.return_code || 0) !== 0) {
+                        const latest = this.terminals.get(windowId);
+                        if (latest) {
+                            latest.launchFailed = true;
+                            this.terminals.set(windowId, latest);
+                        }
+                        const failDiv = document.createElement('div');
+                        failDiv.className = 'server-line server-error';
+                        failDiv.textContent = 'Server exited before readiness. Check launch args/template compatibility (invalid args often print usage).';
+                        outputDiv.appendChild(failDiv);
+                        outputDiv.scrollTop = outputDiv.scrollHeight;
+                    }
                 }
             } catch (error) {
                 console.error('Error polling server output:', error);
@@ -1493,6 +1794,11 @@ const content = `
         const retryDelay = 2000; // 2 seconds between checks
 
         try {
+            const terminalInfoBefore = this.terminals.get(windowId);
+            if (!terminalInfoBefore || terminalInfoBefore.status === 'stopped' || terminalInfoBefore.launchFailed) {
+                return;
+            }
+
             console.log(`[TerminalManager] Health check attempt ${retryCount + 1}/${maxRetries} for ${modelName}...`);
             const response = await fetch(`http://${host}:${port}/health`, {
                 method: 'GET',
@@ -1500,6 +1806,10 @@ const content = `
             });
 
             if (response.ok) {
+                const terminalInfoNow = this.terminals.get(windowId);
+                if (!terminalInfoNow || terminalInfoNow.status === 'stopped' || terminalInfoNow.launchFailed) {
+                    return;
+                }
                 console.log(`[TerminalManager] Server ${modelName} is healthy and responding.`);
                 const lineDiv = document.createElement('div');
                 lineDiv.className = 'server-line server-success';
@@ -1778,8 +2088,9 @@ const content = `
             
             // Use the same arguments that were used for the original launch
             let result;
-            if (terminalInfo.launchArgs) {
-                console.log(`Restarting with stored arguments: ${terminalInfo.launchArgs}`);
+            const launchArgsForStart = this.applySystemPromptOverrideToLaunchArgs(terminalInfo.launchArgs || '', '');
+            if (launchArgsForStart) {
+                console.log(`Restarting with stored arguments: ${launchArgsForStart}`);
                 // Temporarily update the model config with the stored arguments
                 const currentConfig = await invoke('get_model_settings', { modelPath: modelPath });
                 const originalArgs = currentConfig.custom_args;
@@ -1787,7 +2098,7 @@ const content = `
                 // Update config with launch args
                 await invoke('update_model_settings', { 
                     modelPath: modelPath, 
-                    config: { ...currentConfig, custom_args: terminalInfo.launchArgs }
+                    config: { ...currentConfig, custom_args: launchArgsForStart }
                 });
                 
                 // Launch the model

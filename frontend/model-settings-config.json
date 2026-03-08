@@ -1231,6 +1231,18 @@
         {
           "value": "zephyr",
           "label": "Zephyr"
+        },
+        {
+          "value": "Apriel-1.6-15b-Thinker-fixed",
+          "label": "Apriel 1.6 (Fixed)"
+        },
+        {
+          "value": "unsloth-Apriel-1.5",
+          "label": "Apriel (Unsloth 1.5)"
+        },
+        {
+          "value": "custom",
+          "label": "CUSTOM"
         }
       ],
       "default": "",

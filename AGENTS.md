@@ -6,6 +6,19 @@
 
 ## Agent Quick Reference
 
+### Critical Workflow Policy (2026-03-07)
+
+These rules are mandatory for all future implementation sessions:
+
+1. **Scratchpad-first execution**
+   - First action for new user requests: record requested items in `scratchpad.md`.
+   - As each item is completed: update project markdown docs, update nowledge memory, update supermemory memory (when available), then remove completed item(s) from `scratchpad.md`.
+
+2. **Subagent-first coding workflow**
+   - For coding requests, always use a coding subagent for implementation.
+   - Always run a review subagent on the resulting changes.
+   - Always resolve review findings, then perform final requirement verification before claiming completion.
+
 **Before you start:**
 1. **Check THIS-PROJECTS-CURRENT-STATE.md** for recent bugs, fixes, and what's already been done
 2. **Check the knowledge base memory** (Arandu Complete File Location Reference) to find files - avoid shell commands when possible
@@ -1105,23 +1118,58 @@ Located at: `H:\Ardanu Fix\Arandu-maxi\Extra skills\`
 
 > **For complete current status, test results, and build information:** See [THIS-PROJECTS-CURRENT-STATE.md](THIS-PROJECTS-CURRENT-STATE.md)
 
-### Current Priority (2026-03-06)
+### Current Priority (2026-03-07)
 
 - Active phase focus is MCP runtime integration quality in chat.
 - Goal: MCP entries configured by the user must be visible to model context and actually usable by model workflows.
-- Baseline already present: iframe `request-mcp-context` + parent `mcp-context` response + MCP system-context injection in chat request path.
-- Known likely gap: metadata injection without an execution bridge for tool-calling may not be sufficient for real MCP tool usage.
-- Required process for this phase: checkpoint first, research and validation, subagent coding, subagent verification, final acceptance verification.
+- Runtime now refreshes tools before context handoff: parent calls `list_mcp_tools` for enabled MCP connections when chat requests MCP context.
+- Chat now includes MCP visibility controls near model readout:
+  - wrench count for callable tools visible to model
+  - clickable panel listing exact `Connection :: ToolName` entries sent in `tools[]`
+- MCP status line now includes refresh-failure count for quick diagnosis.
+- Required process for this phase remains: checkpoint first, research and validation, subagent coding, subagent verification, final acceptance verification.
 
-### MCP Runtime Status Update (2026-03-06)
+### MCP Runtime Status Update (2026-03-07)
 
 - Execution bridge is now implemented: model tool_calls are routed to backend MCP `tools/call` and results are fed back into chat completion loop.
 - Supported MCP transports for tool discovery/execution in current implementation: `http`, `json`, `streamable_http`, `sse`, `stdio`.
 - MCP system-context injection in chat request path is disabled; MCP usage now depends on standard tool-calling flow only.
+- Streamable response parsing uses loss-tolerant decode before JSON/SSE parsing.
+- Windows stdio MCP launches include npm-style `.cmd` shim fallback when PATH resolution fails.
+
+### Supermemory Native Integration Update (2026-03-07)
+
+- Supermemory is now supported via native tool bridge in chat (no MCP proxy requirement for tool execution).
+- Native tools exposed to model:
+  - `supermemory_search`
+  - `supermemory_add_memory`
+  - `supermemory_profile`
+  - `supermemory_configure_settings`
+- Chat retains Supermemory toggle UX while routing `native-supermemory` tool calls to backend `call_supermemory_native_tool`.
+- Supermemory tool exposure is prioritized in chat tool-catalog ordering so all 4 tools fit before global cap.
+
+### Supermemory Key Management (2026-03-07)
+
+- Model Options now includes:
+  - `New Supermemory API Key`
+  - `Delete Supermemory API Key`
+- Parent-side storage sync is used so toggle state and key availability remain consistent for tool execution.
+
+### Chat Reliability Update (2026-03-07)
+
+- Chat-history delete/load/new interactions now use centralized lock management and guarded debounce handling.
+- Fix resolves the "delete works once then stops" behavior in the chat history list.
+- Search input is disabled while interaction lock is active to avoid overlap races.
+- Chat history now supports click-to-rename titles and 8-color tagging with persistent local mapping.
+
+### MCP Payload Mode (2026-03-07)
+
+- MCP tool compaction/cap is currently disabled; chat sends full tool definitions/schemas.
+- Keep this mode for compatibility testing; compaction can be restored later if needed.
 
 ### Quick Overview
 
-**Last Build:** 2025-02-23 - âœ… SUCCESS (Release Build)  
+**Last Build:** 2026-03-07 - ✅ SUCCESS (Release Build)  
 **Version:** 0.5.5-beta  
 **Location:** `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
 

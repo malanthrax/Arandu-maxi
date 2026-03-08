@@ -3,6 +3,47 @@
 // Search: "Arandu Complete File Location Reference" | "Arandu Common Development Patterns"
 const { invoke } = window.__TAURI__.core;
 
+const IKLLAMA_SUPPORTED_FAMILIES = [
+    'LLaMA-3-Nemotron',
+    'Qwen3',
+    'GLM-4',
+    'Command-A',
+    'bitnet-b1.58-2B-4T',
+    'LLaMA-4',
+    'Gemma 3',
+    'DeepSeek-V3',
+    'Kimi-2',
+    'dots.llm1',
+    'Hunyuan',
+    'GLM-4.5 / 4.6 / 4.7 / AIR',
+    'ERNIE 4.5 MoE and 0.3B',
+    'grok-2',
+    'Ling / Ring (Bailing-MoE2)',
+    'Qwen3-VL',
+    'SmolLM3',
+    'GigaChat3',
+    'ministral3',
+    'Mimo-V2-Flash',
+    'GLM-4.7-Flash',
+    'Seed-OSS',
+    'Step-3.5-Flash',
+    'GLM-5',
+    'Qwen3-Next'
+];
+
+const IKLLAMA_MATCHER_ALIASES = {
+    'LLaMA-3-Nemotron': ['nemotron', 'llama3 nemotron'],
+    'GLM-4': ['glm4', 'chatglm4', 'glm 4', 'glm-4v', 'glm 4v', 'glm-4-vision'],
+    'GLM-4.5 / 4.6 / 4.7 / AIR': ['glm-4.5', 'glm-4.6', 'glm-4.7', 'glm air', 'glm-air'],
+    'GLM-5': ['glm5', 'chatglm5', 'glm 5'],
+    'ERNIE 4.5 MoE and 0.3B': ['ernie-4.5', 'ernie 4.5 moe', 'ernie-0.3b', 'ernie 0.3b'],
+    'Ling / Ring (Bailing-MoE2)': ['ling ring', 'bailing-moe2', 'bailing moe2'],
+    'Qwen3-VL': ['qwen3 vl'],
+    'LLaMA-4': ['llama4'],
+    'Gemma 3': ['gemma3'],
+    'Qwen3-Next': ['qwen3 next']
+};
+
 class DesktopManager {
     constructor() {
         this.windows = new Map();
@@ -23,6 +64,11 @@ class DesktopManager {
         this.editingMcpConnectionId = null;
         this.mcpManagerScope = null;
         this.lastUsedModelStorageKey = 'Arandu-last-used-model';
+        this.systemPromptOverridesStorageKey = 'Arandu-system-prompt-overrides-v1';
+        this.systemPromptSelectedStorageKey = 'Arandu-system-prompt-selected-v1';
+        this.systemPromptOverrides = [];
+        this.selectedSystemPromptOverrideId = 'default';
+        this.ikSupportedFamilyMatchers = this.buildIkSupportedFamilyMatchers();
 
         // Discovery-related properties
         this.discoveryEnabled = false;
@@ -268,6 +314,9 @@ class DesktopManager {
         // Restore last used model state from storage
         this.loadLastUsedModelFromStorage();
 
+        // Load global system prompt override state
+        this.loadSystemPromptOverrideState();
+
         // Initialize view toggle
         this.initViewToggle();
 
@@ -282,6 +331,8 @@ class DesktopManager {
         const listBtn = document.getElementById('view-list-btn');
         const remoteBtn = document.getElementById('view-remote-btn');
         const fakeModelBtn = document.getElementById('view-fake-model-btn');
+        const systemPromptBtn = document.getElementById('view-system-prompt-btn');
+        const ikReadmeBtn = document.getElementById('view-ik-readme-btn');
 
         if (iconBtn && listBtn) {
             iconBtn.addEventListener('click', () => {
@@ -305,6 +356,18 @@ class DesktopManager {
             this.syncFakeDiscoveryModelButton();
         }
 
+        if (systemPromptBtn) {
+            systemPromptBtn.addEventListener('click', () => {
+                this.openSystemPromptOverrideWindow();
+            });
+        }
+
+        if (ikReadmeBtn) {
+            ikReadmeBtn.addEventListener('click', () => {
+                this.openIkSupportedModelsWindow();
+            });
+        }
+
         // Load saved preference
         const savedView = localStorage.getItem('desktop-model-view') || 'icon';
         this.setDesktopView(savedView);
@@ -317,6 +380,7 @@ class DesktopManager {
         }
 
         this.updateLaunchLastModelButton();
+        this.syncSystemPromptOverrideButtonState();
     }
 
     async syncFakeDiscoveryModelButton() {
@@ -563,6 +627,59 @@ class DesktopManager {
         
         // Refresh the display based on new view
         this.loadModels(false);
+    }
+
+    normalizeIkMatcherText(value) {
+        return String(value || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+    }
+
+    buildIkSupportedFamilyMatchers() {
+        return IKLLAMA_SUPPORTED_FAMILIES.map((label) => {
+            const matcherSet = new Set([label, ...(IKLLAMA_MATCHER_ALIASES[label] || [])]);
+            const normalizedMatchers = Array.from(matcherSet)
+                .map((entry) => this.normalizeIkMatcherText(entry))
+                .filter(Boolean);
+
+            return {
+                label,
+                matchers: normalizedMatchers
+            };
+        });
+    }
+
+    isIkLlamaSupportedModel(modelName, modelPath = '') {
+        const normalizedHaystack = this.normalizeIkMatcherText(`${modelName || ''} ${modelPath || ''}`);
+        if (!normalizedHaystack) {
+            return false;
+        }
+
+        return this.ikSupportedFamilyMatchers.some((entry) =>
+            entry.matchers.some((matcher) => matcher && normalizedHaystack.includes(matcher))
+        );
+    }
+
+    buildModelTitleHtml(modelName, modelPath = '', options = {}) {
+        const {
+            includeGguf = false,
+            metaLabel = ''
+        } = options;
+
+        const safeName = this.escapeHtml(modelName || 'Unknown model');
+        const safeMetaLabel = this.escapeHtml(metaLabel || '');
+        const hasIkSupport = this.isIkLlamaSupportedModel(modelName, modelPath);
+        const starHtml = hasIkSupport
+            ? '<span class="ikllama-star" title="IK-supported family (ik_llama.cpp)">★</span>'
+            : '';
+
+        let suffixHtml = '';
+        if (includeGguf) {
+            suffixHtml = safeMetaLabel ? ` GGUF (${safeMetaLabel})` : ' GGUF';
+        }
+
+        return `${safeName}${starHtml}${suffixHtml}`;
     }
 
     async loadConfiguration() {
@@ -1348,7 +1465,12 @@ class DesktopManager {
         // Save config
         const saveConfig = document.getElementById('save-config');
         if (saveConfig) {
-            saveConfig.addEventListener('click', () => this.saveConfiguration());
+            saveConfig.addEventListener('click', () => this.saveConfiguration(false));
+        }
+
+        const scanModelsButton = document.getElementById('scan-models-btn');
+        if (scanModelsButton) {
+            scanModelsButton.addEventListener('click', () => this.refreshDesktop());
         }
 
         // Keyboard shortcuts
@@ -4399,7 +4521,7 @@ async ensureTerminalManager() {
         }
     }
 
-    async saveConfiguration() {
+    async saveConfiguration(refreshModels = false) {
         const modelsDir = document.getElementById('models-directory').value;
         const execFolder = document.getElementById('executable-folder').value;
         const themeColor = document.getElementById('theme-color').value;
@@ -4439,7 +4561,7 @@ async ensureTerminalManager() {
                 localStorage.setItem('Arandu-background', backgroundColor);
                 localStorage.setItem('Arandu-theme-synced', themeIsSynced.toString());
 
-                if (result.models) {
+                if (refreshModels && result.models) {
                     this.refreshDesktopIcons(result.models);
                 }
             } else {
@@ -4473,6 +4595,10 @@ async ensureTerminalManager() {
         // Sort models by size (largest first)
         const sortedModels = [...safeModels].sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
 
+        const customLaunchMap = await this.buildCustomLaunchConfigMap(
+            sortedModels.map((model) => model && model.path ? model.path : '')
+        );
+
         // Fetch model configs to get update status
         const modelConfigs = await this.fetchModelConfigs();
 
@@ -4483,6 +4609,7 @@ async ensureTerminalManager() {
             const modelPath = model && model.path ? model.path : '';
             const modelQuantization = model && model.quantization ? model.quantization : '';
             const modelSizeGb = Number(model && model.size_gb) || 0;
+            const hasCustomLaunch = customLaunchMap.get(modelPath) === true;
             const modelEpochSeconds = Number(model && model.date);
             const modelDateParsed = Number.isFinite(modelEpochSeconds) && modelEpochSeconds > 0
                 ? new Date(modelEpochSeconds * 1000)
@@ -4491,6 +4618,11 @@ async ensureTerminalManager() {
                 ? modelDateParsed.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
                 : 'Unknown date';
             const modelMetaLabel = `${modelSizeGb.toFixed(2)} GB, ${modelDateLabel}`;
+            const listTitleHtml = this.buildModelTitleHtml(modelName, modelPath, {
+                includeGguf: true,
+                metaLabel: modelMetaLabel
+            });
+            const cardTitleHtml = this.buildModelTitleHtml(modelName, modelPath);
             const isMmprojModel = /^mmproj/i.test(modelName);
             iconElement.className = 'desktop-icon';
             if (isMmprojModel) {
@@ -4534,8 +4666,8 @@ async ensureTerminalManager() {
                 iconElement.innerHTML = `
                     <div class="quantization-bar ${quantColorClass}"></div>
                     <div class="icon-info">
-                        <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
-                        <div class="model-path" title="${modelPath}">${modelSizeGb.toFixed(2)} GB</div>
+                        <div class="icon-label">${listTitleHtml}</div>
+                        <div class="model-path" title="${modelPath}">${modelSizeGb.toFixed(2)} GB${hasCustomLaunch ? ' <span class="custom-state-badge" title="Model launch settings were customized">Custom</span>' : ''}</div>
                     </div>
                     <div class="model-quant">${modelQuantization}</div>
                     <div class="update-indicator ${indicatorClass}"
@@ -4547,9 +4679,10 @@ async ensureTerminalManager() {
                 // Card view - new design with blue gradient cards
                 iconElement.innerHTML = `
                     <div class="icon-content">
-                        <div class="icon-label">${modelName}</div>
+                        <div class="icon-label">${cardTitleHtml}</div>
                         <div class="icon-meta">
                             <span class="icon-meta-text">${modelSizeGb.toFixed(2)} GB</span>
+                            ${hasCustomLaunch ? '<span class="custom-state-badge" title="Model launch settings were customized">Custom</span>' : ''}
                             ${modelQuantization ? `<span class="model-quant-badge">${modelQuantization}</span>` : ''}
                         </div>
                     </div>
@@ -4670,11 +4803,6 @@ async ensureTerminalManager() {
             console.log('No saved sort type found, icons will remain in default order');
         }
 
-        // Update custom arguments indicators
-        setTimeout(() => {
-            this.updateCustomArgsIndicators();
-        }, 150);
-
         this.updateLaunchLastModelButton();
 
         //this.showNotification(`Desktop refreshed with ${models.length} model(s)`, 'success');
@@ -4759,6 +4887,336 @@ async ensureTerminalManager() {
         } catch (error) {
             console.warn('Failed to load manual discovery peers:', error);
             this.manualDiscoveryPeers = [];
+        }
+    }
+
+    loadSystemPromptOverrideState() {
+        try {
+            const rawEntries = localStorage.getItem(this.systemPromptOverridesStorageKey);
+            const parsedEntries = rawEntries ? JSON.parse(rawEntries) : [];
+            const normalizedEntries = Array.isArray(parsedEntries)
+                ? parsedEntries
+                    .filter((entry) => entry && typeof entry === 'object')
+                    .map((entry) => ({
+                        id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        name: typeof entry.name === 'string' ? entry.name.trim() : '',
+                        prompt: typeof entry.prompt === 'string' ? entry.prompt : '',
+                        createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date().toISOString(),
+                        updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date().toISOString()
+                    }))
+                    .filter((entry) => entry.name && entry.prompt.trim())
+                : [];
+
+            this.systemPromptOverrides = normalizedEntries;
+            const selectedId = String(localStorage.getItem(this.systemPromptSelectedStorageKey) || 'default').trim() || 'default';
+            this.selectedSystemPromptOverrideId = selectedId;
+
+            if (this.selectedSystemPromptOverrideId !== 'default' && !this.systemPromptOverrides.some((entry) => entry.id === this.selectedSystemPromptOverrideId)) {
+                this.selectedSystemPromptOverrideId = 'default';
+            }
+
+            this.persistSystemPromptOverrideState();
+        } catch (error) {
+            console.error('Failed to load system prompt override state:', error);
+            this.systemPromptOverrides = [];
+            this.selectedSystemPromptOverrideId = 'default';
+        }
+
+        this.syncSystemPromptOverrideButtonState();
+    }
+
+    persistSystemPromptOverrideState() {
+        try {
+            localStorage.setItem(this.systemPromptOverridesStorageKey, JSON.stringify(this.systemPromptOverrides));
+            localStorage.setItem(this.systemPromptSelectedStorageKey, this.selectedSystemPromptOverrideId || 'default');
+        } catch (error) {
+            console.error('Failed to persist system prompt override state:', error);
+        }
+    }
+
+    getSelectedSystemPromptOverride() {
+        if (!Array.isArray(this.systemPromptOverrides)) {
+            this.systemPromptOverrides = [];
+        }
+
+        const selected = this.systemPromptOverrides.find((entry) => entry.id === this.selectedSystemPromptOverrideId);
+        if (!selected) {
+            return {
+                id: 'default',
+                name: 'Default',
+                prompt: '',
+                isDefault: true
+            };
+        }
+
+        return {
+            id: selected.id,
+            name: selected.name,
+            prompt: selected.prompt,
+            isDefault: false
+        };
+    }
+
+    getSelectedSystemPromptOverrideText() {
+        const selected = this.getSelectedSystemPromptOverride();
+        return selected && !selected.isDefault ? String(selected.prompt || '') : '';
+    }
+
+    syncSystemPromptOverrideButtonState() {
+        const btn = document.getElementById('view-system-prompt-btn');
+        if (!btn) return;
+
+        const selected = this.getSelectedSystemPromptOverride();
+        const hasOverride = Boolean(selected && !selected.isDefault && String(selected.prompt || '').trim());
+        btn.classList.toggle('active', hasOverride);
+        btn.title = hasOverride
+            ? `System Prompt Override: ${selected.name}`
+            : 'System Prompt Override';
+    }
+
+    openIkSupportedModelsWindow() {
+        const windowId = 'ik-supported-models-window';
+        const existing = document.getElementById(windowId);
+        if (existing) {
+            existing.style.display = 'block';
+            existing.classList.remove('hidden');
+            existing.style.zIndex = ++this.windowZIndex;
+            this.updateDockFocusedState(windowId);
+            return;
+        }
+
+        const listItemsHtml = IKLLAMA_SUPPORTED_FAMILIES
+            .map((family) => `<li>${this.escapeHtml(family)}</li>`)
+            .join('');
+
+        const content = `
+            <div class="ik-supported-models-content">
+                <p>Families below are marked with a gold star on model titles when detected locally or remotely.</p>
+                <ul class="ik-supported-models-list">${listItemsHtml}</ul>
+            </div>
+        `;
+
+        const windowEl = this.createWindow(windowId, 'ik_llama.cpp Supported Families', 'ik-supported-models-window', content);
+        if (!windowEl) {
+            return;
+        }
+
+        windowEl.style.width = '560px';
+        windowEl.style.height = '560px';
+        windowEl.style.minWidth = '420px';
+        windowEl.style.minHeight = '360px';
+    }
+
+    openSystemPromptOverrideWindow() {
+        const windowId = 'system-prompt-override-window';
+        const existing = document.getElementById(windowId);
+        if (existing) {
+            existing.style.display = 'block';
+            existing.classList.remove('hidden');
+            existing.style.zIndex = ++this.windowZIndex;
+            this.updateDockFocusedState(windowId);
+            this.renderSystemPromptOverrideWindow();
+            return;
+        }
+
+        const content = `
+            <div class="system-prompt-override-content">
+                <div>
+                    <label for="system-prompt-override-select">Saved Prompt</label>
+                    <select id="system-prompt-override-select"></select>
+                </div>
+                <div class="system-prompt-override-meta" id="system-prompt-override-meta">Default (no global override)</div>
+                <div>
+                    <label for="system-prompt-override-name">Prompt Name</label>
+                    <input id="system-prompt-override-name" type="text" placeholder="Example: Coding Mentor">
+                </div>
+                <div style="flex: 1; min-height: 200px; display: flex; flex-direction: column;">
+                    <label for="system-prompt-override-text">System Prompt Text</label>
+                    <textarea id="system-prompt-override-text" placeholder="Enter global system prompt override text..."></textarea>
+                </div>
+                <div class="system-prompt-override-actions">
+                    <button type="button" class="system-prompt-override-clear" id="system-prompt-override-clear-btn">Clear Editor</button>
+                    <button type="button" class="system-prompt-override-new" id="system-prompt-override-new-btn">New</button>
+                    <button type="button" class="system-prompt-override-save" id="system-prompt-override-save-btn">Save Prompt</button>
+                </div>
+            </div>
+        `;
+
+        const windowEl = this.createWindow(windowId, 'System Prompt Override', 'system-prompt-override-window', content);
+        if (!windowEl) {
+            return;
+        }
+
+        windowEl.style.width = '620px';
+        windowEl.style.height = '560px';
+        windowEl.style.minWidth = '460px';
+        windowEl.style.minHeight = '420px';
+
+        const selectEl = windowEl.querySelector('#system-prompt-override-select');
+        const saveBtn = windowEl.querySelector('#system-prompt-override-save-btn');
+        const clearBtn = windowEl.querySelector('#system-prompt-override-clear-btn');
+        const newBtn = windowEl.querySelector('#system-prompt-override-new-btn');
+
+        if (selectEl) {
+            selectEl.addEventListener('change', (event) => {
+                this.handleSystemPromptOverrideSelection(event.target.value);
+            });
+        }
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.saveSystemPromptOverrideEntry();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                const nameInput = document.getElementById('system-prompt-override-name');
+                const promptInput = document.getElementById('system-prompt-override-text');
+                if (nameInput) nameInput.value = '';
+                if (promptInput) promptInput.value = '';
+            });
+        }
+
+        if (newBtn) {
+            newBtn.addEventListener('click', () => {
+                this.prepareNewSystemPromptOverrideEntry();
+            });
+        }
+
+        this.renderSystemPromptOverrideWindow();
+    }
+
+    renderSystemPromptOverrideWindow() {
+        const selectEl = document.getElementById('system-prompt-override-select');
+        const nameInput = document.getElementById('system-prompt-override-name');
+        const promptInput = document.getElementById('system-prompt-override-text');
+        const metaEl = document.getElementById('system-prompt-override-meta');
+
+        if (!selectEl) {
+            return;
+        }
+
+        const selected = this.getSelectedSystemPromptOverride();
+        const entries = Array.isArray(this.systemPromptOverrides) ? this.systemPromptOverrides : [];
+        const options = [{ id: 'default', name: 'Default' }, ...entries.map((entry) => ({ id: entry.id, name: entry.name }))];
+
+        selectEl.innerHTML = '';
+        options.forEach((option) => {
+            const optionEl = document.createElement('option');
+            optionEl.value = option.id;
+            optionEl.textContent = option.name;
+            selectEl.appendChild(optionEl);
+        });
+
+        selectEl.value = selected.id;
+
+        if (nameInput && promptInput) {
+            if (selected.isDefault) {
+                nameInput.value = '';
+                promptInput.value = '';
+            } else {
+                nameInput.value = selected.name || '';
+                promptInput.value = selected.prompt || '';
+            }
+        }
+
+        if (metaEl) {
+            metaEl.textContent = selected.isDefault
+                ? 'Default selected (injects nothing)'
+                : `Active global override: ${selected.name}`;
+        }
+
+        this.syncSystemPromptOverrideButtonState();
+    }
+
+    handleSystemPromptOverrideSelection(selectedId, shouldRender = true) {
+        const normalized = String(selectedId || 'default').trim() || 'default';
+        if (normalized !== 'default' && !this.systemPromptOverrides.some((entry) => entry.id === normalized)) {
+            this.selectedSystemPromptOverrideId = 'default';
+        } else {
+            this.selectedSystemPromptOverrideId = normalized;
+        }
+
+        this.persistSystemPromptOverrideState();
+        this.syncSystemPromptOverrideButtonState();
+        this.notifySystemPromptOverrideChanged();
+
+        if (shouldRender) {
+            this.renderSystemPromptOverrideWindow();
+        }
+    }
+
+    prepareNewSystemPromptOverrideEntry() {
+        this.handleSystemPromptOverrideSelection('default');
+
+        const nameInput = document.getElementById('system-prompt-override-name');
+        const promptInput = document.getElementById('system-prompt-override-text');
+        if (nameInput) {
+            nameInput.value = '';
+            nameInput.focus();
+        }
+        if (promptInput) {
+            promptInput.value = '';
+        }
+    }
+
+    saveSystemPromptOverrideEntry() {
+        const nameInput = document.getElementById('system-prompt-override-name');
+        const promptInput = document.getElementById('system-prompt-override-text');
+        if (!nameInput || !promptInput) {
+            return;
+        }
+
+        const name = String(nameInput.value || '').trim();
+        const prompt = String(promptInput.value || '').trim();
+        if (!name) {
+            this.showNotification('Prompt name is required.', 'warning');
+            nameInput.focus();
+            return;
+        }
+
+        if (!prompt) {
+            this.showNotification('Prompt text is required.', 'warning');
+            promptInput.focus();
+            return;
+        }
+
+        const existingIndex = this.systemPromptOverrides.findIndex((entry) => entry.name.toLowerCase() === name.toLowerCase());
+        const nowIso = new Date().toISOString();
+        let selectedId = '';
+
+        if (existingIndex >= 0) {
+            const existing = this.systemPromptOverrides[existingIndex];
+            selectedId = existing.id;
+            this.systemPromptOverrides[existingIndex] = {
+                ...existing,
+                name,
+                prompt,
+                updatedAt: nowIso
+            };
+        } else {
+            selectedId = `prompt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            this.systemPromptOverrides.push({
+                id: selectedId,
+                name,
+                prompt,
+                createdAt: nowIso,
+                updatedAt: nowIso
+            });
+        }
+
+        this.selectedSystemPromptOverrideId = selectedId;
+        this.persistSystemPromptOverrideState();
+        this.renderSystemPromptOverrideWindow();
+        this.notifySystemPromptOverrideChanged();
+        this.showNotification('System prompt override saved.', 'success');
+    }
+
+    notifySystemPromptOverrideChanged() {
+        this.syncSystemPromptOverrideButtonState();
+        if (window.terminalManager && typeof window.terminalManager.broadcastGlobalSystemPromptOverride === 'function') {
+            window.terminalManager.broadcastGlobalSystemPromptOverride();
         }
     }
 
@@ -5363,7 +5821,7 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         URL.revokeObjectURL(url);
     }
 
-    renderRemoteModelsList() {
+    async renderRemoteModelsList() {
         const desktopIcons = document.getElementById('desktop-icons');
         if (!desktopIcons) return;
 
@@ -5374,21 +5832,19 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         // Clear existing content
         desktopIcons.innerHTML = '';
 
-        // Create header for remote models view
+        // Create compact header for remote models view
         const header = document.createElement('div');
         header.className = 'remote-view-header';
-        // Layout handled by CSS — only structural inline styles here
-        header.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
 
         const totalRemoteModels = this.discoveredPeers.reduce((acc, peer) => acc + (peer.models?.length || 0), 0);
         const totalPeers = this.discoveredPeers.length;
 
         header.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span class="material-icons" style="color: var(--theme-primary); font-size: 22px;">cloud</span>
-                <span style="font-weight: 600; color: var(--theme-text); font-size: 15px;">Remote LLMs</span>
+            <div class="remote-view-header-title">
+                <span class="material-icons">cloud</span>
+                <span class="remote-view-header-label">Remote LLMs</span>
             </div>
-            <span style="color: var(--theme-text-muted); font-size: 12px;">${totalPeers} peer${totalPeers !== 1 ? 's' : ''}, ${totalRemoteModels} model${totalRemoteModels !== 1 ? 's' : ''}</span>
+            <span class="remote-view-header-stats">${totalPeers} peer${totalPeers !== 1 ? 's' : ''}, ${totalRemoteModels} model${totalRemoteModels !== 1 ? 's' : ''}</span>
         `;
         
         desktopIcons.appendChild(header);
@@ -5486,26 +5942,38 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         // Sort by size (largest first)
         allRemoteModels.sort((a, b) => (Number(b.size_gb) || 0) - (Number(a.size_gb) || 0));
 
+        const remoteCustomLaunchMap = await this.buildCustomLaunchConfigMap(
+            allRemoteModels.map((model) => model && model.path ? model.path : '')
+        );
+
         // Render each remote model directly into desktopIcons
         allRemoteModels.forEach((model) => {
-            const modelElement = this.createRemoteModelListElement(model);
+            const modelPath = model && model.path ? model.path : '';
+            const hasCustomLaunch = remoteCustomLaunchMap.get(modelPath) === true;
+            const modelElement = this.createRemoteModelListElement(model, hasCustomLaunch);
             modelElement.classList.add('fade-in'); // Make visible immediately
             desktopIcons.appendChild(modelElement);
         });
     }
 
-    createRemoteModelListElement(model) {
+    createRemoteModelListElement(model, hasCustomLaunch = false) {
         const modelElement = document.createElement('div');
         const modelName = (model.name || '').replace('.gguf', '');
+        const modelPath = model.path || '';
         const modelQuantization = model.quantization || '';
         const modelSizeGb = Number(model.size_gb) || 0;
         const modelDate = model.date ? new Date(model.date * 1000).toLocaleDateString() : 'Unknown';
+        const modelTitleHtml = this.buildModelTitleHtml(modelName, modelPath, {
+            includeGguf: true,
+            metaLabel: `${modelSizeGb.toFixed(2)} GB`
+        });
         const peerHostname = model.peer_hostname || 'Unknown Host';
         const peerReachable = !!model.peer_reachable;
         const fromCache = !!model.peer_models_from_cache;
         const loaded = peerReachable && !!model.peer_model_loaded;
         const stale = fromCache && !peerReachable;
         const stateLabel = stale ? 'Cached/Offline' : (fromCache ? 'Cached/Live' : 'Live');
+        const hasCustomLaunchFlag = hasCustomLaunch || model.has_custom_launch_config === true;
 
         modelElement.className = 'desktop-icon remote-model-item';
         // Set individual data attributes for hover tooltip compatibility
@@ -5526,7 +5994,8 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             from_cache: fromCache,
             loaded,
             stale,
-            path: model.path || ''
+            path: model.path || '',
+            has_custom_launch_config: hasCustomLaunchFlag
         }));
 
         const quantColorClass = this.getQuantizationColorClass(modelQuantization);
@@ -5534,13 +6003,16 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         modelElement.innerHTML = `
             <div class="quantization-bar ${quantColorClass}"></div>
             <div class="icon-info">
-                <div class="icon-label">${modelName} GGUF (${modelSizeGb.toFixed(2)} GB)</div>
+                <div class="icon-label">${modelTitleHtml}</div>
                 <div class="model-path">
                     <span class="material-icons" style="font-size: 13px; vertical-align: middle; margin-right: 4px;">cloud</span>
-                    ${peerHostname} &bull; ${modelDate} &bull; <span class="remote-state-badge ${stale ? 'offline' : (fromCache ? 'cached' : 'live')}">${stateLabel}</span>${loaded ? ' <span class="remote-loaded-badge" title="Already loaded on remote server">L</span>' : ''}
+                    ${peerHostname} &bull; ${modelDate} &bull; <span class="remote-state-badge ${stale ? 'offline' : (fromCache ? 'cached' : 'live')}">${stateLabel}</span>${hasCustomLaunchFlag ? ' <span class="custom-state-badge" title="Model launch settings were customized">Custom</span>' : ''}${loaded ? ' <span class="remote-loaded-badge" title="Already loaded on remote server">L</span>' : ''}
                 </div>
             </div>
-            <div class="model-quant">${modelQuantization || '&mdash;'}</div>
+            <div class="model-quant remote-quant-wrap">
+                <div class="remote-quant-main">${modelQuantization || '&mdash;'}</div>
+                <div class="remote-quant-size">${modelSizeGb.toFixed(2)} GB</div>
+            </div>
         `;
 
         return modelElement;
@@ -5560,6 +6032,10 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             ? modelDateParsed.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
             : 'Unknown date';
         const modelMetaLabel = `${modelSizeGb.toFixed(2)} GB, ${modelDateLabel}`;
+        const modelTitleHtml = this.buildModelTitleHtml(modelName, modelPath, {
+            includeGguf: true,
+            metaLabel: modelMetaLabel
+        });
 
         modelElement.className = 'desktop-icon local-model-item';
         modelElement.setAttribute('data-path', modelPath);
@@ -5574,7 +6050,7 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         modelElement.innerHTML = `
             <div class="quantization-bar ${quantColorClass}"></div>
             <div class="icon-info">
-                <div class="icon-label">${modelName} GGUF (${modelMetaLabel})</div>
+                <div class="icon-label">${modelTitleHtml}</div>
             </div>
             <div class="model-quant">${modelQuantization}</div>
         `;
@@ -5625,42 +6101,61 @@ async enableDiscovery(port, apiPort, name, chatPort) {
 
     // ==================== END DISCOVERY FEATURE ====================
 
-    async hasCustomArguments(modelPath) {
+    isCustomLaunchConfig(config) {
+        if (!config || typeof config !== 'object') {
+            return false;
+        }
+
+        const customArgs = typeof config.custom_args === 'string' ? config.custom_args.trim() : '';
+        const serverHost = typeof config.server_host === 'string' ? config.server_host.trim() : '';
+        const serverPort = Number(config.server_port);
+        const hasEnvVars = !!(config.env_vars && typeof config.env_vars === 'object' && Object.keys(config.env_vars).length > 0);
+        const hasDefaultPreset = !!config.default_preset_id;
+
+        return customArgs.length > 0
+            || (serverHost.length > 0 && serverHost !== '127.0.0.1')
+            || (Number.isFinite(serverPort) && serverPort > 0 && serverPort !== 8080)
+            || hasEnvVars
+            || hasDefaultPreset;
+    }
+
+    async hasCustomLaunchConfig(modelPath) {
+        if (!modelPath) {
+            return false;
+        }
+
         try {
             const config = await invoke('get_model_settings', { modelPath: modelPath });
-            return config && config.custom_args && config.custom_args.trim() !== '';
+            return this.isCustomLaunchConfig(config);
         } catch (error) {
-            console.error('Error checking custom arguments:', error);
+            console.error('Error checking custom launch config:', error);
             return false;
         }
     }
 
-    // Update custom arguments indicators for all icons
-    async updateCustomArgsIndicators() {
-        const icons = document.querySelectorAll('.desktop-icon');
-        for (const icon of icons) {
-            const modelPath = icon.dataset.path;
-            if (modelPath) {
-                await this.updateSingleIconIndicator(icon, modelPath);
-            }
+    async buildCustomLaunchConfigMap(modelPaths) {
+        const paths = Array.from(new Set((modelPaths || []).filter((path) => typeof path === 'string' && path.trim() !== '')));
+        const resultMap = new Map();
+
+        if (!paths.length) {
+            return resultMap;
         }
+
+        const checks = await Promise.all(paths.map(async (path) => {
+            const hasCustom = await this.hasCustomLaunchConfig(path);
+            return [path, hasCustom];
+        }));
+
+        checks.forEach(([path, hasCustom]) => {
+            resultMap.set(path, hasCustom === true);
+        });
+
+        return resultMap;
     }
 
-    // Update custom arguments indicator for a single icon
-    async updateSingleIconIndicator(icon, modelPath) {
-        const hasCustomArgs = await this.hasCustomArguments(modelPath);
-        const iconImage = icon.querySelector('.icon-image');
-        const existingIndicator = iconImage.querySelector('.custom-args-indicator');
-
-        if (hasCustomArgs && !existingIndicator) {
-            // Add indicator to the icon-image element
-            const indicator = document.createElement('div');
-            indicator.className = 'custom-args-indicator';
-            iconImage.appendChild(indicator);
-        } else if (!hasCustomArgs && existingIndicator) {
-            // Remove indicator
-            existingIndicator.remove();
-        }
+    // Legacy compatibility hook: badges are now rendered inline.
+    async updateCustomArgsIndicators() {
+        return;
     }
 
     applyTheme(theme, background) {
@@ -6175,6 +6670,17 @@ async enableDiscovery(port, apiPort, name, chatPort) {
         }
     }
 
+    isGpuStatsAvailable(stats) {
+        const gpuName = String(stats && stats.gpu_name ? stats.gpu_name : '').trim().toLowerCase();
+        if (!gpuName) {
+            return false;
+        }
+
+        return gpuName !== 'unknown'
+            && gpuName !== 'no nvidia gpu detected'
+            && gpuName !== 'no gpu detected';
+    }
+
     updateMemoryMonitorDetails(stats) {
         const detailsContainer = document.getElementById('memory-monitor-details');
         if (!detailsContainer) return;
@@ -6211,7 +6717,12 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             </div>
         `;
 
-        if (stats.gpu_name && stats.gpu_name !== 'Unknown' && stats.gpu_name !== 'No NVIDIA GPU detected' && stats.gpu_name !== 'No GPU detected') {
+        const gpuAvailable = this.isGpuStatsAvailable(stats);
+        const vramTotalsAvailable = stats.gpu_memory_total_gb > 0;
+
+        if (gpuAvailable) {
+            const vramUsedDisplay = vramTotalsAvailable ? vramUsedGB : 'N/A';
+            const vramTotalDisplay = vramTotalsAvailable ? vramTotalGB : 'N/A';
             content += `
                 <div class="system-section">
                     <div class="section-header">
@@ -6226,11 +6737,11 @@ async enableDiscovery(port, apiPort, name, chatPort) {
                         </div>
                         <div class="info-cell">
                             <div class="label">VRAM Used</div>
-                            <div class="value">${vramUsedGB}<span class="unit">GB</span></div>
+                            <div class="value">${vramUsedDisplay}<span class="unit">${vramTotalsAvailable ? 'GB' : ''}</span></div>
                         </div>
                         <div class="info-cell">
                             <div class="label">VRAM Total</div>
-                            <div class="value">${vramTotalGB}<span class="unit">GB</span></div>
+                            <div class="value">${vramTotalDisplay}<span class="unit">${vramTotalsAvailable ? 'GB' : ''}</span></div>
                         </div>
                     </div>
                 </div>
@@ -6537,11 +7048,11 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             (stats.memory_used_gb / stats.memory_total_gb) * 100 : 0;
 
         // Calculate VRAM usage percentage (if GPU is detected)
-        const vramPercent = stats.gpu_memory_total_gb > 0 &&
-            stats.gpu_name !== "Unknown" &&
-            stats.gpu_name !== "No NVIDIA GPU detected" &&
-            stats.gpu_name !== "No GPU detected" ?
-            (stats.gpu_memory_used_gb / stats.gpu_memory_total_gb) * 100 : 0;
+        const gpuAvailable = this.isGpuStatsAvailable(stats);
+        const hasVramTotals = stats.gpu_memory_total_gb > 0;
+        const vramPercent = gpuAvailable && hasVramTotals
+            ? (stats.gpu_memory_used_gb / stats.gpu_memory_total_gb) * 100
+            : 0;
 
         // Helper to get color from gray to red
         function getBarColor(percent) {
@@ -6586,14 +7097,16 @@ async enableDiscovery(port, apiPort, name, chatPort) {
             }
 
             if (vramContainer) {
-                if (stats.gpu_name !== "Unknown" && stats.gpu_name !== "No NVIDIA GPU detected" && stats.gpu_name !== "No GPU detected") {
+                if (gpuAvailable && hasVramTotals) {
                     vramContainer.title = `VRAM: ${stats.gpu_memory_used_gb.toFixed(2)}GB / ${stats.gpu_memory_total_gb.toFixed(2)}GB (${vramPercent.toFixed(1)}%)`;
+                } else if (gpuAvailable) {
+                    vramContainer.title = `VRAM: usage unavailable for ${stats.gpu_name}`;
                 } else {
                     vramContainer.title = 'VRAM: Not available';
-// If no GPU, set VRAM bar to 0%
+                    // If no GPU, set VRAM bar to 0%
                     if (vramFill) {
                         vramFill.style.width = '0%';
-vramFill.style.background = getBarColor(0);
+                        vramFill.style.background = getBarColor(0);
                     }
                 }
             }
@@ -7549,19 +8062,42 @@ vramFill.style.background = getBarColor(0);
             return null;
         }
 
-        const servers = parsed && parsed.mcpServers && typeof parsed.mcpServers === 'object'
-            ? parsed.mcpServers
-            : null;
-        if (!servers) {
-            return null;
+        let serverKey = 'mcp-server';
+        let serverConfig = null;
+
+        if (parsed && typeof parsed.command === 'string') {
+            serverConfig = parsed;
+            serverKey = String(currentName || '').trim() || 'mcp-server';
+        } else if (parsed && parsed.server && typeof parsed.server === 'object') {
+            serverConfig = parsed.server;
+            serverKey = 'server';
+        } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const nestedEntry = Object.entries(parsed)
+                .find(([, value]) => value && typeof value === 'object' && !Array.isArray(value) && typeof value.command === 'string');
+            if (nestedEntry) {
+                serverKey = String(nestedEntry[0] || 'mcp-server');
+                serverConfig = nestedEntry[1];
+            }
         }
 
-        const entries = Object.entries(servers);
-        if (!entries.length) {
-            return null;
+        if (!serverConfig) {
+            const servers = parsed && parsed.mcpServers && typeof parsed.mcpServers === 'object'
+                ? parsed.mcpServers
+                : null;
+            if (!servers) {
+                return null;
+            }
+
+            const entries = Object.entries(servers);
+            if (!entries.length) {
+                return null;
+            }
+
+            const firstEntry = entries[0];
+            serverKey = firstEntry[0];
+            serverConfig = firstEntry[1];
         }
 
-        const [serverKey, serverConfig] = entries[0];
         if (!serverConfig || typeof serverConfig !== 'object') {
             return null;
         }
@@ -7571,8 +8107,9 @@ vramFill.style.background = getBarColor(0);
         const inferredArgs = Array.isArray(serverConfig.args)
             ? serverConfig.args.filter((item) => item !== null && item !== undefined).map((item) => String(item))
             : [];
-        const inferredEnv = serverConfig.env && typeof serverConfig.env === 'object' && !Array.isArray(serverConfig.env)
-            ? Object.fromEntries(Object.entries(serverConfig.env).map(([k, v]) => [String(k), v === undefined || v === null ? '' : String(v)]))
+        const rawEnv = serverConfig.env || serverConfig.env_vars || serverConfig.envVars;
+        const inferredEnv = rawEnv && typeof rawEnv === 'object' && !Array.isArray(rawEnv)
+            ? Object.fromEntries(Object.entries(rawEnv).map(([k, v]) => [String(k), v === undefined || v === null ? '' : String(v)]))
             : {};
         const inferredHeaders = serverConfig.headers && typeof serverConfig.headers === 'object' && !Array.isArray(serverConfig.headers)
             ? Object.fromEntries(Object.entries(serverConfig.headers).map(([k, v]) => [String(k), v === undefined || v === null ? '' : String(v)]))

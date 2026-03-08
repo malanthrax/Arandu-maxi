@@ -1,5 +1,233 @@
 # Arandu Development Status - 2025-02-23
 
+## 2026-03-07 Active Work Focus (Current)
+
+### 2026-03-08 IK Installer UX Clarity Update
+
+- ✅ Replaced ambiguous source picker `confirm()` flow with explicit source choice (`ZIP file`, `Extracted folder`, `Cancel`) for both:
+  - main `ik_llama.cpp` install
+  - `ik CUDA DLL` install
+- ✅ Uses `ModalDialog` choice UI when available, with a clear prompt fallback (`ZIP` / `FOLDER` / `CANCEL`).
+- ✅ Success notifications now include exact destination install path so users can see where files were installed.
+
+### 2026-03-08 ik_llama.cpp Dual ZIP Install Flow (Main + CUDA DLL)
+
+- ✅ Llama.cpp Release Manager now exposes two explicit IK install buttons:
+  - `ik_llama.cpp` (main ZIP: CPU/CUDA build archive)
+  - `ik CUDA DLL` (CUDA DLL ZIP)
+- ✅ Main ZIP install flow remains single-file for CPU backends.
+- ✅ CUDA main ZIP installs now prompt for immediate DLL ZIP install.
+- ✅ Added backend command `install_local_llamacpp_cuda_dlls_zip` to extract and copy `.dll` files from selected DLL ZIP into chosen ik CUDA backend folder.
+- ✅ DLL installer can run independently and targets the most relevant installed ik CUDA backend (last installed, active, single-choice, or user-selected when multiple are present).
+
+### 2026-03-08 ik_llama.cpp Loose Folder Source + Installer Workspace
+
+- ✅ IK installer now accepts either source type:
+  - ZIP archive source
+  - extracted folder source (for loose/unzipped layouts)
+- ✅ Main install and CUDA DLL install both support folder sources.
+- ✅ Added dedicated IK installer workspace folders under:
+  - `<executable_folder>/versions/ik_llama.cpp/_installer_workspace/`
+  - includes `main_drop/`, `dll_drop/`, and `temp/`.
+- ✅ Temporary extraction now uses this managed workspace path instead of ad-hoc temp-only locations.
+
+### 2026-03-08 IK Workspace Visibility Panel
+
+- ✅ Added visible `IK Installer Workspace` panel in Llama.cpp Release Manager.
+- ✅ Panel shows copyable holding-folder paths:
+  - `...\versions\ik_llama.cpp\_installer_workspace\main_drop`
+  - `...\versions\ik_llama.cpp\_installer_workspace\dll_drop`
+- ✅ Added per-row `Copy` buttons for quick path copy in installer workflow.
+- ✅ Release Manager now shows an explicit IK installed readout chip (`ik-installed-status`) beside install controls, including active backend when available.
+
+### 2026-03-08 H-drive runtime path policy (dev phase)
+
+- ✅ Runtime defaults now prefer `H:\Ardanu Fix\Arandu-maxi\.Arandu` over legacy C-drive default paths when available.
+- ✅ Settings-load migration remaps legacy default-style `.Arandu` paths from C/home base to H base for:
+  - `models_directory`
+  - `executable_folder`
+  - `additional_models_directories`
+  - `active_executable_folder`
+- ✅ Custom non-default paths remain untouched.
+
+### 2026-03-08 IK installer UX + installed list recovery
+
+- ✅ IK install flow simplified to ZIP-only: click install button -> choose ZIP in Windows file picker -> auto-install.
+- ✅ Removed extra installer decision popups in main/DLL install paths.
+- ✅ CUDA main install now gives instruction toast to run `ik CUDA DLL` next, without blocking prompts.
+- ✅ Installed versions query now includes both current configured versions root and legacy default versions root, so normal llama.cpp installs and IK installs appear together.
+- ✅ Backend IK installers now enforce ZIP-only source at command level (directory sources rejected).
+
+### 2026-03-08 MCP wait-message mitigation + benchmark highlights
+
+- ✅ Added MCP tool-call system directive to reduce "please wait" placeholder responses and push immediate tool_calls when tools are needed.
+- ✅ Benchmark Log now includes `TPS` column.
+- ✅ Best/worst highlighting added:
+  - TTFT: lowest=green, highest=red
+  - TPS: highest=green, lowest=red
+
+### 2026-03-08 GLM/IK stability fixes
+
+- ✅ Fixed template-ordering 500 errors (`System message must be at the beginning`) by normalizing outgoing chat payload message order so all `system` messages are forced to the top before request dispatch.
+- ✅ Added GLM-family compatibility mode in chat payload builder to reduce sampler-field incompatibility for IK/GLM combinations (uses minimal safe payload fields for GLM model names).
+- ✅ Added readiness guard in terminal manager to prevent false "Ready for chat" transitions when llama-server exits with usage/invalid-arg failure.
+- ✅ Added IK pre-launch argument sanitizer: when executable path is `ik_llama.cpp`, app runs `llama-server --help` and strips unsupported custom launch flags before process start.
+
+- ✅ Mandatory operating policy added: scratchpad-first request tracking and subagent-first coding/review workflow.
+
+- ✅ MCP tool visibility path in chat is now live-refreshed from backend before being sent to model.
+- ✅ Chat now shows a wrench indicator near active model with callable MCP tool count.
+- ✅ Added clickable in-chat MCP tool panel that lists exact `Connection :: ToolName` entries being sent in `tools[]`.
+- ✅ MCP status line now reports tool refresh failures (`... / X refresh failed`) for quick diagnosis.
+- ✅ Added configurable `MCP Tool Loops` runtime option in chat Model Options with hard clamp `1..20` (default `6`); MCP loop iteration cap now uses this value instead of a hardcoded constant.
+- ✅ Chat delete reliability issue fixed: delete no longer works only once; repeated delete/load/new interactions are stable.
+- ✅ Latest canonical build produced: `backend/target/release/Arandu.exe` (2026-03-07).
+
+### 2026-03-08 IK Support Readme + Star Indicator
+
+- ✅ Added top-right `Readme` button (`view-ik-readme-btn`) beside model view controls.
+- ✅ Added `ik_llama.cpp Supported Families` window listing the full IK-supported family set.
+- ✅ Added resilient case-insensitive family matching in `frontend/desktop.js` using reusable constants + alias normalization.
+- ✅ Local and remote model titles now show a gold star (`★`) when model name/path matches IK-supported families.
+- ✅ Saved canonical list file at repo root: `ikllama.cpp supported models.md`.
+
+### 2026-03-07 Llama.cpp Installed Tab - Local ik_llama.cpp ZIP Install
+
+- ✅ Added Installed-tab action button: `ik_llama.cpp` in Llama.cpp Release Manager.
+- ✅ Added backend file-picker command for local ZIP selection (`pick_llamacpp_zip_file`).
+- ✅ Added backend local install command (`install_local_llamacpp_zip`) that:
+  - installs to `versions/ik_llama.cpp/<detected-backend>/...`,
+  - detects backend type from zip filename (`cuda/rocm/vulkan/opencl/metal/cpu`),
+  - performs safe extraction with zip path-traversal blocking (`enclosed_name()`),
+  - locates `llama-server(.exe)` root and flattens contents into final backend folder.
+- ✅ Frontend wiring added in `frontend/modules/llamacpp-manager.js`:
+  - picker -> install invoke flow,
+  - success/error notification,
+  - refresh installed versions + release badges + latest build text.
+- ✅ Added persistent desktop reminder banner:
+  - `Do not use quantized models from Unsloth that have _XL in their name.`
+
+### 2026-03-07 System Prompt Override UI + Precedence
+
+- ✅ Added top-right light-blue `System Prompt Override` button (`view-system-prompt-btn`) beside existing view controls.
+- ✅ Added `System Prompt Override` manager window with:
+  - saved prompt dropdown (first option always `Default`),
+  - prompt name field,
+  - prompt text field,
+  - save action with persistent local storage.
+- ✅ Added runtime precedence path in chat iframe:
+  - typed Model Options system prompt > selected global system prompt override > default (no system prompt injection).
+- ✅ Added terminal-manager best-effort launch argument override path:
+  - applies/removes `--system-prompt` on launch/restart based on effective precedence.
+  - default selection now strips stale `--system-prompt` launch args to preserve "injects nothing" semantics.
+- ✅ Added live parent->iframe override updates so open chats receive selected override changes without reopening windows.
+- ✅ Follow-up UX improvement: added `New` button beside `Clear Editor` and `Save Prompt` in override manager to make multi-prompt creation faster.
+  - `New` resets selection to `Default` and clears name/text fields before save.
+
+### Verification (2026-03-07 System Prompt Override)
+
+- `node --check frontend/desktop.js` ✅
+- `node --check frontend/modules/terminal-manager.js` ✅
+- Inline script parse check via Node VM for `frontend/llama-custom/index.html` ✅ (`inline_scripts_ok 1`)
+
+### 2026-03-07 Date-Awareness Hardening (System Clock Injection)
+
+- ✅ Added always-on current date/time system-context injection in chat request assembly.
+- ✅ Injection source is local system clock (Windows host time via browser runtime `Date` in Tauri webview).
+- ✅ Injected fields include local date, local time, timezone + UTC offset, and UTC ISO timestamp.
+- ✅ Existing system prompt precedence remains unchanged for user-entered/global prompts.
+
+### 2026-03-07 MCP stdio window suppression (Windows)
+
+- ✅ MCP stdio tool calls no longer spawn visible terminal windows covering the desktop.
+- ✅ Applied hidden-process creation flags (`CREATE_NO_WINDOW`) to stdio MCP process launches in backend execution path.
+- ✅ Coverage includes direct stdio command, cmd-shell fallback (`cmd /C`), and Windows `.cmd` shim fallback paths.
+
+### 2026-03-07 MCP log panel in chat
+
+- ✅ Added a floating `MCP Log` toggle in `frontend/llama-custom/index.html`, positioned directly under `Benchmark Log` in the chat menu controls.
+- ✅ Added a dedicated MCP log panel with `Clear` and `Close` controls, styled consistently with benchmark/debug surfaces.
+- ✅ MCP tool loop now records timestamped entries for:
+  - outbound model -> MCP calls (tool, mapped connection/tool, argument snapshot),
+  - inbound MCP -> model results (success/failure + content snippet).
+- ✅ MCP log is bounded to 150 entries, persisted to localStorage (`aranduMcpLogV1`), and rendered newest-first.
+- ✅ Follow-up reliability fix: MCP log now captures pre-tool-loop failures too (including `/v1/chat/completions` HTTP 500) via synthetic `__chat_completion__` entries (LLM outbound + inbound status).
+
+### 2026-03-07 Multimodal image 500 compatibility fix
+
+- ✅ Chat completion payload builder now uses a compatibility-safe request shape for image-attached messages.
+- ✅ Image-attached requests force non-stream mode and omit advanced sampler/reasoning/speculative fields that can trigger 500s on vision paths.
+- ✅ Text-only requests keep full advanced runtime parameter set unchanged.
+
+### 2026-03-07 Apriel template options added
+
+- ✅ Added Apriel chat-template choices in model tile settings (`Chat Template` dropdown):
+  - `Apriel 1.6 (Fixed)` → `Apriel-1.6-15b-Thinker-fixed`
+  - `Apriel (Unsloth 1.5)` → `unsloth-Apriel-1.5`
+- ✅ Source validation done from upstream llama.cpp template list (`models/templates/Apriel-1.6-15b-Thinker-fixed.jinja`, `models/templates/unsloth-Apriel-1.5.jinja`).
+
+### 2026-03-07 Date-Awareness Hardening (Chat Request Path)
+
+- ✅ Added always-on system-clock date/time injection in `frontend/llama-custom/index.html` chat request assembly.
+- ✅ Injection now happens before optional system prompts so every generation gets fresh temporal context.
+- ✅ Injected content includes local date, local time, timezone (+ UTC offset), and UTC ISO timestamp.
+- ✅ Existing precedence behavior preserved: typed system prompt > global override > none.
+
+### Verification (2026-03-07 Date-Awareness)
+
+- Inline script parse/compile check via Node VM for `frontend/llama-custom/index.html` ✅ (`inline_scripts_ok 1`)
+
+### 2026-03-07 Model UI + VRAM + Settings Actions Update
+
+- ✅ Added subtle drop shadow to model tiles in list-based model views (local list + remote list) while preserving current theme language.
+- ✅ Added yellow `Custom` badge for models with non-default launch configuration:
+  - Local card/list views: badge appears beside size metadata.
+  - Remote list view: badge appears beside `Live/Cached` state badge.
+  - Detection uses model settings (`custom_args`, non-default host/port, env vars, default preset assignment).
+- ✅ Added Windows GPU fallback detection for non-NVIDIA adapters in backend system monitor (`Win32_VideoController` PowerShell fallback).
+- ✅ Updated frontend VRAM display logic to avoid NVIDIA-only gating and show graceful `N/A` when GPU exists but VRAM totals are unavailable.
+- ✅ Settings window actions refined:
+  - Added `Global Options` section.
+  - Split combined action into separate `Save Settings` and `Scan Models` buttons.
+
+### 2026-03-07 UI Continuation - Remote/Local Lists + Custom Badges
+
+- ✅ Added subtle drop shadows to model tiles across list pages for better visual separation.
+- ✅ Added yellow `Custom` status badge:
+  - Remote models: appears next to `Live/Cached` state badge.
+  - Local/list pages: appears next to size metadata.
+- ✅ Remote header box (`Remote LLMs`) is compact and pinned in top controls band; no longer nested with model rows.
+- ✅ Added top buffer spacing for both remote and local list pages to avoid overlap with controls/stats/view toggles.
+
+### 2026-03-07 Security Hardening Applied (Chat Assistant Rendering)
+
+- ✅ `frontend/llama-custom/index.html` assistant model-output path no longer inserts untrusted text as raw HTML.
+- ✅ Added centralized safe text renderer helpers for assistant body updates (newline-safe text nodes + controlled `<br>` insertion).
+- ✅ Streaming and non-streaming assistant updates now render through DOM/text APIs, preserving draft-token highlighting without `innerHTML` injection.
+
+### 2026-03-07 MCP + Chat Reliability Update
+
+- `frontend/modules/terminal-manager.js`
+  - `handleMcpContextRequest()` now refreshes tools by calling backend `list_mcp_tools` for each enabled connection before returning `mcp-context`.
+  - Includes per-connection `tools_status` and `tools_error` metadata in bridge payload.
+- `frontend/llama-custom/index.html`
+  - Added wrench count chip and MCP tool inventory panel beside active model switcher.
+  - `setMcpContext()` now captures `tools_status/tools_error` and updates MCP debug status with refresh-failure count.
+  - Chat history interactions use centralized lock helpers + guarded debounce, preventing one-time delete lockups.
+- `backend/src/lib.rs`
+  - Streamable/SSE tool response decode hardened via loss-tolerant byte decode before JSON parse.
+  - Windows stdio MCP launch now retries npm-style `.cmd` shims when PATH resolution fails.
+- `backend/src/process.rs`
+  - Auto-inject `--jinja` retained for tool-call templates.
+  - Auto-inject `--cors` removed (regression fix for llama.cpp builds that do not support it).
+
+### Verification (2026-03-07)
+
+- `cargo check --manifest-path backend/Cargo.toml` ✅
+- `node --check frontend/modules/terminal-manager.js` ✅
+- Inline chat script parse check via Node VM (`frontend/llama-custom/index.html`) ✅
+- `cargo tauri build --no-bundle` ✅
+
 ## 2026-03-06 Active Work Focus (Current)
 
 - 🎯 Current priority is MCP runtime usability in chat: connected MCP servers must be visible to the model and practically usable during model responses.
@@ -1131,3 +1359,74 @@ New feature allowing Arandu instances to discover each other on LAN and share mo
 
 ### Process rule to follow on every follow-up session
 - State-saving rule (new): verify and apply save/update discipline at the start and end of each task. Log meaningful milestones immediately to `THIS-PROJECTS-CURRENT-STATE.md`, and persist stable facts into `docs/knowledge-base/`.
+## 2026-03-07 Session Backup - MCP + Supermemory + Chat UX
+
+### What was completed in this session
+
+- Added chat-side MCP visibility UX:
+  - Wrench icon count beside active model label (count of callable tools seen by model).
+  - Clickable panel listing exact `Connection :: ToolName` entries sent in `tools[]`.
+- Hardened MCP runtime context path:
+  - Parent refreshes MCP tools (`list_mcp_tools`) before sending context to chat iframe.
+  - Status line now reports refresh failures.
+- Fixed chat history reliability regression:
+  - Delete/load/new actions no longer lock after one delete.
+  - Interaction lock + guarded debounce/search behavior added.
+- Added explicit streaming control in chat:
+  - `Stream: On/Off` toggle in chat input row.
+  - Preference persistence added (global + per-model localStorage strategy).
+- Improved context-counter resilience:
+  - If live slot metrics fail, fallback estimate now shows `Context: ~used/total`.
+- Fixed context compression failure mode:
+  - Slot compression now falls back to summary + reset path when slot endpoints are unavailable.
+- Fixed JSON MCP transport URL-validation regressions:
+  - JSON payloads with stdio command forms no longer require URL.
+  - Supported JSON shapes expanded (top-level command, `server`, `mcpServers`, named object).
+- Added Windows stdio launch resilience:
+  - npm-style `.cmd` shim fallback for MCP stdio process starts.
+- Added streamable-response decode resilience:
+  - Loss-tolerant decode before JSON/SSE parsing for tools list/call responses.
+- Added Supermemory native integration (no MCP proxy required):
+  - 4 native tools exposed to model tool-calling path:
+    - `supermemory_search`
+    - `supermemory_add_memory`
+    - `supermemory_profile`
+    - `supermemory_configure_settings`
+  - Supermemory toggle retained and now drives native tool exposure.
+  - Native calls execute via backend command `call_supermemory_native_tool`.
+- Added Supermemory API key management in Model Options:
+  - `New Supermemory API Key`
+  - `Delete Supermemory API Key`
+
+### Guardrails and regressions fixed during session
+
+- Removed forced `--cors` injection in launcher (caused invalid arg on some llama.cpp builds).
+- Kept `--jinja` launcher support for tool-calling compatibility.
+- MCP tool payloads are now sent in normal/full form (temporary rollback of tool cap/schema compaction for compatibility testing).
+
+### Latest verified artifact
+
+- `H:\Ardanu Fix\Arandu-maxi\backend\target\release\Arandu.exe`
+
+### 2026-03-07 Chat UX Update - Rename + Color Tags
+
+- Chat history entries now support click-to-rename (click chat title text to rename).
+- Added color coding for chat history with 8 colors.
+- Added palette button per chat to cycle color tag.
+- Chat color tags are persisted locally (`aranduChatColorMapV1`).
+
+### 2026-03-07 Remote/Local List Layout Refinement
+
+- Remote view header (`Remote LLMs`) was compacted and repositioned to top UI band so it no longer appears nested among model tiles.
+- Remote list view tile area now has explicit top buffer to avoid overlap with top-right controls (stats/view buttons/used-model sections).
+- Local list view now uses the same top buffer spacing as remote list view for visual parity and non-overlap.
+- Remote tile metadata now shows model size below quantization (remote view only).
+- Build verification complete after layout pass:
+  - `cargo tauri build --no-bundle` ✅
+  - artifact: `backend/target/release/Arandu.exe`
+
+### 2026-03-07 MCP Payload Mode Update
+
+- MCP tool payload compaction/cap was rolled back for now.
+- Program now sends full MCP tool definitions and schemas again across chat requests.
+- Compaction can be reintroduced later if needed.

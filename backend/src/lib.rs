@@ -39,7 +39,7 @@ use process::launch_model_external as launch_model_external_impl;
 use scanner::*;
 use huggingface::*;
 use huggingface_downloader::*;
-use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport, McpToolCallRequest, McpToolCallResult, DiscoveredPeer, DiscoveryStatus, ActiveModel};
+use models::{GlobalConfig, ModelConfig, ModelPreset, ProcessInfo, SessionState, WindowState, ProcessOutput, SearchResult, ModelDetails, DownloadStartResult, UpdateCheckResult, UpdateStatus, InitialScanResult, HFLinkResult, HFFileInfo, HfMetadata, GgufMetadata, TrackerModel, TrackerConfig, TrackerStats, WeeklyReport, McpServerConfig, McpToolsResult, McpToolInfo, McpTestResult, McpTransport, McpToolCallRequest, McpToolCallResult, SupermemoryNativeCallRequest, SupermemoryNativeCallResult, DiscoveredPeer, DiscoveryStatus, ActiveModel};
 use downloader::{DownloadManager, DownloadStatus};
 use llamacpp_manager::{LlamaCppReleaseFrontend as LlamaCppRelease, LlamaCppAssetFrontend as LlamaCppAsset};
 use system_monitor::*;
@@ -835,6 +835,143 @@ fn detect_backend_type(asset_name: &str) -> String {
     } else {
         "unknown".to_string()
     }
+}
+
+fn extract_zip_safely_to_directory(zip_path: &Path, destination: &Path) -> Result<(), String> {
+    use std::fs::File;
+    use std::io::BufReader;
+    use zip::ZipArchive;
+
+    let file = File::open(zip_path).map_err(|e| format!("Failed to open zip file: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut archive = ZipArchive::new(reader).map_err(|e| format!("Failed to read zip archive: {}", e))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry: {}", e))?;
+
+        let enclosed = entry
+            .enclosed_name()
+            .ok_or_else(|| format!("Unsafe zip entry path blocked: {}", entry.name()))?
+            .to_owned();
+
+        let outpath = destination.join(enclosed);
+
+        if entry.name().ends_with('/') {
+            fs::create_dir_all(&outpath)
+                .map_err(|e| format!("Failed to create directory during extraction: {}", e))?;
+            continue;
+        }
+
+        if let Some(parent) = outpath.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create parent directory during extraction: {}", e))?;
+        }
+
+        let mut outfile = File::create(&outpath)
+            .map_err(|e| format!("Failed to create extracted file '{}': {}", outpath.display(), e))?;
+        std::io::copy(&mut entry, &mut outfile)
+            .map_err(|e| format!("Failed to extract file '{}': {}", outpath.display(), e))?;
+    }
+
+    Ok(())
+}
+
+fn find_server_root_dir(root: &Path, server_binary_name: &str) -> Result<PathBuf, String> {
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|e| format!("Failed reading extracted directory '{}': {}", dir.display(), e))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed reading extracted entry: {}", e))?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+
+            if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.eq_ignore_ascii_case(server_binary_name))
+                .unwrap_or(false)
+            {
+                return path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .ok_or_else(|| "Could not resolve server root directory".to_string());
+            }
+        }
+    }
+
+    Err(format!(
+        "Could not find '{}' inside selected zip",
+        server_binary_name
+    ))
+}
+
+fn copy_directory_contents_recursive(from: &Path, to: &Path) -> Result<(), String> {
+    let entries = fs::read_dir(from)
+        .map_err(|e| format!("Failed reading source directory '{}': {}", from.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed reading source entry: {}", e))?;
+        let source_path = entry.path();
+        let dest_path = to.join(entry.file_name());
+
+        if source_path.is_dir() {
+            fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Failed creating destination directory '{}': {}", dest_path.display(), e))?;
+            copy_directory_contents_recursive(&source_path, &dest_path)?;
+        } else {
+            fs::copy(&source_path, &dest_path).map_err(|e| {
+                format!(
+                    "Failed copying '{}' to '{}': {}",
+                    source_path.display(),
+                    dest_path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_files_with_extension(root: &Path, extension: &str) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|e| format!("Failed reading directory '{}': {}", dir.display(), e))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed reading directory entry: {}", e))?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+
+            let is_match = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case(extension))
+                .unwrap_or(false);
+
+            if is_match {
+                files.push(path);
+            }
+        }
+    }
+
+    Ok(files)
 }
 
 
@@ -1872,6 +2009,231 @@ async fn browse_folder(
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct LocalLlamaInstallResult {
+    version_name: String,
+    backend_type: String,
+    install_path: String,
+    workspace_path: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+struct LocalLlamaDllInstallResult {
+    install_path: String,
+    dll_count: usize,
+    workspace_path: String,
+}
+
+fn ensure_ik_installer_workspace(base_exec: &str) -> Result<PathBuf, String> {
+    let workspace = Path::new(base_exec)
+        .join("versions")
+        .join("ik_llama.cpp")
+        .join("_installer_workspace");
+
+    fs::create_dir_all(workspace.join("main_drop"))
+        .map_err(|e| format!("Failed to create IK main drop folder: {}", e))?;
+    fs::create_dir_all(workspace.join("dll_drop"))
+        .map_err(|e| format!("Failed to create IK DLL drop folder: {}", e))?;
+    fs::create_dir_all(workspace.join("temp"))
+        .map_err(|e| format!("Failed to create IK temp folder: {}", e))?;
+
+    Ok(workspace)
+}
+
+#[tauri::command]
+async fn pick_llamacpp_zip_file(
+    initial_dir: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let dialog = app.dialog();
+    let mut file_dialog = dialog.file().add_filter("ZIP Archives", &["zip"]);
+
+    if let Some(initial) = initial_dir {
+        file_dialog = file_dialog.set_directory(initial);
+    }
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    file_dialog.pick_file(move |path| {
+        let result = path.map(|p| p.to_string());
+        let _ = tx.send(result);
+    });
+
+    match rx.await {
+        Ok(result) => Ok(result),
+        Err(_) => Err("Dialog was cancelled or failed".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn install_local_llamacpp_zip(
+    zip_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<LocalLlamaInstallResult, String> {
+    let source_path = PathBuf::from(&zip_path);
+    if !source_path.exists() {
+        return Err(format!("Source path not found: {}", zip_path));
+    }
+
+    let base_exec = {
+        let cfg = state.config.lock().await;
+        cfg.executable_folder.clone()
+    };
+
+    let workspace_root = ensure_ik_installer_workspace(&base_exec)?;
+
+    let archive_name = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "Invalid source filename".to_string())?;
+
+    let backend_type = detect_backend_type(archive_name);
+    let version_name = "ik_llama.cpp".to_string();
+    let versions_root = Path::new(&base_exec).join("versions");
+    let backend_dir = versions_root.join(&version_name).join(&backend_type);
+
+    fs::create_dir_all(&versions_root)
+        .map_err(|e| format!("Failed to create versions directory: {}", e))?;
+
+    let temp_extract_dir = workspace_root
+        .join("temp")
+        .join(format!("ik_extract_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&temp_extract_dir)
+        .map_err(|e| format!("Failed to create temp extraction directory: {}", e))?;
+
+    let install_result = (|| -> Result<LocalLlamaInstallResult, String> {
+        let server_binary_name = if cfg!(windows) {
+            "llama-server.exe"
+        } else {
+            "llama-server"
+        };
+
+        let detected_server_root = if source_path.is_file() {
+            let is_zip = source_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("zip"))
+                .unwrap_or(false);
+            if !is_zip {
+                return Err("Selected file must be a .zip archive".to_string());
+            }
+
+            extract_zip_safely_to_directory(&source_path, &temp_extract_dir)?;
+            find_server_root_dir(&temp_extract_dir, server_binary_name)?
+        } else {
+            return Err("Source path must be a .zip file".to_string());
+        };
+
+        if backend_dir.exists() {
+            fs::remove_dir_all(&backend_dir)
+                .map_err(|e| format!("Failed to replace existing backend directory: {}", e))?;
+        }
+        fs::create_dir_all(&backend_dir)
+            .map_err(|e| format!("Failed to create backend directory: {}", e))?;
+
+        copy_directory_contents_recursive(&detected_server_root, &backend_dir)?;
+
+        if !backend_dir.join(server_binary_name).exists() {
+            return Err(format!(
+                "Install failed: '{}' was not found in final backend folder",
+                server_binary_name
+            ));
+        }
+
+        Ok(LocalLlamaInstallResult {
+            version_name,
+            backend_type,
+            install_path: backend_dir.to_string_lossy().to_string(),
+            workspace_path: workspace_root.to_string_lossy().to_string(),
+        })
+    })();
+
+    let _ = fs::remove_dir_all(&temp_extract_dir);
+    install_result
+}
+
+#[tauri::command]
+async fn install_local_llamacpp_cuda_dlls_zip(
+    zip_path: String,
+    install_path: String,
+) -> Result<LocalLlamaDllInstallResult, String> {
+    let source_path = PathBuf::from(&zip_path);
+    if !source_path.exists() {
+        return Err(format!("Source path not found: {}", zip_path));
+    }
+
+    let backend_dir = PathBuf::from(&install_path);
+    if !backend_dir.exists() || !backend_dir.is_dir() {
+        return Err(format!("Install path not found: {}", install_path));
+    }
+
+    let version_root = backend_dir
+        .parent()
+        .ok_or_else(|| "Could not resolve ik_llama.cpp version root from install path".to_string())?;
+    let workspace_root = version_root.join("_installer_workspace");
+    fs::create_dir_all(workspace_root.join("main_drop"))
+        .map_err(|e| format!("Failed to create IK main drop folder: {}", e))?;
+    fs::create_dir_all(workspace_root.join("dll_drop"))
+        .map_err(|e| format!("Failed to create IK DLL drop folder: {}", e))?;
+    fs::create_dir_all(workspace_root.join("temp"))
+        .map_err(|e| format!("Failed to create IK temp folder: {}", e))?;
+
+    let temp_extract_dir = workspace_root
+        .join("temp")
+        .join(format!("ik_cuda_dll_extract_{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&temp_extract_dir)
+        .map_err(|e| format!("Failed to create temp extraction directory: {}", e))?;
+
+    let install_result = (|| -> Result<LocalLlamaDllInstallResult, String> {
+        let dll_files = if source_path.is_file() {
+            let is_zip = source_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("zip"))
+                .unwrap_or(false);
+            if !is_zip {
+                return Err("Selected file must be a .zip archive".to_string());
+            }
+
+            extract_zip_safely_to_directory(&source_path, &temp_extract_dir)?;
+            collect_files_with_extension(&temp_extract_dir, "dll")?
+        } else {
+            return Err("Source path must be a .zip file".to_string());
+        };
+
+        if dll_files.is_empty() {
+            return Err("No .dll files were found in the selected source".to_string());
+        }
+
+        for dll_path in &dll_files {
+            let filename = dll_path
+                .file_name()
+                .ok_or_else(|| format!("Invalid DLL filename in '{}'", dll_path.display()))?;
+            let destination = backend_dir.join(filename);
+
+            fs::copy(dll_path, &destination).map_err(|e| {
+                format!(
+                    "Failed copying DLL '{}' to '{}': {}",
+                    dll_path.display(),
+                    destination.display(),
+                    e
+                )
+            })?;
+        }
+
+        Ok(LocalLlamaDllInstallResult {
+            install_path: backend_dir.to_string_lossy().to_string(),
+            dll_count: dll_files.len(),
+            workspace_path: workspace_root.to_string_lossy().to_string(),
+        })
+    })();
+
+    let _ = fs::remove_dir_all(&temp_extract_dir);
+    install_result
+}
+
 #[tauri::command]
 async fn open_url(url: String, app: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -2639,6 +3001,7 @@ struct LlamaCppInstalledVersion {
 #[tauri::command]
 async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec<LlamaCppInstalledVersion>, String> {
     use std::fs;
+    use std::collections::HashSet;
     use std::time::SystemTime;
 
     let (base_exec, active_path, active_version) = {
@@ -2649,10 +3012,22 @@ async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec
             cfg.active_executable_version.clone(),
         )
     };
-    let versions_dir = std::path::Path::new(&base_exec).join("versions");
+    let current_versions_dir = std::path::Path::new(&base_exec).join("versions");
+    let mut candidate_versions_dirs = vec![current_versions_dir.clone()];
+    if let Some(home) = dirs::home_dir() {
+        let legacy_versions_dir = home.join(".Arandu").join("llama.cpp").join("versions");
+        if legacy_versions_dir != current_versions_dir {
+            candidate_versions_dirs.push(legacy_versions_dir);
+        }
+    }
+
     let mut out = Vec::new();
-    
-    if versions_dir.exists() {
+    let mut seen_paths = HashSet::new();
+
+    for versions_dir in candidate_versions_dirs {
+        if !versions_dir.exists() {
+            continue;
+        }
         if let Ok(read_dir) = fs::read_dir(&versions_dir) {
             for entry in read_dir.flatten() {
                 let path = entry.path();
@@ -2690,7 +3065,10 @@ async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec
                                     }
                                 } else { false };
                                 
-                                out.push(LlamaCppInstalledVersion { 
+                                if !seen_paths.insert(path_string.clone()) {
+                                    continue;
+                                }
+                                out.push(LlamaCppInstalledVersion {
                                     name: format!("{}-{}", version_name, backend_name), 
                                     path: path_string, 
                                     has_server, 
@@ -2729,7 +3107,10 @@ async fn list_llamacpp_versions(state: tauri::State<'_, AppState>) -> Result<Vec
                             }
                         } else { false };
                         
-                        out.push(LlamaCppInstalledVersion { 
+                        if !seen_paths.insert(path_string.clone()) {
+                            continue;
+                        }
+                        out.push(LlamaCppInstalledVersion {
                             name: version_name, 
                             path: path_string, 
                             has_server: true, 
@@ -2792,19 +3173,43 @@ async fn delete_llamacpp_version(path: String, state: tauri::State<'_, AppState>
     };
 
     let versions_root = Path::new(&base_exec).join("versions");
+    let legacy_versions_root = dirs::home_dir()
+        .map(|h| h.join(".Arandu").join("llama.cpp").join("versions"));
     let path_buf = Path::new(&path).to_path_buf();
-    
-    // Ensure deletion target is under versions root
-    if !path_buf.starts_with(&versions_root) {
+
+    if !path_buf.exists() {
+        return Err("Version path does not exist".into());
+    }
+
+    let versions_root_canon = fs::canonicalize(&versions_root)
+        .unwrap_or(versions_root.clone());
+    let legacy_versions_root_canon = legacy_versions_root
+        .as_ref()
+        .and_then(|p| fs::canonicalize(p).ok());
+    let target_canon = fs::canonicalize(&path_buf)
+        .map_err(|e| format!("Failed to resolve version path: {}", e))?;
+
+    // Ensure deletion target resolves under allowed versions roots
+    let in_primary = target_canon.starts_with(&versions_root_canon);
+    let in_legacy = legacy_versions_root_canon
+        .as_ref()
+        .map(|root| target_canon.starts_with(root))
+        .unwrap_or(false);
+    if !in_primary && !in_legacy {
         return Err("Cannot delete outside versions directory".into());
     }
-    
-    if path_buf.exists() {
-        fs::remove_dir_all(&path_buf).map_err(|e| format!("Failed to delete version: {}", e))?;
+
+    if target_canon.exists() {
+        fs::remove_dir_all(&target_canon).map_err(|e| format!("Failed to delete version: {}", e))?;
         
         // If we deleted a backend folder, check if the parent version folder is now empty
-        if let Some(parent) = path_buf.parent() {
-            if parent != versions_root && parent.exists() {
+        if let Some(parent) = target_canon.parent() {
+            let is_root_parent = parent == versions_root_canon
+                || legacy_versions_root_canon
+                    .as_ref()
+                    .map(|root| parent == root)
+                    .unwrap_or(false);
+            if !is_root_parent && parent.exists() {
                 if let Ok(entries) = fs::read_dir(parent) {
                     if entries.count() == 0 {
                         // Parent version folder is empty, remove it too
@@ -4029,6 +4434,106 @@ fn resolve_mcp_url(connection: &McpServerConfig) -> Option<String> {
     None
 }
 
+fn resolve_json_stdio_connection(connection: &McpServerConfig) -> Option<McpServerConfig> {
+    if connection.transport != McpTransport::Json {
+        return None;
+    }
+
+    if !connection.command.trim().is_empty() {
+        let mut patched = connection.clone();
+        patched.transport = McpTransport::Stdio;
+        return Some(patched);
+    }
+
+    let payload = serde_json::from_str::<serde_json::Value>(connection.json_payload.trim()).ok()?;
+
+    let server = if payload.get("command").and_then(|v| v.as_str()).is_some() {
+        payload.clone()
+    } else if let Some(server_obj) = payload.get("server").and_then(|v| v.as_object()) {
+        serde_json::Value::Object(server_obj.clone())
+    } else if payload.is_object() {
+        // Support JSON payloads shaped like:
+        // { "my-mcp": { "command": "...", "args": [...] } }
+        let object = payload.as_object()?;
+        let nested = object
+            .values()
+            .find(|item| item.is_object() && item.get("command").and_then(|v| v.as_str()).is_some());
+        if let Some(value) = nested {
+            value.clone()
+        } else {
+            let servers = payload.get("mcpServers")?.as_object()?;
+            servers.values().find(|item| item.is_object())?.clone()
+        }
+    } else {
+        let servers = payload.get("mcpServers")?.as_object()?;
+        servers.values().find(|item| item.is_object())?.clone()
+    };
+
+    let command = server
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if command.is_empty() {
+        return None;
+    }
+
+    let args = server
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+
+    let env_object = server
+        .get("env")
+        .or_else(|| server.get("env_vars"))
+        .or_else(|| server.get("envVars"));
+
+    let env_vars = env_object
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+                .collect::<std::collections::HashMap<String, String>>()
+        })
+        .unwrap_or_default();
+
+    let mut patched = connection.clone();
+    patched.transport = McpTransport::Stdio;
+    patched.command = command;
+    patched.args = args;
+    if !env_vars.is_empty() {
+        patched.env_vars = env_vars;
+    }
+    Some(patched)
+}
+
+fn stdio_args_with_header_bridge(connection: &McpServerConfig) -> Vec<String> {
+    let mut args = connection.args.clone();
+    let uses_mcp_remote = args.iter().any(|item| item.trim().eq_ignore_ascii_case("mcp-remote"));
+    if !uses_mcp_remote || connection.headers.is_empty() {
+        return args;
+    }
+
+    for (key, value) in &connection.headers {
+        let k = key.trim();
+        let v = value.trim();
+        if k.is_empty() || v.is_empty() {
+            continue;
+        }
+        args.push("--header".to_string());
+        args.push(format!("{}: {}", k, v));
+    }
+
+    args
+}
+
 fn parse_mcp_tools_from_response(response: &serde_json::Value) -> Result<Vec<McpToolInfo>, String> {
     if let Some(error) = response.get("error") {
         let details = if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
@@ -4116,8 +4621,38 @@ fn parse_mcp_response_value(response_text: &str) -> Result<serde_json::Value, St
 async fn read_mcp_response_value(
     response: reqwest::Response,
 ) -> Result<serde_json::Value, String> {
-    let body = response.text().await.map_err(|err| err.to_string())?;
+    let body_bytes = response.bytes().await.map_err(|err| err.to_string())?;
+    let body = String::from_utf8_lossy(&body_bytes).to_string();
     parse_mcp_response_value(&body)
+}
+
+#[cfg(windows)]
+fn resolve_windows_cmd_shim(command: &str) -> Option<String> {
+    let cmd = command.trim().to_lowercase();
+    let shim = match cmd.as_str() {
+        "npx" => "npx.cmd",
+        "npm" => "npm.cmd",
+        "pnpm" => "pnpm.cmd",
+        "yarn" => "yarn.cmd",
+        "bunx" => "bunx.cmd",
+        _ => return None,
+    };
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(std::path::Path::new(&program_files).join("nodejs").join(shim));
+    }
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        candidates.push(std::path::Path::new(&program_files_x86).join("nodejs").join(shim));
+    }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        candidates.push(std::path::Path::new(&appdata).join("npm").join(shim));
+    }
+
+    candidates
+        .into_iter()
+        .find(|path| path.exists())
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 async fn execute_stdio_mcp_request(
@@ -4130,14 +4665,19 @@ async fn execute_stdio_mcp_request(
         return Err("Stdio MCP command is required".to_string());
     }
 
+    let stdio_args = stdio_args_with_header_bridge(connection);
     let mut command = TokioCommand::new(&connection.command);
-    command.args(&connection.args);
+    command.args(&stdio_args);
     if !connection.env_vars.is_empty() {
         command.envs(&connection.env_vars);
     }
     command.stdin(std::process::Stdio::piped());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x08000000);
+    }
 
     #[cfg(windows)]
     {
@@ -4146,18 +4686,42 @@ async fn execute_stdio_mcp_request(
         if is_cmd_style {
             let mut shell_command = TokioCommand::new("cmd");
             shell_command.arg("/C").arg(&connection.command);
-            shell_command.args(&connection.args);
+            shell_command.args(&stdio_args);
             if !connection.env_vars.is_empty() {
                 shell_command.envs(&connection.env_vars);
             }
             shell_command.stdin(std::process::Stdio::piped());
             shell_command.stdout(std::process::Stdio::piped());
             shell_command.stderr(std::process::Stdio::null());
+            shell_command.creation_flags(0x08000000);
             command = shell_command;
         }
     }
+    let mut spawned = command.spawn();
 
-    let mut child = command.spawn().map_err(|err| err.to_string())?;
+    #[cfg(windows)]
+    {
+        if let Err(err) = &spawned {
+            let cmd_name = connection.command.trim().to_lowercase();
+            let is_cmd_style = matches!(cmd_name.as_str(), "npx" | "npm" | "pnpm" | "yarn" | "bunx");
+            if err.kind() == std::io::ErrorKind::NotFound && is_cmd_style {
+                if let Some(shim_path) = resolve_windows_cmd_shim(&connection.command) {
+                    let mut shim_command = TokioCommand::new(shim_path);
+                    shim_command.args(&stdio_args);
+                    if !connection.env_vars.is_empty() {
+                        shim_command.envs(&connection.env_vars);
+                    }
+                    shim_command.stdin(std::process::Stdio::piped());
+                    shim_command.stdout(std::process::Stdio::piped());
+                    shim_command.stderr(std::process::Stdio::null());
+                    shim_command.creation_flags(0x08000000);
+                    spawned = shim_command.spawn();
+                }
+            }
+        }
+    }
+
+    let mut child = spawned.map_err(|err| err.to_string())?;
     let mut stdin = child
         .stdin
         .take()
@@ -4474,13 +5038,23 @@ async fn list_mcp_tools(
     }
 
     let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+    let effective_connection = if matches!(connection.transport, McpTransport::Json) && resolve_mcp_url(&connection).is_none() {
+        resolve_json_stdio_connection(&connection).unwrap_or_else(|| connection.clone())
+    } else {
+        connection.clone()
+    };
+    let stdio_timeout = if matches!(effective_connection.transport, McpTransport::Stdio) {
+        Duration::from_secs(connection.timeout_seconds.max(1).max(45))
+    } else {
+        timeout_duration
+    };
 
-    if matches!(connection.transport, McpTransport::Stdio) {
+    if matches!(effective_connection.transport, McpTransport::Stdio) {
         let stdio_result = execute_stdio_mcp_request(
-            &connection,
+            &effective_connection,
             "tools/list",
             serde_json::json!({}),
-            timeout_duration,
+            stdio_timeout,
         )
         .await;
 
@@ -4530,12 +5104,12 @@ async fn list_mcp_tools(
         return Ok(result);
     }
 
-    let resolved_url = resolve_mcp_url(&connection);
+    let resolved_url = resolve_mcp_url(&effective_connection);
     if resolved_url.is_none() {
         return Ok(McpToolsResult {
             success: false,
             latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "URL is required for tool discovery. For JSON transport, include a URL in the URL field or inside JSON payload (url/endpoint).".to_string(),
+            message: "URL is required for tool discovery. For JSON transport, include URL/endpoint in payload or provide stdio command config.".to_string(),
             tool_count: 0,
             tools: Vec::new(),
             status_code: None,
@@ -4546,9 +5120,9 @@ async fn list_mcp_tools(
     let url = resolved_url.unwrap_or_default();
 
     let result = run_mcp_tool_discovery(
-        connection.transport.clone(),
+        effective_connection.transport.clone(),
         url,
-        connection.headers.clone(),
+        effective_connection.headers.clone(),
         timeout_duration,
     ).await;
 
@@ -4626,16 +5200,26 @@ async fn call_mcp_tool(
     }
 
     let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+    let effective_connection = if matches!(connection.transport, McpTransport::Json) && resolve_mcp_url(&connection).is_none() {
+        resolve_json_stdio_connection(&connection).unwrap_or_else(|| connection.clone())
+    } else {
+        connection.clone()
+    };
+    let stdio_timeout = if matches!(effective_connection.transport, McpTransport::Stdio) {
+        Duration::from_secs(connection.timeout_seconds.max(1).max(45))
+    } else {
+        timeout_duration
+    };
 
-    if matches!(connection.transport, McpTransport::Stdio) {
+    if matches!(effective_connection.transport, McpTransport::Stdio) {
         let response_body = match execute_stdio_mcp_request(
-            &connection,
+            &effective_connection,
             "tools/call",
             serde_json::json!({
                 "name": tool_name,
                 "arguments": request.arguments
             }),
-            timeout_duration,
+            stdio_timeout,
         )
         .await
         {
@@ -4694,12 +5278,12 @@ async fn call_mcp_tool(
         });
     }
 
-    let resolved_url = resolve_mcp_url(&connection);
+    let resolved_url = resolve_mcp_url(&effective_connection);
     if resolved_url.is_none() {
         return Ok(McpToolCallResult {
             success: false,
             latency_ms: start_time.elapsed().as_millis() as i64,
-            message: "URL is required for MCP tool calls. For JSON transport, include URL in URL field or JSON payload.".to_string(),
+            message: "URL is required for MCP tool calls. For JSON transport, include URL/endpoint in payload or provide stdio command config.".to_string(),
             content: String::new(),
             is_error: true,
             raw_result: None,
@@ -4714,10 +5298,10 @@ async fn call_mcp_tool(
     let initialize_payload = default_mcp_initialize_payload();
     let initialize_response = match post_mcp_request(
         &client,
-        &connection.transport,
+        &effective_connection.transport,
         &url,
         initialize_payload,
-        &connection.headers,
+        &effective_connection.headers,
         timeout_duration,
     )
     .await
@@ -4762,10 +5346,10 @@ async fn call_mcp_tool(
 
     let call_response = match post_mcp_request(
         &client,
-        &connection.transport,
+        &effective_connection.transport,
         &url,
         call_payload,
-        &connection.headers,
+        &effective_connection.headers,
         timeout_duration,
     )
     .await
@@ -4856,6 +5440,192 @@ async fn call_mcp_tool(
 }
 
 #[tauri::command]
+async fn call_supermemory_native_tool(
+    request: SupermemoryNativeCallRequest,
+) -> Result<SupermemoryNativeCallResult, String> {
+    let start_time = Instant::now();
+    let api_key = request.api_key.trim().to_string();
+    let tool_name = request.tool_name.trim().to_string();
+
+    if api_key.is_empty() {
+        return Ok(SupermemoryNativeCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Supermemory API key is required".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("missing_api_key".to_string()),
+            status_code: None,
+        });
+    }
+
+    if tool_name.is_empty() {
+        return Ok(SupermemoryNativeCallResult {
+            success: false,
+            latency_ms: start_time.elapsed().as_millis() as i64,
+            message: "Tool name is required".to_string(),
+            content: String::new(),
+            is_error: true,
+            raw_result: None,
+            error: Some("missing_tool_name".to_string()),
+            status_code: None,
+        });
+    }
+
+    let args: serde_json::Value = request.arguments;
+    let container_tag = args
+        .get("containerTag")
+        .or_else(|| args.get("container_tag"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("default")
+        .trim()
+        .to_string();
+
+    let base_url = "https://api.supermemory.ai";
+    let client = reqwest::Client::new();
+
+    let call = match tool_name.as_str() {
+        "supermemory_search" => {
+            let q = args.get("q").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let limit = args.get("limit").and_then(|v| v.as_i64()).unwrap_or(5).clamp(1, 20);
+            let search_mode = args
+                .get("searchMode")
+                .or_else(|| args.get("search_mode"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("hybrid")
+                .to_string();
+
+            let payload = serde_json::json!({
+                "q": q,
+                "containerTag": container_tag,
+                "searchMode": search_mode,
+                "limit": limit
+            });
+            (format!("{}/v4/search", base_url), payload, "Search completed")
+        }
+        "supermemory_add_memory" => {
+            let content = args
+                .get("content")
+                .or_else(|| args.get("memory"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if content.trim().is_empty() {
+                return Ok(SupermemoryNativeCallResult {
+                    success: false,
+                    latency_ms: start_time.elapsed().as_millis() as i64,
+                    message: "content is required".to_string(),
+                    content: String::new(),
+                    is_error: true,
+                    raw_result: None,
+                    error: Some("missing_content".to_string()),
+                    status_code: None,
+                });
+            }
+
+            let payload = serde_json::json!({
+                "content": content,
+                "containerTag": container_tag
+            });
+            (format!("{}/v3/documents", base_url), payload, "Memory added")
+        }
+        "supermemory_profile" => {
+            let q = args.get("q").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let payload = if q.trim().is_empty() {
+                serde_json::json!({ "containerTag": container_tag })
+            } else {
+                serde_json::json!({ "containerTag": container_tag, "q": q })
+            };
+            (format!("{}/v4/profile", base_url), payload, "Profile fetched")
+        }
+        "supermemory_configure_settings" => {
+            let should_llm_filter = args
+                .get("shouldLLMFilter")
+                .or_else(|| args.get("should_llm_filter"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let filter_prompt = args
+                .get("filterPrompt")
+                .or_else(|| args.get("filter_prompt"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Arandu chat app memory filtering by containerTag")
+                .to_string();
+
+            let payload = serde_json::json!({
+                "shouldLLMFilter": should_llm_filter,
+                "filterPrompt": filter_prompt
+            });
+            (format!("{}/v3/settings", base_url), payload, "Settings updated")
+        }
+        _ => {
+            return Ok(SupermemoryNativeCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Unknown Supermemory tool".to_string(),
+                content: String::new(),
+                is_error: true,
+                raw_result: None,
+                error: Some("unknown_tool".to_string()),
+                status_code: None,
+            });
+        }
+    };
+
+    let method = if tool_name == "supermemory_configure_settings" { "PATCH" } else { "POST" };
+    let request_builder = if method == "PATCH" {
+        client.patch(&call.0)
+    } else {
+        client.post(&call.0)
+    };
+
+    let response = request_builder
+        .header("x-supermemory-api-key", api_key)
+        .header("content-type", "application/json")
+        .timeout(Duration::from_secs(45))
+        .json(&call.1)
+        .send()
+        .await;
+
+    let response = match response {
+        Ok(value) => value,
+        Err(err) => {
+            return Ok(SupermemoryNativeCallResult {
+                success: false,
+                latency_ms: start_time.elapsed().as_millis() as i64,
+                message: "Supermemory request failed".to_string(),
+                content: String::new(),
+                is_error: true,
+                raw_result: None,
+                error: Some(err.to_string()),
+                status_code: None,
+            });
+        }
+    };
+
+    let status = response.status();
+    let status_code = status.as_u16();
+    let body_text = response.text().await.unwrap_or_else(|_| "{}".to_string());
+    let parsed_json = serde_json::from_str::<serde_json::Value>(&body_text).ok();
+    let is_ok = status.is_success();
+
+    Ok(SupermemoryNativeCallResult {
+        success: is_ok,
+        latency_ms: start_time.elapsed().as_millis() as i64,
+        message: if is_ok {
+            call.2.to_string()
+        } else {
+            format!("Supermemory request returned HTTP {}", status_code)
+        },
+        content: body_text.clone(),
+        is_error: !is_ok,
+        raw_result: parsed_json,
+        error: if is_ok { None } else { Some("supermemory_http_error".to_string()) },
+        status_code: Some(status_code),
+    })
+}
+
+#[tauri::command]
 async fn toggle_mcp_connection(
     id: String,
     enabled: bool,
@@ -4922,13 +5692,18 @@ async fn test_mcp_connection(
     }
 
     let timeout_duration = Duration::from_secs(connection.timeout_seconds.max(1));
+    let effective_connection = if matches!(connection.transport, McpTransport::Json) && resolve_mcp_url(&connection).is_none() {
+        resolve_json_stdio_connection(&connection).unwrap_or_else(|| connection.clone())
+    } else {
+        connection.clone()
+    };
 
-    let mut result = match connection.transport {
+    let mut result = match effective_connection.transport {
         McpTransport::Stdio => {
-            let mut cmd = TokioCommand::new(&connection.command);
-            cmd.args(&connection.args);
-            if !connection.env_vars.is_empty() {
-                cmd.envs(&connection.env_vars);
+            let mut cmd = TokioCommand::new(&effective_connection.command);
+            cmd.args(&effective_connection.args);
+            if !effective_connection.env_vars.is_empty() {
+                cmd.envs(&effective_connection.env_vars);
             }
 
             let mut spawned = cmd.spawn();
@@ -4936,16 +5711,29 @@ async fn test_mcp_connection(
             #[cfg(windows)]
             {
                 if let Err(err) = &spawned {
-                    let cmd_name = connection.command.trim().to_lowercase();
+                    let cmd_name = effective_connection.command.trim().to_lowercase();
                     let is_cmd_style = matches!(cmd_name.as_str(), "npx" | "npm" | "pnpm" | "yarn" | "bunx");
                     if err.kind() == std::io::ErrorKind::NotFound && is_cmd_style {
                         let mut shell_cmd = TokioCommand::new("cmd");
-                        shell_cmd.arg("/C").arg(&connection.command);
-                        shell_cmd.args(&connection.args);
-                        if !connection.env_vars.is_empty() {
-                            shell_cmd.envs(&connection.env_vars);
+                        shell_cmd.arg("/C").arg(&effective_connection.command);
+                        shell_cmd.args(&effective_connection.args);
+                        if !effective_connection.env_vars.is_empty() {
+                            shell_cmd.envs(&effective_connection.env_vars);
                         }
                         spawned = shell_cmd.spawn();
+
+                        if let Err(shell_err) = &spawned {
+                            if shell_err.kind() == std::io::ErrorKind::NotFound {
+                                if let Some(shim_path) = resolve_windows_cmd_shim(&effective_connection.command) {
+                                    let mut shim_cmd = TokioCommand::new(shim_path);
+                                    shim_cmd.args(&effective_connection.args);
+                                    if !effective_connection.env_vars.is_empty() {
+                                        shim_cmd.envs(&effective_connection.env_vars);
+                                    }
+                                    spawned = shim_cmd.spawn();
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4953,7 +5741,7 @@ async fn test_mcp_connection(
             match spawned {
                 Ok(mut child) => {
                     // Track Python processes if command is python/python3
-                    let cmd_lower = connection.command.to_lowercase();
+                    let cmd_lower = effective_connection.command.to_lowercase();
                     if cmd_lower.contains("python") {
                         if let Some(pid) = child.id() {
                             state.register_python_process(pid).await;
@@ -5002,7 +5790,7 @@ async fn test_mcp_connection(
                     latency_ms: start_time.elapsed().as_millis() as i64,
                     message: format!(
                         "Failed to start stdio process '{}'. Ensure command exists on PATH and required env vars are set.",
-                        connection.command
+                        effective_connection.command
                     ),
                     status_code: None,
                     exit_code: None,
@@ -5011,12 +5799,12 @@ async fn test_mcp_connection(
             }
         }
         _ => {
-        let resolved_url = resolve_mcp_url(&connection);
+        let resolved_url = resolve_mcp_url(&effective_connection);
         if resolved_url.is_none() {
             return Ok(McpTestResult {
                 success: false,
                 latency_ms: start_time.elapsed().as_millis() as i64,
-                message: "URL is required for transport validation. For JSON transport, include a URL in the URL field or inside JSON payload (url/endpoint).".to_string(),
+                message: "URL is required for transport validation. For JSON transport, include URL/endpoint in payload or provide stdio command config.".to_string(),
                 status_code: None,
                 exit_code: None,
                 error: Some("missing_url".to_string()),
@@ -5025,8 +5813,8 @@ async fn test_mcp_connection(
 
         let url = resolved_url.unwrap_or_default();
         let client = reqwest::Client::new();
-        let transport = connection.transport.clone();
-            let init_payload = match mcp_test_payload(&connection) {
+        let transport = effective_connection.transport.clone();
+            let init_payload = match mcp_test_payload(&effective_connection) {
                 Ok(payload) => payload,
                 Err(error) => {
                     return Ok(McpTestResult {
@@ -5052,7 +5840,7 @@ async fn test_mcp_connection(
                         request = request.header("accept", "application/json, text/event-stream");
                     }
 
-                    for (key, value) in &connection.headers {
+                    for (key, value) in &effective_connection.headers {
                         let header_name = key.trim();
                         let header_value = value.trim();
                         if header_name.is_empty() || header_value.is_empty() {
@@ -5381,6 +6169,7 @@ tauri::Builder::default()
             kill_process,
             get_process_output,
             browse_folder,
+            pick_llamacpp_zip_file,
             open_url,
             open_model_folder,
             search_huggingface,
@@ -5401,6 +6190,8 @@ tauri::Builder::default()
             list_llamacpp_versions,
             set_active_llamacpp_version,
             delete_llamacpp_version,
+            install_local_llamacpp_zip,
+            install_local_llamacpp_cuda_dlls_zip,
             get_session_state,
             save_window_state,
             remove_window_state,
@@ -5453,6 +6244,7 @@ get_weekly_reports,
             test_mcp_connection,
             list_mcp_tools,
             call_mcp_tool,
+            call_supermemory_native_tool,
             correct_mcp_json_with_active_model,
             list_chat_logs,
             create_chat_log,

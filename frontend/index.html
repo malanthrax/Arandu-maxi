@@ -110,6 +110,12 @@
                 <button class="view-toggle-btn" id="view-fake-model-btn" title="Toggle fake discovery model broadcast">
                     <span class="material-icons">science</span>
                 </button>
+                <button class="view-toggle-btn view-system-prompt-btn" id="view-system-prompt-btn" title="System Prompt Override">
+                    <span class="material-icons">edit_note</span>
+                </button>
+                <button class="view-toggle-btn view-ik-readme-btn" id="view-ik-readme-btn" title="IK-supported model families">
+                    <span class="material-icons">menu_book</span>
+                </button>
             </div>
 
             <!-- Last Used Model -->
@@ -117,6 +123,10 @@
                 <span class="material-icons">history</span>
                 <span class="launch-last-model-text" id="launch-last-model-text">Last model</span>
             </button>
+        </div>
+
+        <div class="desktop-model-warning" id="desktop-model-warning">
+            Do not use quantized models from Unsloth that have _XL in their name.
         </div>
 
         <!-- Legacy Network Serve widget removed from desktop; MCP Manager is available from dock. -->
@@ -305,6 +315,20 @@
                         for UI, right for background.</small>
                 </div>
                 <div class="property-group">
+                    <h4><span class="material-icons">tune</span> Global Options</h4>
+                    <div class="property-row" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="settings-window-save" id="save-config" style="margin: 0; flex: 1; min-width: 180px;">
+                            <span class="material-icons">save</span> Save Settings
+                        </button>
+                        <button class="settings-window-save" id="scan-models-btn" style="margin: 0; flex: 1; min-width: 180px;">
+                            <span class="material-icons">sync</span> Scan Models
+                        </button>
+                    </div>
+                    <small style="color: var(--ubuntu-text-muted); font-size: 11px;">
+                        Save global configuration, then run a model scan when you need to refresh the desktop list.
+                    </small>
+                </div>
+                <div class="property-group">
                     <h4><span class="material-icons">update</span> Model Updates</h4>
                     <button class="settings-window-save" onclick="desktop.rescanAllModels()" style="margin-bottom: 8px;">
                         <span class="material-icons">refresh</span> Rescan All Models for HF Links
@@ -423,8 +447,6 @@
                     </div>
                 </div>
                 
-                <button class="settings-window-save" id="save-config"><span class="material-icons">save</span> Save
-                    Settings & Scan Models</button>
             </div>
             <div class="settings-right" style="flex: 0 0 280px; display: flex; flex-direction: column;">
                 <div class="about-section" style="background: linear-gradient(135deg, var(--theme-surface) 0%, var(--theme-surface-light) 50%, var(--theme-surface) 100%); border-radius: 8px; padding: 20px; border: 1px solid var(--theme-border); box-shadow: 0 4px 12px rgba(0,0,0,0.3);">

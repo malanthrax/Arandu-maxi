@@ -9,6 +9,11 @@ use tokio::sync::Mutex;
 use crate::models::*;
 use crate::AppState;
 use crate::config::save_settings;
+use std::collections::HashSet;
+
+fn has_arg(args: &[String], key: &str) -> bool {
+    args.iter().any(|arg| arg.eq_ignore_ascii_case(key))
+}
 
 async fn resolve_llama_server_path_with_fallback(
     state: &AppState,
@@ -222,12 +227,14 @@ pub async fn launch_model_server(
 println!("Using custom UI path: {:?}", custom_ui_path);
     cmd.args(["--path", custom_ui_path.to_str().unwrap_or("")]);
 
-    cmd.args(["-m", &model_config.model_path])
-        .args(["--host", &model_config.server_host])
-        .args(["--port", &final_port.to_string()])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true); // Ensure child process is killed when dropped
+    let mut launch_args = vec![
+        "-m".to_string(),
+        model_config.model_path.clone(),
+        "--host".to_string(),
+        model_config.server_host.clone(),
+        "--port".to_string(),
+        final_port.to_string(),
+    ];
 
     // Apply environment variables
     for (key, value) in &model_config.env_vars {
@@ -259,8 +266,17 @@ println!("Using custom UI path: {:?}", custom_ui_path);
             }
         }
         
-        cmd.args(custom_args);
+        let sanitized = sanitize_args_for_ik_backend(&executable_path, custom_args).await;
+        launch_args.extend(sanitized);
     }
+
+    if !has_arg(&launch_args, "--jinja") {
+        launch_args.push("--jinja".to_string());
+    }
+    cmd.args(&launch_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true); // Ensure child process is killed when dropped
     
     let mut child = cmd.spawn()?;
     let process_id = Uuid::new_v4().to_string();
@@ -360,6 +376,7 @@ pub async fn launch_model_external(
         "--port".to_string(),
         final_port.to_string(),
     ];
+
     
     // Add custom arguments if present
     if !model_config.custom_args.trim().is_empty() {
@@ -382,7 +399,12 @@ pub async fn launch_model_external(
             }
         }
         
-        cmd_args.extend(custom_args);
+        let sanitized = sanitize_args_for_ik_backend(&executable_path, custom_args).await;
+        cmd_args.extend(sanitized);
+    }
+
+    if !has_arg(&cmd_args, "--jinja") {
+        cmd_args.push("--jinja".to_string());
     }
     
     // Launch in external terminal
@@ -743,4 +765,97 @@ fn parse_custom_args(custom_args: &str) -> Vec<String> {
     }
     
     args
+}
+
+fn is_ik_backend_path(executable_path: &std::path::Path) -> bool {
+    executable_path
+        .to_string_lossy()
+        .to_lowercase()
+        .contains("ik_llama.cpp")
+}
+
+fn extract_supported_flags_from_help(help_text: &str) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for token in help_text.split_whitespace() {
+        let cleaned = token
+            .trim_matches(',')
+            .trim_matches(';')
+            .trim_matches('(')
+            .trim_matches(')')
+            .trim();
+        if cleaned.starts_with("--") && cleaned.len() > 2 {
+            out.insert(cleaned.to_string());
+        } else if cleaned.starts_with('-') && !cleaned.starts_with("--") && cleaned.len() > 1 {
+            out.insert(cleaned.to_string());
+        }
+    }
+    out
+}
+
+async fn sanitize_args_for_ik_backend(executable_path: &std::path::Path, args: Vec<String>) -> Vec<String> {
+    if !is_ik_backend_path(executable_path) || args.is_empty() {
+        return args;
+    }
+
+    let help_output = TokioCommand::new(executable_path)
+        .arg("--help")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .await;
+
+    let supported_flags = match help_output {
+        Ok(output) => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            extract_supported_flags_from_help(&text)
+        }
+        Err(err) => {
+            eprintln!("[IK ARG SANITIZER] Failed to run --help, skipping sanitize: {}", err);
+            return args;
+        }
+    };
+
+    if supported_flags.is_empty() {
+        return args;
+    }
+
+    let mut sanitized = Vec::new();
+    let mut removed: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        let token = &args[i];
+
+        if token.starts_with("--") {
+            let flag_name = token.split('=').next().unwrap_or(token);
+            if supported_flags.contains(flag_name) {
+                sanitized.push(token.clone());
+            } else {
+                removed.push(token.clone());
+                if !token.contains('=') && i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    removed.push(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+        } else if token.starts_with('-') {
+            if supported_flags.contains(token) {
+                sanitized.push(token.clone());
+            } else {
+                removed.push(token.clone());
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    removed.push(args[i + 1].clone());
+                    i += 1;
+                }
+            }
+        } else {
+            sanitized.push(token.clone());
+        }
+
+        i += 1;
+    }
+
+    if !removed.is_empty() {
+        eprintln!("[IK ARG SANITIZER] Removed unsupported args before launch: {:?}", removed);
+    }
+
+    sanitized
 }

@@ -104,6 +104,7 @@
             gap: 4px;
             position: relative;
             gap: 0;
+            border-left-width: 5px;
         }
 
         .chat-history-item:hover {
@@ -154,6 +155,39 @@
             outline: 1px solid #90caf9;
             outline-offset: 1px;
         }
+
+        .chat-history-color {
+            width: 24px;
+            min-width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: 1px solid #5a5a5a;
+            padding: 0;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #d0d0d0;
+            background: #2f2f2f;
+        }
+
+        .chat-history-color:hover {
+            border-color: #7a7a7a;
+            background: #393939;
+        }
+
+        .chat-history-color .material-icons {
+            font-size: 15px;
+        }
+
+        .chat-color-0 { border-left-color: #ef4444; }
+        .chat-color-1 { border-left-color: #f97316; }
+        .chat-color-2 { border-left-color: #eab308; }
+        .chat-color-3 { border-left-color: #22c55e; }
+        .chat-color-4 { border-left-color: #06b6d4; }
+        .chat-color-5 { border-left-color: #3b82f6; }
+        .chat-color-6 { border-left-color: #8b5cf6; }
+        .chat-color-7 { border-left-color: #ec4899; }
 
         .chat-history-title {
             font-size: 12px;
@@ -402,6 +436,31 @@
             color: #2196f3;
         }
 
+        .preview-item .preview-status {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 2px 4px;
+            background: rgba(0, 0, 0, 0.78);
+            color: #d2d2d2;
+            font-size: 9px;
+            line-height: 1.2;
+            text-align: center;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+
+        .preview-item.processing {
+            border-color: #7a8cff;
+            box-shadow: 0 0 0 1px rgba(122, 140, 255, 0.35) inset;
+        }
+
+        .preview-item.error {
+            border-color: #c44545;
+        }
+
         .input-container {
             display: flex;
             gap: 8px;
@@ -485,6 +544,78 @@
             overflow: hidden;
             text-overflow: ellipsis;
             color: #f3f3f3;
+        }
+
+        .mcp-tool-indicator {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            border: 1px solid #5a5a5a;
+            background: #2c2c2c;
+            color: #d9d9d9;
+            font-size: 11px;
+            font-weight: 700;
+            min-width: 36px;
+            justify-content: center;
+        }
+
+        .mcp-tool-indicator .material-icons {
+            font-size: 14px;
+            color: #ffca63;
+            line-height: 1;
+        }
+
+        .mcp-tool-indicator.zero {
+            opacity: 0.75;
+            color: #a8a8a8;
+        }
+
+        .mcp-tool-panel {
+            position: absolute;
+            right: 0;
+            bottom: 48px;
+            width: min(380px, calc(100vw - 48px));
+            max-height: 280px;
+            overflow-y: auto;
+            border-radius: 10px;
+            border: 1px solid #4a4a4a;
+            background: #1f1f1f;
+            box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
+            padding: 10px;
+            display: none;
+            z-index: 35;
+        }
+
+        .mcp-tool-panel.visible {
+            display: block;
+        }
+
+        .mcp-tool-panel-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.35px;
+            color: #9aa0a6;
+            margin-bottom: 8px;
+        }
+
+        .mcp-tool-panel-item {
+            font-size: 12px;
+            color: #e2e2e2;
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: #2a2a2a;
+            border: 1px solid #373737;
+            margin-bottom: 6px;
+            word-break: break-word;
+        }
+
+        .mcp-tool-panel-empty {
+            font-size: 12px;
+            color: #a6a6a6;
+            padding: 6px 2px;
         }
 
         .active-model-switcher-panel {
@@ -584,6 +715,63 @@
 
         .send-button:hover {
             background: #45a049;
+        }
+
+        .stream-toggle-btn {
+            height: 40px;
+            border: 1px solid #4a4a4a;
+            border-radius: 8px;
+            background: #242424;
+            color: #d7d7d7;
+            padding: 0 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            min-width: 86px;
+        }
+
+        .stream-toggle-btn.off {
+            border-color: #7a3c3c;
+            color: #ffc6c6;
+            background: #332222;
+        }
+
+        .supermemory-toggle-btn {
+            height: 40px;
+            border: 1px solid #4a4a4a;
+            border-radius: 8px;
+            background: #24323a;
+            color: #d7f2ff;
+            padding: 0 10px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            min-width: 110px;
+        }
+
+        .supermemory-toggle-btn.off {
+            background: #2f2f2f;
+            color: #c5c5c5;
+            border-color: #525252;
+        }
+
+        .supermemory-key-btn {
+            margin-left: 6px;
+            height: 28px;
+            border: 1px solid #4f4f4f;
+            border-radius: 6px;
+            background: #2b2b2b;
+            color: #d6d6d6;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 0 10px;
+            cursor: pointer;
+        }
+
+        .supermemory-key-btn.warn {
+            border-color: #7a3c3c;
+            color: #ffd2d2;
+            background: #3a2424;
         }
 
         .send-button:disabled {
@@ -968,6 +1156,10 @@
             top: 68px;
         }
 
+        .floating-mcp-log-toggle {
+            top: 116px;
+        }
+
         .benchmark-log-panel {
             position: fixed;
             top: 10px;
@@ -1046,7 +1238,7 @@
         .benchmark-log-columns,
         .benchmark-log-row {
             display: grid;
-            grid-template-columns: 20ch 10ch 10ch 10ch 10ch;
+            grid-template-columns: 20ch 10ch 10ch 10ch 10ch 10ch;
             column-gap: 10px;
             align-items: center;
             white-space: pre;
@@ -1074,9 +1266,155 @@
             text-align: right;
         }
 
+        .benchmark-col-value.best {
+            color: #22c55e;
+            font-weight: 700;
+        }
+
+        .benchmark-col-value.worst {
+            color: #ef4444;
+            font-weight: 700;
+        }
+
         .benchmark-log-empty {
             color: #888;
             padding: 16px 4px;
+        }
+
+        .mcp-log-panel {
+            position: fixed;
+            top: 10px;
+            right: 58px;
+            width: min(760px, calc(100vw - 80px));
+            max-height: calc(100vh - 20px);
+            background: #232323;
+            border: 2px solid #444;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            z-index: 998;
+            display: none;
+            flex-direction: column;
+        }
+
+        .mcp-log-panel.visible {
+            display: flex;
+        }
+
+        .mcp-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px;
+            border-bottom: 1px solid #444;
+            font-size: 13px;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+
+        .mcp-log-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .mcp-clear-btn {
+            border: none;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            background: #b71c1c;
+            color: #fff;
+        }
+
+        .mcp-clear-btn:hover {
+            background: #8f1414;
+        }
+
+        .mcp-log-close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 18px;
+            width: 26px;
+            height: 26px;
+            border-radius: 4px;
+        }
+
+        .mcp-log-close-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .mcp-log-body {
+            padding: 10px 12px 12px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            color: #ddd;
+            min-height: 130px;
+        }
+
+        .mcp-log-columns,
+        .mcp-log-row {
+            display: grid;
+            grid-template-columns: 12ch 10ch 24ch 10ch 1fr;
+            column-gap: 10px;
+            align-items: center;
+        }
+
+        .mcp-log-columns {
+            color: #8f8f8f;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 6px;
+        }
+
+        .mcp-log-row {
+            padding: 6px 8px;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.03);
+            border-left: 4px solid transparent;
+        }
+
+        .mcp-log-row.outbound {
+            border-left-color: #3b82f6;
+            background: rgba(59,130,246,0.12);
+        }
+
+        .mcp-log-row.inbound.success {
+            border-left-color: #22c55e;
+            background: rgba(34,197,94,0.12);
+        }
+
+        .mcp-log-row.inbound.failure {
+            border-left-color: #ef4444;
+            background: rgba(239,68,68,0.12);
+        }
+
+        .mcp-log-cell {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .mcp-log-cell.details {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .mcp-log-empty {
+            color: #888;
+            padding: 16px 4px;
+        }
+
+        @media (max-width: 900px) {
+            .mcp-log-columns,
+            .mcp-log-row {
+                grid-template-columns: 10ch 8ch 18ch 8ch 1fr;
+            }
         }
     </style>
 </head>
@@ -1088,6 +1426,10 @@
 
     <div class="floating-toggle floating-benchmark-toggle" id="benchmarkToggle" onclick="toggleBenchmarkPanel()" title="Open Benchmark Log">
         <span>📖</span>
+    </div>
+
+    <div class="floating-toggle floating-mcp-log-toggle" id="mcpLogToggle" onclick="toggleMcpLogPanel()" title="Open MCP Log">
+        <span>🧰</span>
     </div>
 
     <div class="benchmark-log-panel" id="benchmarkLogPanel" role="complementary" aria-label="Benchmark log">
@@ -1105,9 +1447,31 @@
                 <span class="benchmark-col-value">Main</span>
                 <span class="benchmark-col-value">Draft</span>
                 <span class="benchmark-col-value">TTFT(ms)</span>
+                <span class="benchmark-col-value">TPS</span>
             </div>
             <div id="benchmarkLogList"></div>
             <div class="benchmark-log-empty" id="benchmarkLogEmpty">No benchmark entries yet.</div>
+        </div>
+    </div>
+
+    <div class="mcp-log-panel" id="mcpLogPanel" role="complementary" aria-label="MCP tool call log">
+        <div class="mcp-log-header">
+            <span>🧰 MCP Log</span>
+            <div class="mcp-log-controls">
+                <button type="button" class="mcp-clear-btn" onclick="clearMcpLog()">Clear</button>
+                <button type="button" class="mcp-log-close-btn" onclick="toggleMcpLogPanel(false)" aria-label="Close MCP log">×</button>
+            </div>
+        </div>
+        <div class="mcp-log-body" id="mcpLogBody">
+            <div class="mcp-log-columns">
+                <span>Time</span>
+                <span>Direction</span>
+                <span>Tool</span>
+                <span>Status</span>
+                <span>Details</span>
+            </div>
+            <div id="mcpLogList"></div>
+            <div class="mcp-log-empty" id="mcpLogEmpty">No MCP log entries yet.</div>
         </div>
     </div>
 
@@ -1200,6 +1564,14 @@
                 </div>
                 <input type="range" id="history_limit" min="1" max="100" step="1" value="10">
                 <div class="parameter-desc">Number of previous messages to include</div>
+            </div>
+
+            <div class="parameter">
+                <div class="parameter-label">
+                    <label for="mcp_tool_loops">MCP Tool Loops</label>
+                </div>
+                <input type="number" id="mcp_tool_loops" min="1" max="20" step="1" value="6">
+                <div class="parameter-desc">Maximum MCP tool-call loop iterations per message (1-20)</div>
             </div>
 
             <div class="parameter">
@@ -1539,6 +1911,8 @@
             
             <button class="reset-btn clear-btn" onclick="clearContext()">Clear Conversation</button>
             <button class="reset-btn" onclick="resetParameters()">Reset to Defaults</button>
+            <button class="supermemory-key-btn" onclick="updateSupermemoryApiKey()">New Supermemory API Key</button>
+            <button class="supermemory-key-btn warn" onclick="deleteSupermemoryApiKey()">Delete Supermemory API Key</button>
         </div>
     </div>
 
@@ -1594,6 +1968,10 @@
                     <button class="active-model-switcher-btn" id="activeModelSwitcherButton" type="button" title="Switch active model">
                         <span class="label">Model</span>
                         <span class="value" id="activeModelSwitcherLabel">Loading...</span>
+                        <span class="mcp-tool-indicator zero" id="mcpToolIndicator" title="MCP tools/actions available to the model">
+                            <span class="material-icons">build</span>
+                            <span id="mcpToolIndicatorCount">0</span>
+                        </span>
                         <span class="material-icons" style="font-size: 16px; opacity: 0.8;">expand_more</span>
                     </button>
                     <div class="active-model-switcher-panel" id="activeModelSwitcherPanel">
@@ -1606,7 +1984,14 @@
                             <div class="active-model-switcher-empty">Loading remote models...</div>
                         </div>
                     </div>
+                    <div class="mcp-tool-panel" id="mcpToolPanel">
+                        <div class="mcp-tool-panel-title">MCP tools sent to model</div>
+                        <div id="mcpToolPanelList"></div>
+                    </div>
                 </div>
+
+                <button class="supermemory-toggle-btn off" id="supermemoryToggleButton" type="button" title="Enable Supermemory MCP" onclick="toggleSupermemoryMcp()">Supermemory: Off</button>
+                <button class="stream-toggle-btn" id="streamToggleButton" type="button" title="Toggle streaming output" onclick="toggleStreamOutput()">Stream: On</button>
                 
                 <button class="send-button" id="sendButton" onclick="sendMessage()">Send</button>
             </div>
@@ -1618,6 +2003,7 @@
     <div class="status-bar">
         <span id="connectionStatus">Connected to llama-server</span>
         <span id="mcpDebugStatus">MCP: waiting...</span>
+        <span id="pdfOcrStatus">OCR: idle</span>
         <span id="lastMessageTime"></span>
     </div>
 
@@ -1635,6 +2021,7 @@
             presence_penalty: 0.0,
             frequency_penalty: 0.0,
             history_limit: 10,
+            mcp_tool_loops: 6,
             system_prompt: "",
             
             // Creativity
@@ -1676,10 +2063,18 @@
             launch_numa: "",
             launch_pinned: true,
             launch_jinja: true,
-            launch_env_vars: ""
+            launch_env_vars: "",
+
+            // UI/runtime behavior
+            stream_output: true
         };
 
         let currentParams = { ...defaultParams };
+        let globalSystemPromptOverride = {
+            id: 'default',
+            name: 'Default',
+            prompt: ''
+        };
         let messageHistory = []; // Stores the current conversation context
         let currentAttachments = []; // Stores selected files/previews
         let abortController = null; // Feature 1: Stop Controller
@@ -1689,6 +2084,7 @@
         let activeChatId = '';
         let chatSessions = [];
         let chatPersistedMessageCounts = {};
+        let chatColorMap = {};
         let autoTitleDone = false;
         let autoTitleGenerating = false;
         const CHAT_HISTORY_ENABLED = true;
@@ -1697,14 +2093,34 @@
         let chatSearchDebounceTimer = null;
         const pendingChatRequests = new Map();
         const pendingMcpToolRequests = new Map();
+        const pendingSupermemoryRequests = new Map();
         let mcpToolRequestCounter = 0;
+        let supermemoryRequestCounter = 0;
+        let isGenerationStopRequested = false;
         const ATTACHMENT_TEXT_CHAR_LIMIT = 12000;
+        const ATTACHMENT_PROMPT_PER_FILE_CHAR_BUDGET = 5000;
+        const ATTACHMENT_PROMPT_TOTAL_CHAR_BUDGET = 20000;
+        const MAX_IMAGE_ATTACHMENTS_PER_MESSAGE = 6;
+        const PDF_MAX_PAGES = 500;
+        const PDF_TEXT_MIN_CHARS_FOR_NO_OCR = 80;
+        const PDF_OCR_BATCH_SIZE = 2;
+        const PDF_OCR_MAX_PAGES = 120;
+        const PDF_PARSE_YIELD_PAGE_INTERVAL = 4;
+        const OCR_REQUEST_TIMEOUT_MS = 45000;
         const CONTEXT_COUNTER_REFRESH_MS = 15000;
         const CONTEXT_COUNTER_UNAVAILABLE_TEXT = 'Context: unavailable';
+        const STREAM_OUTPUT_PREF_KEY = 'aranduChatStreamOutput';
+        const STREAM_OUTPUT_MODEL_PREF_PREFIX = 'aranduChatStreamOutput:model:';
+        const SUPERMEMORY_ENABLED_KEY = 'aranduSupermemoryEnabled';
+        const SUPERMEMORY_API_KEY = 'aranduSupermemoryApiKey';
+        const CHAT_COLOR_MAP_KEY = 'aranduChatColorMapV1';
         let isChatHistoryProcessing = false; // Prevents concurrent operations
+        let chatHistoryProcessingWatchdog = null;
         let contextCounterTimer = null;
         let contextCompressionBusy = false;
         let sessionSystemMemory = '';
+        const attachmentParseTasks = new Map();
+        let attachmentParseQueue = Promise.resolve();
         let mcpContextState = {
             connections: []
         };
@@ -1751,7 +2167,22 @@
         const BENCHMARK_LOG_KEY = 'aranduBenchmarkLogV1';
         const BENCHMARK_LOG_LIMIT = 100;
         const BENCHMARK_MODEL_COL_WIDTH = 20;
+        const MCP_LOG_KEY = 'aranduMcpLogV1';
+        const MCP_LOG_LIMIT = 150;
+        const MCP_LOG_SNIPPET_CHAR_LIMIT = 320;
+        const MCP_TOOL_LOOP_MIN = 1;
+        const MCP_TOOL_LOOP_MAX = 20;
         let benchmarkLogEntries = [];
+        let mcpLogEntries = [];
+        let activePdfOcrTasks = 0;
+
+        function clampMcpToolLoops(value) {
+            const parsed = Number.parseInt(value, 10);
+            if (!Number.isFinite(parsed)) {
+                return defaultParams.mcp_tool_loops;
+            }
+            return Math.max(MCP_TOOL_LOOP_MIN, Math.min(MCP_TOOL_LOOP_MAX, parsed));
+        }
 
         function getFileKind(file) {
             const name = String(file.name || '').toLowerCase();
@@ -1773,27 +2204,99 @@
             return `${normalized.slice(0, ATTACHMENT_TEXT_CHAR_LIMIT)}\n[... truncated after ${ATTACHMENT_TEXT_CHAR_LIMIT} chars]`;
         }
 
-        function buildAttachmentPreviewMarkup(kind, item, isError) {
+        function yieldToUiFrame() {
+            return new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        function truncateWithNote(text, maxChars, noteText) {
+            const normalized = String(text || '').trim();
+            if (!normalized || maxChars <= 0) return '';
+            if (normalized.length <= maxChars) return normalized;
+            const suffix = `\n[${noteText}]`;
+            const safeMax = Math.max(0, maxChars - suffix.length);
+            return `${normalized.slice(0, safeMax)}${suffix}`;
+        }
+
+        function getAttachmentById(id) {
+            return currentAttachments.find((a) => String(a.id) === String(id));
+        }
+
+        function setPdfOcrStatus(text) {
+            const el = document.getElementById('pdfOcrStatus');
+            if (!el) return;
+            el.textContent = String(text || 'OCR: idle');
+        }
+
+        function createAbortError(message) {
+            const error = new Error(message || 'Request aborted');
+            error.name = 'AbortError';
+            return error;
+        }
+
+        function enqueueAttachmentParse(task) {
+            attachmentParseQueue = attachmentParseQueue
+                .catch(() => {})
+                .then(() => task());
+            return attachmentParseQueue;
+        }
+
+        function cancelAllAttachmentParses() {
+            const taskIds = Array.from(attachmentParseTasks.keys());
+            const hasPdfTask = taskIds.some((taskId) => {
+                const parseTask = attachmentParseTasks.get(taskId);
+                return Boolean(parseTask && parseTask.kind === 'pdf');
+            });
+            if (hasPdfTask || activePdfOcrTasks > 0) {
+                setPdfOcrStatus('OCR: cancelled');
+            }
+            taskIds.forEach((taskId) => {
+                const parseTask = attachmentParseTasks.get(taskId);
+                if (!parseTask) return;
+                parseTask.cancelled = true;
+                if (parseTask.abortController) {
+                    try {
+                        parseTask.abortController.abort();
+                    } catch (_) {}
+                }
+                attachmentParseTasks.delete(taskId);
+            });
+        }
+
+        function updateAttachmentPreview(item, isErrorOverride = null) {
+            const previewDiv = document.getElementById(`preview-${item.id}`);
+            if (!previewDiv) return;
+            const isError = isErrorOverride === null ? Boolean(item.processingFailed) : Boolean(isErrorOverride);
+            previewDiv.classList.toggle('processing', Boolean(item.isParsing));
+            previewDiv.classList.toggle('error', isError);
+            previewDiv.innerHTML = buildAttachmentPreviewMarkup(item.kind, item, isError, item.progressText || '');
+            previewDiv.title = item.error ? `${item.name}: ${item.error}` : item.name || 'attachment';
+        }
+
+        function buildAttachmentPreviewMarkup(kind, item, isError, statusText = '') {
+            const statusMarkup = statusText
+                ? `<div class="preview-status">${escapeHtml(statusText)}</div>`
+                : '';
+
             if (kind === 'image' && item.data) {
                 if (isError) {
-                    return `<span class="material-icons doc-icon">broken_image</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                    return `<span class="material-icons doc-icon">broken_image</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
                 }
-                return `<img src="${item.data}" alt="${item.name || 'attachment'}"><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                return `<img src="${item.data}" alt="${item.name || 'attachment'}"><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
             }
 
             if (kind === 'pdf') {
-                return `<span class="material-icons doc-icon">picture_as_pdf</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                return `<span class="material-icons doc-icon">picture_as_pdf</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
             }
 
             if (kind === 'docx') {
-                return `<span class="material-icons doc-icon">description</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                return `<span class="material-icons doc-icon">description</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
             }
 
             if (isError || kind === 'unsupported') {
-                return `<span class="material-icons doc-icon">disabled_by_default</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+                return `<span class="material-icons doc-icon">disabled_by_default</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
             }
 
-            return `<span class="material-icons doc-icon">insert_drive_file</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>`;
+            return `<span class="material-icons doc-icon">insert_drive_file</span><div class="remove-btn" onclick="removeAttachment('${item.id}')">×</div>${statusMarkup}`;
         }
 
         const launchRestartArgDefaults = {
@@ -1869,6 +2372,60 @@
         function normalizeChatId(value) {
             const text = String(value || '').trim();
             return text;
+        }
+
+        function loadChatColorMap() {
+            try {
+                const raw = localStorage.getItem(CHAT_COLOR_MAP_KEY);
+                if (!raw) return {};
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+                return parsed;
+            } catch (_) {
+                return {};
+            }
+        }
+
+        function saveChatColorMap() {
+            try {
+                localStorage.setItem(CHAT_COLOR_MAP_KEY, JSON.stringify(chatColorMap));
+            } catch (_) {}
+        }
+
+        function hashChatIdToColorIndex(chatId) {
+            const value = String(chatId || '');
+            let hash = 0;
+            for (let i = 0; i < value.length; i += 1) {
+                hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+            }
+            return Math.abs(hash) % 8;
+        }
+
+        function getChatColorIndex(chatId) {
+            const id = normalizeChatId(chatId);
+            if (!id) return 0;
+            if (Object.prototype.hasOwnProperty.call(chatColorMap, id)) {
+                const parsed = Number(chatColorMap[id]);
+                return Number.isFinite(parsed) ? Math.max(0, Math.min(7, Math.trunc(parsed))) : 0;
+            }
+            return hashChatIdToColorIndex(id);
+        }
+
+        function cycleChatColor(chatId) {
+            const id = normalizeChatId(chatId);
+            if (!id) return;
+            const next = (getChatColorIndex(id) + 1) % 8;
+            chatColorMap[id] = next;
+            saveChatColorMap();
+        }
+
+        function removeChatColor(chatId) {
+            const id = normalizeChatId(chatId);
+            if (!id) return;
+            if (Object.prototype.hasOwnProperty.call(chatColorMap, id)) {
+                delete chatColorMap[id];
+                saveChatColorMap();
+            }
         }
 
         function normalizeEnvVars(value) {
@@ -1960,6 +2517,41 @@
             return { used, total };
         }
 
+        function estimateTokenCountFromText(text) {
+            const value = String(text || '');
+            if (!value.trim()) return 0;
+            const rough = Math.ceil(value.length / 4);
+            return Number.isFinite(rough) && rough > 0 ? rough : 0;
+        }
+
+        function estimateContextMetricsFallback() {
+            const total = Number(currentParams && currentParams.launch_ctx_size);
+            if (!Number.isFinite(total) || total <= 0) return null;
+
+            let estimatedUsed = 0;
+
+            estimatedUsed += estimateTokenCountFromText(getEffectiveSystemPrompt() || '');
+            estimatedUsed += estimateTokenCountFromText(sessionSystemMemory || '');
+
+            const recentMessages = Array.isArray(messageHistory)
+                ? messageHistory.slice(-Math.max(1, Number(currentParams.history_limit || 10)))
+                : [];
+
+            for (let i = 0; i < recentMessages.length; i += 1) {
+                const item = recentMessages[i] || {};
+                estimatedUsed += estimateTokenCountFromText(item.content || '');
+            }
+
+            // Small fixed overhead for wrappers/template/system metadata.
+            estimatedUsed += 64;
+
+            return {
+                used: Math.max(0, Math.min(Math.trunc(estimatedUsed), Math.trunc(total))),
+                total: Math.trunc(total),
+                estimated: true
+            };
+        }
+
         async function fetchContextMetrics() {
             const jsonEndpoints = ['/slots/0', '/slots', '/v1/slots/0', '/v1/slots'];
 
@@ -1994,13 +2586,23 @@
             try {
                 const metrics = await fetchContextMetrics();
                 if (!metrics) {
-                    setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+                    const estimated = estimateContextMetricsFallback();
+                    if (!estimated) {
+                        setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+                        return;
+                    }
+                    setContextCounterText(`Context: ~${estimated.used}/${estimated.total}`);
                     return;
                 }
 
                 setContextCounterText(`Context: ${metrics.used}/${metrics.total}`);
             } catch (_) {
-                setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+                const estimated = estimateContextMetricsFallback();
+                if (!estimated) {
+                    setContextCounterText(CONTEXT_COUNTER_UNAVAILABLE_TEXT);
+                    return;
+                }
+                setContextCounterText(`Context: ~${estimated.used}/${estimated.total}`);
             }
         }
 
@@ -2078,7 +2680,16 @@
                 try { resetOk = await runSlotOperation('reset', { keep_tokens: 64 }); } catch (_) {}
 
                 if (!compactOk && !shiftOk && !resetOk) {
-                    throw new Error('Slot-level compression endpoint unavailable');
+                    // Fallback for llama.cpp builds without slot action endpoints:
+                    // attempt a plain reset, then preserve continuity via summary memory.
+                    try {
+                        sessionSystemMemory = buildAssistantOnlySummary();
+                        await runSlotOperation('reset', {});
+                        messageHistory = [];
+                        return 'Slot compression unsupported; applied summary + context reset fallback.';
+                    } catch (_) {
+                        throw new Error('Slot-level compression endpoint unavailable');
+                    }
                 }
                 return 'Slot-level compression requested.';
             }
@@ -2211,6 +2822,64 @@
             }
 
             deleteChatById(chatId);
+        }
+
+        function setChatHistoryInteractionBusyState(isBusy) {
+            const chatList = document.getElementById('chatHistoryList');
+            if (chatList) {
+                chatList.style.pointerEvents = isBusy ? 'none' : '';
+                chatList.style.opacity = isBusy ? '0.6' : '';
+            }
+
+            const searchInput = document.getElementById('chatHistorySearch');
+            if (searchInput) {
+                searchInput.disabled = !!isBusy;
+                searchInput.style.opacity = isBusy ? '0.65' : '';
+            }
+
+            const newBtn = document.getElementById('newChatButton');
+            if (newBtn) {
+                newBtn.disabled = !!isBusy;
+                newBtn.style.opacity = isBusy ? '0.6' : '';
+            }
+        }
+
+        function beginChatHistoryInteraction() {
+            if (isChatHistoryProcessing) {
+                return false;
+            }
+
+            if (chatSearchDebounceTimer) {
+                clearTimeout(chatSearchDebounceTimer);
+                chatSearchDebounceTimer = null;
+            }
+
+            isChatHistoryProcessing = true;
+            setChatHistoryInteractionBusyState(true);
+
+            if (chatHistoryProcessingWatchdog) {
+                clearTimeout(chatHistoryProcessingWatchdog);
+            }
+
+            chatHistoryProcessingWatchdog = setTimeout(() => {
+                if (!isChatHistoryProcessing) return;
+                if (pendingChatRequests.size > 0) return;
+                console.warn('[ChatUI][History] Releasing stale interaction lock via watchdog');
+                isChatHistoryProcessing = false;
+                setChatHistoryInteractionBusyState(false);
+                chatHistoryProcessingWatchdog = null;
+            }, 35000);
+
+            return true;
+        }
+
+        function endChatHistoryInteraction() {
+            isChatHistoryProcessing = false;
+            setChatHistoryInteractionBusyState(false);
+            if (chatHistoryProcessingWatchdog) {
+                clearTimeout(chatHistoryProcessingWatchdog);
+                chatHistoryProcessingWatchdog = null;
+            }
         }
 
         function getPersistedMessageCount(chatId) {
@@ -2503,6 +3172,62 @@
             document.getElementById('restartWarning').style.display = needsRestart ? 'block' : 'none';
         }
 
+        function applyGlobalSystemPromptOverrideFromParent(payload) {
+            globalSystemPromptOverride = {
+                id: String(payload && payload.global_system_prompt_selected_id || 'default'),
+                name: String(payload && payload.global_system_prompt_name || 'Default'),
+                prompt: String(payload && payload.global_system_prompt_override || '')
+            };
+        }
+
+        function getEffectiveSystemPrompt() {
+            const typed = String(currentParams.system_prompt || '').trim();
+            if (typed) {
+                return typed;
+            }
+
+            const globalPrompt = String(globalSystemPromptOverride && globalSystemPromptOverride.prompt || '').trim();
+            if (globalPrompt) {
+                return globalPrompt;
+            }
+
+            return '';
+        }
+
+        function buildCurrentDateTimeSystemPrompt() {
+            const now = new Date();
+            const localDate = now.toLocaleDateString(undefined, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: '2-digit'
+            });
+            const localTime = now.toLocaleTimeString(undefined, {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+
+            const tzIana = (Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time').trim();
+            const offsetMinutes = -now.getTimezoneOffset();
+            const offsetSign = offsetMinutes >= 0 ? '+' : '-';
+            const offsetAbs = Math.abs(offsetMinutes);
+            const offsetHours = String(Math.floor(offsetAbs / 60)).padStart(2, '0');
+            const offsetMins = String(offsetAbs % 60).padStart(2, '0');
+            const tzOffset = `UTC${offsetSign}${offsetHours}:${offsetMins}`;
+            const utcIso = now.toISOString();
+
+            return [
+                'Current date/time from system clock (authoritative):',
+                `- Local date: ${localDate}`,
+                `- Local time: ${localTime}`,
+                `- Timezone: ${tzIana} (${tzOffset})`,
+                `- UTC ISO timestamp: ${utcIso}`,
+                'Use this as the current temporal reference for this response.'
+            ].join('\n');
+        }
+
         function applyLaunchArgsToParams(launchArgs) {
             if (!launchArgs) {
                 updateLaunchBaseline();
@@ -2687,10 +3412,11 @@
                 const count = Number(session.message_count || 0);
                 const modelLabel = escapeHtml(getSessionModelLabel(session));
                 const activeClass = id === activeChatId ? 'active' : '';
+                const colorClass = `chat-color-${getChatColorIndex(id)}`;
                 const filePath = session && typeof session.file_path === 'string' ? session.file_path : '';
 
                 const item = document.createElement('div');
-                item.className = `chat-history-item ${activeClass}`;
+                item.className = `chat-history-item ${activeClass} ${colorClass}`;
                 item.setAttribute('data-chat-id', id);
                 item.setAttribute('data-chat-file-path', filePath);
                 item.setAttribute('role', 'button');
@@ -2709,6 +3435,9 @@
                 const titleDiv = document.createElement('div');
                 titleDiv.className = 'chat-history-title';
                 titleDiv.textContent = rawTitle;
+                titleDiv.setAttribute('data-action', 'rename');
+                titleDiv.setAttribute('data-chat-id', id);
+                titleDiv.setAttribute('title', 'Click to rename chat');
 
                 const metaDiv = document.createElement('div');
                 metaDiv.className = 'chat-history-meta';
@@ -2718,6 +3447,7 @@
                 deleteButton.type = 'button';
                 deleteButton.className = 'chat-history-delete';
                 deleteButton.setAttribute('data-chat-id', id);
+                deleteButton.setAttribute('data-chat-file-path', filePath);
                 deleteButton.setAttribute('data-action', 'delete');
                 deleteButton.setAttribute('title', 'Delete chat');
                 deleteButton.setAttribute('aria-label', 'Delete chat');
@@ -2727,11 +3457,25 @@
                 deleteIcon.textContent = 'delete';
                 deleteButton.appendChild(deleteIcon);
 
+                const colorButton = document.createElement('button');
+                colorButton.type = 'button';
+                colorButton.className = 'chat-history-color';
+                colorButton.setAttribute('data-chat-id', id);
+                colorButton.setAttribute('data-action', 'color');
+                colorButton.setAttribute('title', 'Change chat color');
+                colorButton.setAttribute('aria-label', 'Change chat color');
+
+                const colorIcon = document.createElement('span');
+                colorIcon.className = 'material-icons';
+                colorIcon.textContent = 'palette';
+                colorButton.appendChild(colorIcon);
+
                 /* Delete handled via delegation on chatHistoryList */
 
                 textWrap.appendChild(titleDiv);
                 textWrap.appendChild(metaDiv);
                 body.appendChild(textWrap);
+                body.appendChild(colorButton);
                 body.appendChild(deleteButton);
 
                 item.appendChild(body);
@@ -2804,6 +3548,7 @@
 
             try {
                 await requestChatLogs('delete', { chat_id: normalizedChatId });
+                removeChatColor(normalizedChatId);
                 if (chatPersistedMessageCounts[normalizedChatId] !== undefined) {
                     delete chatPersistedMessageCounts[normalizedChatId];
                 }
@@ -2825,6 +3570,33 @@
                 }
             } catch (error) {
                 console.error('[ChatUI] Failed to delete chat:', error);
+            }
+        }
+
+        async function renameChatById(chatId) {
+            if (!CHAT_HISTORY_ENABLED) return;
+
+            const normalizedChatId = normalizeChatId(chatId);
+            if (!normalizedChatId) return;
+
+            const session = chatSessions.find((item) => getChatDisplayId(item) === normalizedChatId);
+            const currentTitle = String((session && session.title) || 'Untitled Chat').trim();
+            const nextTitleRaw = prompt('Rename chat:', currentTitle);
+            if (nextTitleRaw === null) return;
+
+            const nextTitle = sanitizeAutoTitle(nextTitleRaw);
+            if (!nextTitle) return;
+            if (nextTitle === currentTitle) return;
+
+            try {
+                await requestChatLogs('rename', {
+                    chat_id: normalizedChatId,
+                    title: nextTitle
+                });
+                const searchTerm = document.getElementById('chatHistorySearch')?.value || '';
+                await refreshChatHistoryList(searchTerm);
+            } catch (error) {
+                console.error('[ChatUI] Failed to rename chat:', error);
             }
         }
 
@@ -2967,6 +3739,246 @@
             }
         }
 
+        function getStreamPreferenceModelKey(modelPath) {
+            const normalized = String(modelPath || '').trim().toLowerCase();
+            if (!normalized) return '';
+            return `${STREAM_OUTPUT_MODEL_PREF_PREFIX}${normalized}`;
+        }
+
+        function readBooleanStorageValue(rawValue) {
+            const value = String(rawValue || '').trim().toLowerCase();
+            if (value === 'true' || value === '1' || value === 'on') return true;
+            if (value === 'false' || value === '0' || value === 'off') return false;
+            return null;
+        }
+
+        function loadStreamPreferenceForModel(modelPath) {
+            try {
+                const modelKey = getStreamPreferenceModelKey(modelPath);
+                if (modelKey) {
+                    const modelValue = readBooleanStorageValue(localStorage.getItem(modelKey));
+                    if (typeof modelValue === 'boolean') return modelValue;
+                }
+                const globalValue = readBooleanStorageValue(localStorage.getItem(STREAM_OUTPUT_PREF_KEY));
+                if (typeof globalValue === 'boolean') return globalValue;
+            } catch (error) {
+                console.warn('[ChatUI] Failed to load stream output preference:', error);
+            }
+            return defaultParams.stream_output !== false;
+        }
+
+        function persistStreamPreference(value, modelPath) {
+            const enabled = value !== false;
+            try {
+                localStorage.setItem(STREAM_OUTPUT_PREF_KEY, enabled ? 'true' : 'false');
+                const modelKey = getStreamPreferenceModelKey(modelPath || currentModelPath || '');
+                if (modelKey) {
+                    localStorage.setItem(modelKey, enabled ? 'true' : 'false');
+                }
+            } catch (error) {
+                console.warn('[ChatUI] Failed to persist stream output preference:', error);
+            }
+        }
+
+        function applyStreamPreferenceForCurrentModel() {
+            currentParams.stream_output = loadStreamPreferenceForModel(currentModelPath || chatModelSwitcherState.activeModelPath || '');
+            updateStreamToggleUi();
+        }
+
+        function updateStreamToggleUi() {
+            const button = document.getElementById('streamToggleButton');
+            if (!button) return;
+            const isOn = currentParams.stream_output !== false;
+            button.textContent = isOn ? 'Stream: On' : 'Stream: Off';
+            button.classList.toggle('off', !isOn);
+        }
+
+        function toggleStreamOutput() {
+            currentParams.stream_output = !(currentParams.stream_output !== false);
+            updateStreamToggleUi();
+            persistStreamPreference(currentParams.stream_output, currentModelPath || chatModelSwitcherState.activeModelPath || '');
+            addMessage('system', currentParams.stream_output !== false
+                ? 'Streaming output enabled.'
+                : 'Streaming output disabled. Responses will arrive as full messages.');
+        }
+
+        function isSupermemoryEnabled() {
+            try {
+                return localStorage.getItem(SUPERMEMORY_ENABLED_KEY) === '1';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function getSupermemoryApiKey() {
+            try {
+                return String(localStorage.getItem(SUPERMEMORY_API_KEY) || '').trim();
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setSupermemoryState(enabled, apiKey) {
+            try {
+                localStorage.setItem(SUPERMEMORY_ENABLED_KEY, enabled ? '1' : '0');
+                if (typeof apiKey === 'string' && apiKey.trim()) {
+                    localStorage.setItem(SUPERMEMORY_API_KEY, apiKey.trim());
+                }
+            } catch (_) {}
+            updateSupermemoryToggleUi();
+        }
+
+        function clearSupermemoryLocalKey() {
+            try {
+                localStorage.removeItem(SUPERMEMORY_API_KEY);
+                localStorage.setItem(SUPERMEMORY_ENABLED_KEY, '0');
+            } catch (_) {}
+            updateSupermemoryToggleUi();
+        }
+
+        function updateSupermemoryToggleUi() {
+            const btn = document.getElementById('supermemoryToggleButton');
+            if (!btn) return;
+            const on = isSupermemoryEnabled();
+            btn.textContent = on ? 'Supermemory: On' : 'Supermemory: Off';
+            btn.classList.toggle('off', !on);
+            btn.title = on ? 'Disable Supermemory MCP' : 'Enable Supermemory MCP';
+        }
+
+        function requestSupermemoryToggle(payload) {
+            return new Promise((resolve, reject) => {
+                supermemoryRequestCounter += 1;
+                const requestId = `supermemory-toggle-${Date.now()}-${supermemoryRequestCounter}`;
+                pendingSupermemoryRequests.set(requestId, { resolve, reject });
+
+                window.parent.postMessage({
+                    type: 'request-supermemory-toggle',
+                    request_id: requestId,
+                    payload
+                }, '*');
+
+                setTimeout(() => {
+                    if (pendingSupermemoryRequests.has(requestId)) {
+                        pendingSupermemoryRequests.delete(requestId);
+                        reject(new Error('Supermemory toggle timed out'));
+                    }
+                }, 65000);
+            });
+        }
+
+        async function toggleSupermemoryMcp() {
+            const currentlyEnabled = isSupermemoryEnabled();
+
+            if (currentlyEnabled) {
+                try {
+                    await requestSupermemoryToggle({ enabled: false });
+                    setSupermemoryState(false);
+                    addMessage('system', 'Supermemory MCP disabled.');
+                    window.parent.postMessage({ type: 'request-mcp-context' }, '*');
+                } catch (error) {
+                    addMessage('system', `Failed to disable Supermemory MCP: ${error && error.message ? error.message : 'unknown error'}`);
+                }
+                return;
+            }
+
+            let apiKey = getSupermemoryApiKey();
+            if (!apiKey) {
+                apiKey = String(prompt('Enter Supermemory API key (sm_...):') || '').trim();
+            }
+
+            if (!apiKey) {
+                addMessage('system', 'Supermemory MCP enable cancelled (missing API key).');
+                return;
+            }
+
+            try {
+                const result = await requestSupermemoryToggle({ enabled: true, apiKey });
+                setSupermemoryState(true, apiKey);
+                const toolCount = result && Number.isFinite(result.toolCount) ? result.toolCount : 0;
+                addMessage('system', `Supermemory MCP enabled (${toolCount} tools).`);
+                window.parent.postMessage({ type: 'request-mcp-context' }, '*');
+            } catch (error) {
+                setSupermemoryState(false);
+                addMessage('system', `Failed to enable Supermemory MCP: ${error && error.message ? error.message : 'unknown error'}`);
+            }
+        }
+
+        async function updateSupermemoryApiKey() {
+            const nextKey = String(prompt('Enter a new Supermemory API key (sm_...):') || '').trim();
+            if (!nextKey) {
+                addMessage('system', 'Supermemory API key update cancelled.');
+                return;
+            }
+
+            const currentlyEnabled = isSupermemoryEnabled();
+            try {
+                await requestSupermemoryToggle({ enabled: currentlyEnabled, apiKey: nextKey });
+                setSupermemoryState(currentlyEnabled, nextKey);
+                addMessage('system', 'Supermemory API key updated.');
+                if (currentlyEnabled) {
+                    window.parent.postMessage({ type: 'request-mcp-context' }, '*');
+                }
+            } catch (error) {
+                addMessage('system', `Failed to update Supermemory API key: ${error && error.message ? error.message : 'unknown error'}`);
+            }
+        }
+
+        async function deleteSupermemoryApiKey() {
+            const confirmed = confirm('Delete stored Supermemory API key and disable Supermemory?');
+            if (!confirmed) return;
+
+            try {
+                await requestSupermemoryToggle({ enabled: false, clearApiKey: true });
+            } catch (_) {
+                // Continue local cleanup even if parent call fails.
+            }
+
+            clearSupermemoryLocalKey();
+            addMessage('system', 'Supermemory API key deleted and Supermemory disabled.');
+            window.parent.postMessage({ type: 'request-mcp-context' }, '*');
+        }
+
+        function updateMcpToolIndicator() {
+            const indicator = document.getElementById('mcpToolIndicator');
+            const countEl = document.getElementById('mcpToolIndicatorCount');
+            if (!indicator || !countEl) return;
+
+            const catalog = buildMcpToolCatalog();
+            const callableCount = Number(catalog && catalog.counts ? catalog.counts.included : 0) || 0;
+            const skippedCount = Number(catalog && catalog.counts ? catalog.counts.skipped : 0) || 0;
+            countEl.textContent = String(callableCount);
+            indicator.classList.toggle('zero', callableCount === 0);
+            indicator.title = `MCP tools/actions seen by model: ${callableCount}${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`;
+            renderMcpToolPanelList(catalog);
+        }
+
+        function renderMcpToolPanelList(catalog) {
+            const panelList = document.getElementById('mcpToolPanelList');
+            if (!panelList) return;
+
+            const effectiveCatalog = catalog || buildMcpToolCatalog();
+            const toolMapValues = Object.values(effectiveCatalog.toolMap || {});
+            if (!toolMapValues.length) {
+                panelList.innerHTML = '<div class="mcp-tool-panel-empty">No callable MCP tools are currently visible to the model.</div>';
+                return;
+            }
+
+            const connectionNames = new Map((mcpContextState.connections || []).map((conn) => [String(conn.id || ''), String(conn.name || 'MCP')]));
+            const rows = toolMapValues.map((entry) => {
+                const connectionName = connectionNames.get(String(entry.connectionId || '')) || 'MCP';
+                const toolName = String(entry.toolName || 'unknown_tool');
+                return `<div class="mcp-tool-panel-item">${escapeHtml(connectionName)} :: ${escapeHtml(toolName)}</div>`;
+            });
+            panelList.innerHTML = rows.join('');
+        }
+
+        function toggleMcpToolPanel(forceOpen) {
+            const panel = document.getElementById('mcpToolPanel');
+            if (!panel) return;
+            const next = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('visible');
+            panel.classList.toggle('visible', next);
+        }
+
         function setMcpContext(connections) {
             const list = Array.isArray(connections) ? connections : [];
             mcpContextState.connections = list
@@ -2982,6 +3994,8 @@
                     env_vars: connection.env_vars && typeof connection.env_vars === 'object' ? connection.env_vars : {},
                     headers: connection.headers && typeof connection.headers === 'object' ? connection.headers : {},
                     json_payload: connection.json_payload ? String(connection.json_payload) : '',
+                    tools_status: connection.tools_status ? String(connection.tools_status) : '',
+                    tools_error: connection.tools_error ? String(connection.tools_error) : '',
                     tools: Array.isArray(connection.tools)
                         ? connection.tools.map((tool) => ({
                             name: String(tool && tool.name ? tool.name : ''),
@@ -2993,7 +4007,14 @@
                 }));
 
             const toolCount = mcpContextState.connections.reduce((sum, conn) => sum + (Array.isArray(conn.tools) ? conn.tools.length : 0), 0);
-            updateMcpDebugStatus(`MCP: ${mcpContextState.connections.length} conn / ${toolCount} tools loaded`);
+            const failedConnections = mcpContextState.connections.filter((conn) => String(conn.tools_error || '').trim().length > 0).length;
+            const supermemoryConn = mcpContextState.connections.find((conn) => String(conn.id || '') === 'native-supermemory');
+            const supermemoryToolCount = supermemoryConn && Array.isArray(supermemoryConn.tools) ? supermemoryConn.tools.length : 0;
+            const supermemoryStatus = supermemoryConn
+                ? ` / Supermemory native: ${supermemoryToolCount} tools ready`
+                : '';
+            updateMcpDebugStatus(`MCP: ${mcpContextState.connections.length} conn / ${toolCount} tools loaded${failedConnections > 0 ? ` / ${failedConnections} refresh failed` : ''}${supermemoryStatus}`);
+            updateMcpToolIndicator();
             console.log('[ChatUI] MCP context loaded:', mcpContextState.connections);
         }
 
@@ -3031,7 +4052,7 @@
         function buildMcpToolCatalog() {
             const tools = [];
             const toolMap = {};
-            const executionCapableTransports = new Set(['http', 'json', 'streamable_http', 'sse', 'stdio']);
+            const executionCapableTransports = new Set(['http', 'json', 'streamable_http', 'sse', 'stdio', 'native']);
             const counts = {
                 included: 0,
                 skipped: 0
@@ -3040,7 +4061,15 @@
                 ? mcpContextState.connections.filter((connection) => connection && connection.enabled)
                 : [];
 
-            enabledConnections.forEach((connection) => {
+            const prioritizedConnections = enabledConnections
+                .slice()
+                .sort((a, b) => {
+                    const aNative = String(a && a.id ? a.id : '') === 'native-supermemory' ? 0 : 1;
+                    const bNative = String(b && b.id ? b.id : '') === 'native-supermemory' ? 0 : 1;
+                    return aNative - bNative;
+                });
+
+            prioritizedConnections.forEach((connection) => {
                 const connectionId = String(connection.id || '').trim();
                 if (!connectionId || !Array.isArray(connection.tools)) return;
 
@@ -3086,12 +4115,78 @@
             return { tools, toolMap, counts };
         }
 
-        function requestMcpToolCall(payload) {
+        function cancelPendingMcpToolRequests(reason = 'Generation interrupted by user.') {
+            if (pendingMcpToolRequests.size === 0) return;
+            const abortError = createAbortError(reason);
+            Array.from(pendingMcpToolRequests.values()).forEach((pending) => {
+                if (!pending || typeof pending.reject !== 'function') return;
+                pending.reject(abortError);
+            });
+        }
+
+        function requestMcpToolCall(payload, options = {}) {
             return new Promise((resolve, reject) => {
+                const abortSignal = options && options.abortSignal ? options.abortSignal : null;
+                let settled = false;
+                let timeoutId = null;
+                let onAbort = null;
+
+                const finalizeResolve = (value) => {
+                    if (settled) return;
+                    settled = true;
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                    }
+                    if (abortSignal && onAbort) {
+                        abortSignal.removeEventListener('abort', onAbort);
+                    }
+                    resolve(value);
+                };
+
+                const finalizeReject = (error) => {
+                    if (settled) return;
+                    settled = true;
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                    }
+                    if (abortSignal && onAbort) {
+                        abortSignal.removeEventListener('abort', onAbort);
+                    }
+                    reject(error);
+                };
+
                 mcpToolRequestCounter += 1;
                 const requestId = `mcptool_${Date.now()}_${mcpToolRequestCounter}`;
 
-                pendingMcpToolRequests.set(requestId, { resolve, reject });
+                pendingMcpToolRequests.set(requestId, {
+                    resolve: (value) => {
+                        pendingMcpToolRequests.delete(requestId);
+                        finalizeResolve(value);
+                    },
+                    reject: (error) => {
+                        pendingMcpToolRequests.delete(requestId);
+                        finalizeReject(error);
+                    }
+                });
+
+                if (abortSignal && abortSignal.aborted) {
+                    const pending = pendingMcpToolRequests.get(requestId);
+                    if (pending) {
+                        pending.reject(createAbortError('MCP tool call cancelled'));
+                    }
+                    return;
+                }
+
+                if (abortSignal) {
+                    onAbort = () => {
+                        const pending = pendingMcpToolRequests.get(requestId);
+                        if (pending) {
+                            pending.reject(createAbortError('MCP tool call cancelled'));
+                        }
+                    };
+                    abortSignal.addEventListener('abort', onAbort, { once: true });
+                }
+
                 window.parent.postMessage({
                     type: 'request-mcp-tool-call',
                     request_id: requestId,
@@ -3104,10 +4199,10 @@
                     }
                 }, '*');
 
-                setTimeout(() => {
-                    if (pendingMcpToolRequests.has(requestId)) {
-                        pendingMcpToolRequests.delete(requestId);
-                        reject(new Error('MCP tool call timed out'));
+                timeoutId = setTimeout(() => {
+                    const pending = pendingMcpToolRequests.get(requestId);
+                    if (pending) {
+                        pending.reject(new Error('MCP tool call timed out'));
                     }
                 }, 30000);
             });
@@ -3209,6 +4304,18 @@
 
             empty.style.display = 'none';
 
+            const ttftValues = benchmarkLogEntries
+                .map((entry) => Number(entry && entry.ttft))
+                .filter((value) => Number.isFinite(value) && value > 0);
+            const tpsValues = benchmarkLogEntries
+                .map((entry) => Number(entry && entry.tps))
+                .filter((value) => Number.isFinite(value) && value > 0);
+
+            const bestTtft = ttftValues.length ? Math.min(...ttftValues) : null;
+            const worstTtft = ttftValues.length ? Math.max(...ttftValues) : null;
+            const bestTps = tpsValues.length ? Math.max(...tpsValues) : null;
+            const worstTps = tpsValues.length ? Math.min(...tpsValues) : null;
+
             for (let i = benchmarkLogEntries.length - 1; i >= 0; i -= 1) {
                 const entry = benchmarkLogEntries[i] || {};
                 const row = document.createElement('div');
@@ -3235,11 +4342,27 @@
                 ttftSpan.className = 'benchmark-col-value';
                 ttftSpan.textContent = String(entry.ttft || 0);
 
+                const entryTtft = Number(entry && entry.ttft);
+                if (Number.isFinite(entryTtft) && entryTtft > 0) {
+                    if (bestTtft !== null && entryTtft === bestTtft) ttftSpan.classList.add('best');
+                    if (worstTtft !== null && entryTtft === worstTtft) ttftSpan.classList.add('worst');
+                }
+
+                const tpsSpan = document.createElement('span');
+                tpsSpan.className = 'benchmark-col-value';
+                const entryTps = Number(entry && entry.tps);
+                tpsSpan.textContent = Number.isFinite(entryTps) ? entryTps.toFixed(2) : '0.00';
+                if (Number.isFinite(entryTps) && entryTps > 0) {
+                    if (bestTps !== null && entryTps === bestTps) tpsSpan.classList.add('best');
+                    if (worstTps !== null && entryTps === worstTps) tpsSpan.classList.add('worst');
+                }
+
                 row.appendChild(modelSpan);
                 row.appendChild(totalSpan);
                 row.appendChild(mainSpan);
                 row.appendChild(draftSpan);
                 row.appendChild(ttftSpan);
+                row.appendChild(tpsSpan);
                 list.appendChild(row);
             }
         }
@@ -3266,7 +4389,8 @@
                         total: Number.isFinite(Number(entry && entry.total)) ? Math.max(0, Math.trunc(Number(entry.total))) : 0,
                         main: Number.isFinite(Number(entry && entry.main)) ? Math.max(0, Math.trunc(Number(entry.main))) : 0,
                         draft: Number.isFinite(Number(entry && entry.draft)) ? Math.max(0, Math.trunc(Number(entry.draft))) : 0,
-                        ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0
+                        ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0,
+                        tps: Number.isFinite(Number(entry && entry.tps)) ? Math.max(0, Number(entry.tps)) : 0
                     }))
                     .slice(-BENCHMARK_LOG_LIMIT);
 
@@ -3285,7 +4409,8 @@
                 total: Number.isFinite(Number(entry && entry.total)) ? Math.max(0, Math.trunc(Number(entry.total))) : 0,
                 main: Number.isFinite(Number(entry && entry.main)) ? Math.max(0, Math.trunc(Number(entry.main))) : 0,
                 draft: Number.isFinite(Number(entry && entry.draft)) ? Math.max(0, Math.trunc(Number(entry.draft))) : 0,
-                ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0
+                ttft: Number.isFinite(Number(entry && entry.ttft)) ? Math.max(0, Math.trunc(Number(entry.ttft))) : 0,
+                tps: Number.isFinite(Number(entry && entry.tps)) ? Math.max(0, Number(entry.tps)) : 0
             });
 
             if (benchmarkLogEntries.length > BENCHMARK_LOG_LIMIT) {
@@ -3294,6 +4419,177 @@
 
             renderBenchmarkLog();
             persistBenchmarkLog();
+        }
+
+        function formatMcpTimestamp(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '--:--:--';
+            return date.toLocaleTimeString([], { hour12: false });
+        }
+
+        function truncateMcpLogText(value, maxChars = MCP_LOG_SNIPPET_CHAR_LIMIT) {
+            const text = String(value || '').trim();
+            if (!text) return '';
+            if (text.length <= maxChars) return text;
+            return `${text.slice(0, maxChars)}...`;
+        }
+
+        function serializeMcpLogValue(value, maxChars = MCP_LOG_SNIPPET_CHAR_LIMIT) {
+            if (value === null || value === undefined) return '';
+            if (typeof value === 'string') {
+                return truncateMcpLogText(value, maxChars);
+            }
+            try {
+                return truncateMcpLogText(JSON.stringify(value), maxChars);
+            } catch (_) {
+                return truncateMcpLogText(String(value), maxChars);
+            }
+        }
+
+        function getMcpConnectionName(connectionId) {
+            const id = String(connectionId || '').trim();
+            if (!id) return 'MCP';
+            const match = (mcpContextState.connections || []).find((conn) => String(conn.id || '') === id);
+            return match ? String(match.name || id) : id;
+        }
+
+        function persistMcpLog() {
+            try {
+                localStorage.setItem(MCP_LOG_KEY, JSON.stringify(mcpLogEntries));
+            } catch (error) {
+                console.warn('[ChatUI] Failed to persist MCP log:', error);
+            }
+        }
+
+        function renderMcpLog() {
+            const list = document.getElementById('mcpLogList');
+            const empty = document.getElementById('mcpLogEmpty');
+            if (!list || !empty) return;
+
+            list.innerHTML = '';
+
+            if (!Array.isArray(mcpLogEntries) || mcpLogEntries.length === 0) {
+                empty.style.display = 'block';
+                return;
+            }
+
+            empty.style.display = 'none';
+
+            for (let i = mcpLogEntries.length - 1; i >= 0; i -= 1) {
+                const entry = mcpLogEntries[i] || {};
+                const row = document.createElement('div');
+                row.className = `mcp-log-row ${entry.type === 'outbound' ? 'outbound' : 'inbound'}${entry.type === 'inbound' ? ` ${entry.status === 'failure' ? 'failure' : 'success'}` : ''}`;
+
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'mcp-log-cell';
+                timeSpan.textContent = formatMcpTimestamp(entry.timestamp);
+                timeSpan.title = String(entry.timestamp || '');
+
+                const directionSpan = document.createElement('span');
+                directionSpan.className = 'mcp-log-cell';
+                directionSpan.textContent = entry.type === 'outbound' ? 'MODEL->MCP' : 'MCP->MODEL';
+
+                const toolSpan = document.createElement('span');
+                toolSpan.className = 'mcp-log-cell';
+                toolSpan.textContent = String(entry.toolName || 'unknown_tool');
+                toolSpan.title = String(entry.toolName || 'unknown_tool');
+
+                const statusSpan = document.createElement('span');
+                statusSpan.className = 'mcp-log-cell';
+                statusSpan.textContent = entry.type === 'outbound' ? 'queued' : (entry.status === 'failure' ? 'failure' : 'success');
+
+                const detailsSpan = document.createElement('span');
+                detailsSpan.className = 'mcp-log-cell details';
+                const connectionName = String(entry.connectionName || 'MCP');
+                const connectionId = String(entry.connectionId || '');
+                const connectionPart = connectionId ? `${connectionName} (${connectionId})` : connectionName;
+                if (entry.type === 'outbound') {
+                    const argsSnapshot = String(entry.argumentsSnapshot || '{}');
+                    detailsSpan.textContent = `${connectionPart} :: ${String(entry.toolName || 'unknown_tool')} | args: ${argsSnapshot}`;
+                } else {
+                    const resultSnippet = String(entry.resultSnippet || '');
+                    detailsSpan.textContent = `${connectionPart} :: ${String(entry.toolName || 'unknown_tool')} | ${resultSnippet}`;
+                }
+                detailsSpan.title = detailsSpan.textContent;
+
+                row.appendChild(timeSpan);
+                row.appendChild(directionSpan);
+                row.appendChild(toolSpan);
+                row.appendChild(statusSpan);
+                row.appendChild(detailsSpan);
+                list.appendChild(row);
+            }
+        }
+
+        function loadMcpLog() {
+            try {
+                const raw = localStorage.getItem(MCP_LOG_KEY);
+                if (!raw) {
+                    mcpLogEntries = [];
+                    renderMcpLog();
+                    return;
+                }
+
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) {
+                    mcpLogEntries = [];
+                    renderMcpLog();
+                    return;
+                }
+
+                mcpLogEntries = parsed
+                    .map((entry) => ({
+                        timestamp: String(entry && entry.timestamp ? entry.timestamp : new Date().toISOString()),
+                        type: entry && entry.type === 'outbound' ? 'outbound' : 'inbound',
+                        status: entry && entry.status === 'failure' ? 'failure' : 'success',
+                        connectionId: String(entry && entry.connectionId ? entry.connectionId : ''),
+                        connectionName: String(entry && entry.connectionName ? entry.connectionName : 'MCP'),
+                        toolName: String(entry && entry.toolName ? entry.toolName : 'unknown_tool'),
+                        argumentsSnapshot: serializeMcpLogValue(entry && entry.argumentsSnapshot ? entry.argumentsSnapshot : '{}'),
+                        resultSnippet: serializeMcpLogValue(entry && entry.resultSnippet ? entry.resultSnippet : '')
+                    }))
+                    .slice(-MCP_LOG_LIMIT);
+
+                renderMcpLog();
+                persistMcpLog();
+            } catch (error) {
+                console.warn('[ChatUI] Failed to load MCP log:', error);
+                mcpLogEntries = [];
+                renderMcpLog();
+            }
+        }
+
+        function appendMcpLogEntry(entry) {
+            mcpLogEntries.push({
+                timestamp: String(entry && entry.timestamp ? entry.timestamp : new Date().toISOString()),
+                type: entry && entry.type === 'outbound' ? 'outbound' : 'inbound',
+                status: entry && entry.status === 'failure' ? 'failure' : 'success',
+                connectionId: String(entry && entry.connectionId ? entry.connectionId : ''),
+                connectionName: String(entry && entry.connectionName ? entry.connectionName : 'MCP'),
+                toolName: String(entry && entry.toolName ? entry.toolName : 'unknown_tool'),
+                argumentsSnapshot: serializeMcpLogValue(entry && entry.argumentsSnapshot ? entry.argumentsSnapshot : '{}'),
+                resultSnippet: serializeMcpLogValue(entry && entry.resultSnippet ? entry.resultSnippet : '')
+            });
+
+            if (mcpLogEntries.length > MCP_LOG_LIMIT) {
+                mcpLogEntries = mcpLogEntries.slice(-MCP_LOG_LIMIT);
+            }
+
+            renderMcpLog();
+            persistMcpLog();
+        }
+
+        function clearMcpLog() {
+            mcpLogEntries = [];
+            renderMcpLog();
+            persistMcpLog();
+        }
+
+        function toggleMcpLogPanel(forceOpen = null) {
+            const panel = document.getElementById('mcpLogPanel');
+            if (!panel) return;
+            const shouldOpen = forceOpen === null ? !panel.classList.contains('visible') : Boolean(forceOpen);
+            panel.classList.toggle('visible', shouldOpen);
         }
 
         function clearBenchmarkLog() {
@@ -3416,6 +4712,10 @@
         async function handleFileSelection(event) {
             const files = Array.from(event.target.files);
             const previewArea = document.getElementById('attachmentPreview');
+            if (!files.length) {
+                event.target.value = '';
+                return;
+            }
             previewArea.style.display = 'flex';
 
             for (const file of files) {
@@ -3428,47 +4728,127 @@
                     data: null,
                     text: null,
                     error: null,
-                    processingFailed: false
+                    processingFailed: false,
+                    isParsing: true,
+                    progressText: kind === 'image' ? 'Loading image...' : 'Queued...'
                 };
 
                 // Create UI Preview
                 const previewDiv = document.createElement('div');
                 previewDiv.className = 'preview-item';
                 previewDiv.id = `preview-${item.id}`;
+                previewArea.appendChild(previewDiv);
+                currentAttachments.push(item);
+                updateAttachmentPreview(item, false);
 
                 if (kind === 'image') {
                     const reader = new FileReader();
                     reader.onload = (e) => {
+                        const existing = getAttachmentById(item.id);
+                        if (!existing) return;
                         item.data = e.target.result;
                         item.processingFailed = false;
                         item.error = null;
-                        previewDiv.innerHTML = buildAttachmentPreviewMarkup(kind, item);
+                        item.isParsing = false;
+                        item.progressText = '';
+                        updateAttachmentPreview(item, false);
                     };
                     reader.onerror = () => {
+                        const existing = getAttachmentById(item.id);
+                        if (!existing) return;
                         item.processingFailed = true;
                         item.error = 'Could not read image attachment';
-                        previewDiv.innerHTML = buildAttachmentPreviewMarkup('unsupported', item, true);
+                        item.isParsing = false;
+                        item.progressText = 'Read failed';
+                        updateAttachmentPreview(item, true);
                     };
                     reader.readAsDataURL(file);
                 } else {
-                    const parseResult = await parseAttachmentText(file, kind);
-                    item.text = parseResult.text;
-                    item.error = parseResult.error;
-                    item.processingFailed = Boolean(parseResult.error);
-
-                    previewDiv.innerHTML = buildAttachmentPreviewMarkup(kind, item, item.processingFailed);
-                    if (item.error) {
-                        previewDiv.title = `${file.name}: ${item.error}`;
+                    const parseContext = {
+                        cancelled: false,
+                        abortController: null,
+                        kind
+                    };
+                    attachmentParseTasks.set(String(item.id), parseContext);
+                    if (kind === 'pdf') {
+                        activePdfOcrTasks += 1;
+                        setPdfOcrStatus('OCR: PDF parsing');
                     }
-                }
 
-                previewArea.appendChild(previewDiv);
-                currentAttachments.push(item);
+                    enqueueAttachmentParse(async () => {
+                        try {
+                            if (parseContext.cancelled) return;
+                            const parseResult = await parseAttachmentText(file, kind, {
+                                isCancelled: () => parseContext.cancelled,
+                                onProgress: (status) => {
+                                    const existing = getAttachmentById(item.id);
+                                    if (!existing || parseContext.cancelled) return;
+                                    existing.progressText = status || 'Parsing...';
+                                    existing.isParsing = true;
+                                    if (kind === 'pdf') {
+                                        const normalized = String(status || '').toLowerCase();
+                                        if (normalized.startsWith('ocr')) {
+                                            const cleanedStatus = String(status || '').replace(/^ocr\s*:?\s*/i, '').trim();
+                                            setPdfOcrStatus(cleanedStatus ? `OCR: ${cleanedStatus}` : 'OCR: processing');
+                                        } else if (normalized.startsWith('pdf text')) {
+                                            setPdfOcrStatus('OCR: text-layer scan');
+                                        }
+                                    }
+                                    updateAttachmentPreview(existing, false);
+                                },
+                                registerAbortController: (controller) => {
+                                    parseContext.abortController = controller || null;
+                                }
+                            });
+
+                            if (parseContext.cancelled) return;
+                            const existing = getAttachmentById(item.id);
+                            if (!existing) return;
+                            existing.text = parseResult.text;
+                            existing.error = parseResult.error;
+                            existing.processingFailed = Boolean(parseResult.error);
+                            existing.isParsing = false;
+                            existing.progressText = parseResult.error ? 'Parse failed' : '';
+                            updateAttachmentPreview(existing, existing.processingFailed);
+                        } catch (error) {
+                            if (parseContext.cancelled) return;
+                            const existing = getAttachmentById(item.id);
+                            if (!existing) return;
+                            existing.text = null;
+                            existing.error = `Could not parse attachment: ${error && error.message ? error.message : 'Unknown parsing error'}`;
+                            existing.processingFailed = true;
+                            existing.isParsing = false;
+                            existing.progressText = 'Parse failed';
+                            updateAttachmentPreview(existing, true);
+                        } finally {
+                            attachmentParseTasks.delete(String(item.id));
+                            if (kind === 'pdf') {
+                                activePdfOcrTasks = Math.max(0, activePdfOcrTasks - 1);
+                                if (activePdfOcrTasks === 0) {
+                                    setPdfOcrStatus('OCR: idle');
+                                }
+                            }
+                        }
+                    });
+                }
             }
             event.target.value = ''; // Reset input
         }
 
         function removeAttachment(id) {
+            const parseTask = attachmentParseTasks.get(String(id));
+            if (parseTask) {
+                parseTask.cancelled = true;
+                if (parseTask.abortController) {
+                    try {
+                        parseTask.abortController.abort();
+                    } catch (abortError) {
+                        console.warn('Attachment parse abort warning', abortError);
+                    }
+                }
+                attachmentParseTasks.delete(String(id));
+            }
+
             currentAttachments = currentAttachments.filter(a => a.id != id);
             const el = document.getElementById(`preview-${id}`);
             if (el) el.remove();
@@ -3477,7 +4857,177 @@
             }
         }
 
-        async function extractTextFromPDF(file) {
+        async function renderPdfPageToImageDataUrl(pdf, pageNumber) {
+            const page = await pdf.getPage(pageNumber);
+            const baseViewport = page.getViewport({ scale: 1 });
+            const maxDimension = 1400;
+            const scale = Math.min(2, maxDimension / Math.max(baseViewport.width, baseViewport.height));
+            const viewport = page.getViewport({ scale: Math.max(0.5, scale) });
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { alpha: false });
+            canvas.width = Math.max(1, Math.floor(viewport.width));
+            canvas.height = Math.max(1, Math.floor(viewport.height));
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            return canvas.toDataURL('image/jpeg', 0.82);
+        }
+
+        async function runPdfOcrFallback(pdf, fileName, pageNumbers, options = {}) {
+            if (!Array.isArray(pageNumbers) || pageNumbers.length === 0) {
+                return { textByPage: new Map(), notes: [] };
+            }
+
+            setPdfOcrStatus('OCR: fallback active');
+
+            const textByPage = new Map();
+            const notes = [];
+            const failedPages = new Set();
+            for (let start = 0; start < pageNumbers.length; start += PDF_OCR_BATCH_SIZE) {
+                if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                    throw new Error('Attachment parsing cancelled');
+                }
+
+                const batch = pageNumbers.slice(start, start + PDF_OCR_BATCH_SIZE);
+                if (typeof options.onProgress === 'function') {
+                    options.onProgress(`OCR ${Math.min(start + batch.length, pageNumbers.length)}/${pageNumbers.length}`);
+                }
+
+                const imageUrls = [];
+                for (let i = 0; i < batch.length; i += 1) {
+                    if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                        throw new Error('Attachment parsing cancelled');
+                    }
+                    const imageUrl = await renderPdfPageToImageDataUrl(pdf, batch[i]);
+                    imageUrls.push(imageUrl);
+                    await yieldToUiFrame();
+                }
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), OCR_REQUEST_TIMEOUT_MS);
+                if (typeof options.registerAbortController === 'function') {
+                    options.registerAbortController(controller);
+                }
+
+                try {
+                    const content = [
+                        {
+                            type: 'text',
+                            text: `OCR transcription for PDF \"${fileName}\" pages ${batch.join(', ')}. Return plain text only, grouped by page using format \"[Page N]\".`
+                        }
+                    ];
+                    imageUrls.forEach((url) => {
+                        content.push({ type: 'image_url', image_url: { url } });
+                    });
+
+                    const response = await fetch('/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
+                        body: JSON.stringify({
+                            model: '',
+                            messages: [
+                                {
+                                    role: 'system',
+                                    content: 'You are an OCR extractor. Return only recognized text. If a page is unreadable, output "[Page N] unreadable".'
+                                },
+                                {
+                                    role: 'user',
+                                    content
+                                }
+                            ],
+                            temperature: 0,
+                            max_tokens: 2000,
+                            stream: false
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`OCR request failed (${response.status})`);
+                    }
+
+                    const payload = await response.json();
+                    const choice = payload && Array.isArray(payload.choices) ? payload.choices[0] : null;
+                    const assistantMessage = choice && choice.message ? choice.message : null;
+                    const text = sanitizeAttachmentText(extractAssistantMessageContent(assistantMessage || { content: '' }));
+
+                    if (!text) {
+                        notes.push(`OCR returned no text for page batch ${batch.join(', ')}.`);
+                    }
+
+                    const lines = String(text || '').split(/\r?\n/);
+                    let activePage = null;
+                    const bucket = new Map();
+                    lines.forEach((line) => {
+                        const match = line.match(/^\s*\[?\s*Page\s+(\d+)\s*\]?\s*[:\-]?\s*(.*)$/i);
+                        if (match) {
+                            activePage = Number(match[1]);
+                            if (!bucket.has(activePage)) {
+                                bucket.set(activePage, []);
+                            }
+                            const inlineText = String(match[2] || '').trim();
+                            if (inlineText) {
+                                bucket.get(activePage).push(inlineText);
+                            }
+                            return;
+                        }
+                        if (activePage && bucket.has(activePage)) {
+                            bucket.get(activePage).push(line);
+                        }
+                    });
+
+                    batch.forEach((pageNumber) => {
+                        const pageLines = bucket.has(pageNumber) ? bucket.get(pageNumber) : [];
+                        const pageText = sanitizeAttachmentText(pageLines.join('\n'));
+                        if (pageText) {
+                            textByPage.set(pageNumber, pageText);
+                        } else {
+                            failedPages.add(pageNumber);
+                        }
+                    });
+
+                    const batchHasAny = batch.some((pageNumber) => textByPage.has(pageNumber));
+                    if (!batchHasAny && text) {
+                        notes.push(`OCR format fallback used for page batch ${batch.join(', ')}.`);
+                        const split = text
+                            .split(/\n\s*\n+/)
+                            .map((entry) => sanitizeAttachmentText(entry))
+                            .filter((entry) => entry.length > 0);
+                        if (split.length >= batch.length) {
+                            batch.forEach((pageNumber, index) => {
+                                const candidate = split[index] || '';
+                                if (candidate) {
+                                    textByPage.set(pageNumber, candidate);
+                                }
+                            });
+                        } else {
+                            textByPage.set(batch[0], text);
+                        }
+                    }
+                } catch (error) {
+                    const isAbort = error && (error.name === 'AbortError' || controller.signal.aborted);
+                    if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                        throw new Error('Attachment parsing cancelled');
+                    }
+                    notes.push(isAbort
+                        ? 'OCR timed out; continuing with PDF text layer only.'
+                        : `OCR unavailable (${error && error.message ? error.message : 'unknown error'}); continuing with PDF text layer only.`);
+                    batch.forEach((pageNumber) => failedPages.add(pageNumber));
+                    continue;
+                } finally {
+                    clearTimeout(timeoutId);
+                    if (typeof options.registerAbortController === 'function') {
+                        options.registerAbortController(null);
+                    }
+                }
+            }
+
+            if (failedPages.size > 0) {
+                notes.push(`OCR missing for ${failedPages.size} page(s); text-layer content kept where available.`);
+            }
+
+            return { textByPage, notes };
+        }
+
+        async function extractTextFromPDF(file, options = {}) {
             if (typeof pdfjsLib === 'undefined' || !pdfjsLib.getDocument) {
                 throw new Error('PDF parser not available');
             }
@@ -3485,8 +5035,28 @@
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                let text = `[Content from ${file.name}]:\n`;
-                for (let i = 1; i <= pdf.numPages; i++) {
+                const totalPages = Number(pdf.numPages || 0);
+                const pagesToProcess = Math.min(totalPages, PDF_MAX_PAGES);
+                const droppedPages = Math.max(0, totalPages - pagesToProcess);
+                const textPages = [];
+                const ocrCandidatePages = [];
+                let extractedChars = 0;
+                const earlyStopCharBudget = ATTACHMENT_TEXT_CHAR_LIMIT * 6;
+                let earlyStopAtPage = 0;
+
+                if (typeof options.onProgress === 'function') {
+                    options.onProgress(`PDF text 0/${pagesToProcess}`);
+                }
+
+                for (let i = 1; i <= pagesToProcess; i += 1) {
+                    if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                        throw new Error('Attachment parsing cancelled');
+                    }
+
+                    if (typeof options.onProgress === 'function') {
+                        options.onProgress(`PDF text ${i}/${pagesToProcess}`);
+                    }
+
                     const page = await pdf.getPage(i);
                     const content = await page.getTextContent();
                     const pageText = content.items
@@ -3494,12 +5064,64 @@
                         .filter((str) => typeof str === 'string' && str.trim())
                         .join(' ')
                         .trim();
-                    if (pageText) {
-                        text += `${pageText}\n`;
+
+                    if (pageText.length >= PDF_TEXT_MIN_CHARS_FOR_NO_OCR) {
+                        textPages.push(`[Page ${i}]\n${pageText}`);
+                        extractedChars += pageText.length;
+                    } else {
+                        ocrCandidatePages.push(i);
+                        if (pageText) {
+                            textPages.push(`[Page ${i}]\n${pageText}`);
+                            extractedChars += pageText.length;
+                        }
+                    }
+
+                    if (pagesToProcess > 120 && extractedChars >= earlyStopCharBudget) {
+                        earlyStopAtPage = i;
+                        break;
+                    }
+
+                    if (i % PDF_PARSE_YIELD_PAGE_INTERVAL === 0) {
+                        await yieldToUiFrame();
                     }
                 }
 
-                return sanitizeAttachmentText(text);
+                const notes = [];
+                if (droppedPages > 0) {
+                    notes.push(`Only first ${PDF_MAX_PAGES} pages processed; skipped ${droppedPages} additional pages.`);
+                }
+                if (earlyStopAtPage > 0 && earlyStopAtPage < pagesToProcess) {
+                    notes.push(`Stopped detailed extraction at page ${earlyStopAtPage} to keep UI responsive; remaining pages can be re-sent in smaller batches.`);
+                }
+
+                if (ocrCandidatePages.length > 0) {
+                    const ocrPages = ocrCandidatePages.slice(0, PDF_OCR_MAX_PAGES);
+                    if (ocrCandidatePages.length > ocrPages.length) {
+                        notes.push(`OCR limited to first ${ocrPages.length} low-text page(s) to keep processing responsive.`);
+                    }
+
+                    const ocrResult = await runPdfOcrFallback(pdf, file.name, ocrPages, options);
+                    ocrResult.notes.forEach((note) => notes.push(note));
+                    if (ocrResult.textByPage.size > 0) {
+                        for (let idx = 0; idx < textPages.length; idx += 1) {
+                            const pageMatch = textPages[idx].match(/^\[Page\s+(\d+)\]/i);
+                            const pageNumber = pageMatch ? Number(pageMatch[1]) : 0;
+                            if (pageNumber && ocrResult.textByPage.has(pageNumber)) {
+                                textPages[idx] = `[Page ${pageNumber}]\n${ocrResult.textByPage.get(pageNumber)}`;
+                            }
+                        }
+                        ocrCandidatePages.forEach((pageNumber) => {
+                            if (!textPages.some((entry) => entry.startsWith(`[Page ${pageNumber}]`)) && ocrResult.textByPage.has(pageNumber)) {
+                                textPages.push(`[Page ${pageNumber}]\n${ocrResult.textByPage.get(pageNumber)}`);
+                            }
+                        });
+                    }
+                }
+
+                const joinedText = [`[Content from ${file.name}]`, ...notes.map((note) => `[NOTE] ${note}`), ...textPages]
+                    .join('\n\n')
+                    .trim();
+                return sanitizeAttachmentText(joinedText);
             } catch (e) { console.error("PDF Parse Error", e); throw e; }
         }
 
@@ -3520,9 +5142,13 @@
             return sanitizeAttachmentText(`[Content from ${file.name}]:\n${content || ''}`);
         }
 
-        async function parseAttachmentText(file, kind) {
+        async function parseAttachmentText(file, kind, options = {}) {
             try {
-                if (kind === 'pdf') return { text: await extractTextFromPDF(file) };
+                if (typeof options.isCancelled === 'function' && options.isCancelled()) {
+                    throw new Error('Attachment parsing cancelled');
+                }
+
+                if (kind === 'pdf') return { text: await extractTextFromPDF(file, options) };
                 if (kind === 'docx') return { text: await extractTextFromDocx(file) };
                 if (kind === 'text') return { text: await parseTextAttachment(file) };
                 if (kind === 'unsupported') return {
@@ -3542,9 +5168,21 @@
         // --- Feature 1: Stop Logic ---
 
         function stopGeneration() {
+            let interrupted = false;
+            isGenerationStopRequested = true;
+
             if (abortController) {
                 abortController.abort();
                 abortController = null;
+                interrupted = true;
+            }
+
+            if (pendingMcpToolRequests.size > 0) {
+                cancelPendingMcpToolRequests('Generation interrupted by user.');
+                interrupted = true;
+            }
+
+            if (interrupted) {
                 addMessage('system', 'Generation interrupted by user.');
                 document.getElementById('stopButton').style.display = 'none';
                 document.getElementById('sendButton').disabled = false;
@@ -3557,6 +5195,7 @@
             const panel = document.getElementById('parameterPanel');
             const floatingToggle = document.getElementById('floatingToggle');
             const benchmarkToggle = document.getElementById('benchmarkToggle');
+            const mcpLogToggle = document.getElementById('mcpLogToggle');
             const header = document.getElementById('panelHeader');
             
             const isCollapsed = panel.classList.toggle('collapsed');
@@ -3567,9 +5206,11 @@
             if (isCollapsed) {
                 floatingToggle.classList.add('visible');
                 if (benchmarkToggle) benchmarkToggle.classList.add('visible');
+                if (mcpLogToggle) mcpLogToggle.classList.add('visible');
             } else {
                 floatingToggle.classList.remove('visible');
                 if (benchmarkToggle) benchmarkToggle.classList.remove('visible');
+                if (mcpLogToggle) mcpLogToggle.classList.remove('visible');
             }
         }
 
@@ -3648,6 +5289,20 @@
                 return;
             }
 
+            if (data && data.type === 'supermemory-toggle-result') {
+                const requestId = data.request_id;
+                const pending = requestId ? pendingSupermemoryRequests.get(requestId) : null;
+                if (!pending) return;
+
+                pendingSupermemoryRequests.delete(requestId);
+                if (data.ok) {
+                    pending.resolve(data.result || {});
+                } else {
+                    pending.reject(new Error(data.error || 'Supermemory toggle failed'));
+                }
+                return;
+            }
+
             if (data && data.type === 'compatible-models-list') {
                 console.log('[ChatUI] Received compatible models list:', data.models.length, 'found');
                 if (senseTimeout) {
@@ -3659,6 +5314,7 @@
 
             if (data && data.type === 'current-config') {
                 console.log('[ChatUI] Received current config:', data);
+                applyGlobalSystemPromptOverrideFromParent(data);
                 currentRunningDraftModel = data.draftModelPath || '';
                 console.log('[ChatUI] Current running draft model:', currentRunningDraftModel);
                 if (typeof data.env_vars === 'string') {
@@ -3677,6 +5333,7 @@
                         chatModelSwitcherState.activeModelName = modelPath.split(/[\\/]/).pop() || 'Unknown';
                         chatModelSwitcherState.activeSourceType = 'local';
                         updateActiveModelSwitcherLabel();
+                        applyStreamPreferenceForCurrentModel();
                     }
 
                     applyLaunchArgsToParams(data.launchArgs);
@@ -3696,6 +5353,10 @@
                 updateParameterDisplay();
                 syncSpecFixButton();
                 markLaunchChange();
+            }
+
+            if (data && data.type === 'global-system-prompt-override-changed') {
+                applyGlobalSystemPromptOverrideFromParent(data);
             }
 
             if (data && data.type === 'mcp-context') {
@@ -3740,6 +5401,7 @@
                             currentModelPath = chatModelSwitcherState.activeModelPath;
                         }
                         updateActiveModelSwitcherLabel();
+                        applyStreamPreferenceForCurrentModel();
                         renderChatModelSwitcher();
                     }
                     addMessage('system', data.message || `Switched to ${chatModelSwitcherState.activeModelName}`);
@@ -3757,6 +5419,7 @@
                     currentModelPath = chatModelSwitcherState.activeModelPath;
                 }
                 updateActiveModelSwitcherLabel();
+                applyStreamPreferenceForCurrentModel();
                 renderChatModelSwitcher();
             }
 
@@ -3877,6 +5540,9 @@ function applySpeculativeFix() {
             
             document.getElementById('historyValue').textContent = currentParams.history_limit;
             document.getElementById('history_limit').value = currentParams.history_limit;
+
+            currentParams.mcp_tool_loops = clampMcpToolLoops(currentParams.mcp_tool_loops);
+            document.getElementById('mcp_tool_loops').value = currentParams.mcp_tool_loops;
             
             document.getElementById('system_prompt').value = currentParams.system_prompt;
 
@@ -3969,6 +5635,12 @@ function applySpeculativeFix() {
                 currentParams.max_tokens = parseInt(e.target.value);
             });
 
+            document.getElementById('mcp_tool_loops').addEventListener('change', (e) => {
+                const clampedValue = clampMcpToolLoops(e.target.value);
+                currentParams.mcp_tool_loops = clampedValue;
+                e.target.value = clampedValue;
+            });
+
             document.getElementById('repeat_last_n').addEventListener('change', (e) => {
                 currentParams.repeat_last_n = parseInt(e.target.value);
             });
@@ -4055,6 +5727,7 @@ function applySpeculativeFix() {
                 type: 'request-restart',
                 args: args.trim(),
                 env_vars: normalizedEnvVars,
+                system_prompt: String(currentParams.system_prompt || '').trim(),
                 requiresRestart: shouldRestart
             }, '*');
 
@@ -4111,6 +5784,150 @@ function applySpeculativeFix() {
             return messageDiv;
         }
 
+        function appendTextWithLineBreaks(target, text, className = '') {
+            const fragment = document.createDocumentFragment();
+            const lines = String(text || '').split('\n');
+
+            for (let i = 0; i < lines.length; i += 1) {
+                if (className) {
+                    const span = document.createElement('span');
+                    span.className = className;
+                    span.textContent = lines[i];
+                    fragment.appendChild(span);
+                } else {
+                    fragment.appendChild(document.createTextNode(lines[i]));
+                }
+
+                if (i < lines.length - 1) {
+                    fragment.appendChild(document.createElement('br'));
+                }
+            }
+
+            target.appendChild(fragment);
+        }
+
+        function setTextWithLineBreaks(target, text, className = '') {
+            target.textContent = '';
+            appendTextWithLineBreaks(target, text, className);
+        }
+
+        function appendMessageStat(statsDiv, label, value) {
+            const item = document.createElement('span');
+            item.className = 'stat-item';
+
+            const bold = document.createElement('b');
+            bold.textContent = `${label}:`;
+            item.appendChild(bold);
+            item.appendChild(document.createTextNode(` ${value}`));
+
+            statsDiv.appendChild(item);
+        }
+
+        function renderAssistantStats(messageDiv, stats) {
+            const existing = messageDiv.querySelector('.message-stats');
+            if (existing) {
+                existing.remove();
+            }
+
+            if (!stats) {
+                return;
+            }
+
+            const statsDiv = document.createElement('div');
+            statsDiv.className = 'message-stats';
+
+            appendMessageStat(statsDiv, 'Total', stats.total);
+            appendMessageStat(statsDiv, 'Main', stats.main);
+            appendMessageStat(statsDiv, 'Draft', stats.draft);
+            appendMessageStat(statsDiv, 'TTFT', `${stats.ttft}ms`);
+            appendMessageStat(statsDiv, 'TPS', stats.tps);
+
+            messageDiv.appendChild(statsDiv);
+        }
+
+        function createAssistantMessageElement(initialText = '...') {
+            const assistantMsgDiv = document.createElement('div');
+            assistantMsgDiv.className = 'message assistant';
+
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'message-label';
+            labelDiv.textContent = 'Assistant';
+
+            const bodyDiv = document.createElement('div');
+            bodyDiv.className = 'message-body';
+            setTextWithLineBreaks(bodyDiv, initialText);
+
+            assistantMsgDiv.appendChild(labelDiv);
+            assistantMsgDiv.appendChild(bodyDiv);
+
+            return { assistantMsgDiv, bodyDiv };
+        }
+
+        function buildChatCompletionPayload(messages, options = {}) {
+            const hasImageInputs = !!options.hasImageInputs;
+            const forceMinimalSampling = !!options.forceMinimalSampling;
+            const tools = Array.isArray(options.tools) ? options.tools : null;
+            const forceNoStream = !!options.forceNoStream;
+            const includeStream = !forceNoStream;
+
+            const payload = {
+                model: '',
+                messages,
+                temperature: currentParams.temperature,
+                top_p: currentParams.top_p,
+                max_tokens: currentParams.max_tokens,
+                stream: includeStream ? (currentParams.stream_output !== false) : false
+            };
+
+            if (tools && tools.length > 0) {
+                payload.tools = tools;
+                payload.tool_choice = 'auto';
+            }
+
+            if (!hasImageInputs && !forceMinimalSampling) {
+                payload.min_p = currentParams.min_p;
+                payload.top_k = currentParams.top_k;
+                payload.repeat_penalty = currentParams.repeat_penalty;
+                payload.repeat_last_n = currentParams.repeat_last_n;
+                payload.presence_penalty = currentParams.presence_penalty;
+                payload.frequency_penalty = currentParams.frequency_penalty;
+                payload.xtc_probability = currentParams.xtc_probability;
+                payload.xtc_threshold = currentParams.xtc_threshold;
+                payload.dry_multiplier = currentParams.dry_multiplier;
+                payload.dry_base = currentParams.dry_base;
+                payload.dry_allowed_length = currentParams.dry_allowed_length;
+                payload['speculative.n_max'] = currentParams.launch_draft_max;
+                payload['speculative.p_min'] = currentParams.launch_draft_p_min;
+                payload.reasoning_format = currentParams.reasoning_format;
+                payload.reasoning_budget = currentParams.reasoning_budget;
+            }
+
+            if (includeStream && payload.stream) {
+                payload.stream_options = { include_usage: true };
+            }
+
+            return payload;
+        }
+
+        function normalizeTemplateMessages(messages) {
+            const list = Array.isArray(messages) ? messages : [];
+            const systemMessages = [];
+            const nonSystemMessages = [];
+            for (const message of list) {
+                if (message && message.role === 'system') {
+                    systemMessages.push(message);
+                } else {
+                    nonSystemMessages.push(message);
+                }
+            }
+            return [...systemMessages, ...nonSystemMessages];
+        }
+
+        function isGlmFamilyActiveModel() {
+            const modelName = String(getBenchmarkModelName() || '').toLowerCase();
+            return modelName.includes('glm');
+        }
+
         // Send message
         async function sendMessage() {
             const input = document.getElementById('chatInput');
@@ -4127,6 +5944,13 @@ function applySpeculativeFix() {
             }
 
             // Feature 1: Reset Abort Controller
+            isGenerationStopRequested = false;
+            const imageWaitDeadline = Date.now() + 8000;
+            while (Date.now() < imageWaitDeadline) {
+                const pendingImage = currentAttachments.some((att) => att && att.kind === 'image' && att.isParsing);
+                if (!pendingImage) break;
+                await new Promise((resolve) => setTimeout(resolve, 80));
+            }
             abortController = new AbortController();
             document.getElementById('stopButton').style.display = 'flex';
             document.getElementById('sendButton').disabled = true;
@@ -4140,15 +5964,36 @@ function applySpeculativeFix() {
             }
 
             const images = [];
+            let imageAttachmentsDropped = 0;
+            let remainingAttachmentBudget = ATTACHMENT_PROMPT_TOTAL_CHAR_BUDGET;
             currentAttachments.forEach(att => {
                 if (att.name) {
                     attachmentNames.push(att.name);
                 }
 
-                if (att.text) {
+                if (att.isParsing) {
+                    promptParts.push(`[${att.name || 'attachment'}]\nAttachment is still parsing. Send again in a moment for full text.`);
+                } else if (att.text) {
                     const text = String(att.text).trim();
                     if (text) {
-                        promptParts.push(`[${att.name || 'attachment'}]\n${text}`);
+                        let bounded = truncateWithNote(
+                            text,
+                            ATTACHMENT_PROMPT_PER_FILE_CHAR_BUDGET,
+                            `Attachment content truncated to ${ATTACHMENT_PROMPT_PER_FILE_CHAR_BUDGET} chars`
+                        );
+
+                        if (remainingAttachmentBudget <= 0) {
+                            bounded = '[Attachment text omitted due to message context budget.]';
+                        } else {
+                            bounded = truncateWithNote(
+                                bounded,
+                                remainingAttachmentBudget,
+                                'Attachment content truncated to fit message context budget'
+                            );
+                            remainingAttachmentBudget = Math.max(0, remainingAttachmentBudget - bounded.length);
+                        }
+
+                        promptParts.push(`[${att.name || 'attachment'}]\n${bounded}`);
                     }
                 } else if (att.error) {
                     const errorText = String(att.error || '').trim();
@@ -4157,8 +6002,18 @@ function applySpeculativeFix() {
                     promptParts.push(`[${att.name || 'attachment'}]`);
                 }
 
-                if (att.data) images.push(att.data);
+                if (att.data) {
+                    if (images.length < MAX_IMAGE_ATTACHMENTS_PER_MESSAGE) {
+                        images.push(att.data);
+                    } else {
+                        imageAttachmentsDropped += 1;
+                    }
+                }
             });
+
+            if (imageAttachmentsDropped > 0) {
+                promptParts.push(`[NOTE] ${imageAttachmentsDropped} image attachment(s) were not sent to keep payload size safe.`);
+            }
 
             let requestPrompt = promptParts.join('\n\n').trim();
             if (!requestPrompt) {
@@ -4184,6 +6039,7 @@ function applySpeculativeFix() {
             addMessage('user', messageText || `Sent attachments: ${attachmentNames.join(', ') || 'files'}`);
             
             // Clear attachments UI
+            cancelAllAttachmentParses();
             currentAttachments = [];
             document.getElementById('attachmentPreview').innerHTML = '';
             document.getElementById('attachmentPreview').style.display = 'none';
@@ -4192,11 +6048,8 @@ function applySpeculativeFix() {
 
             // Add loading indicator
             const messagesDiv = document.getElementById('chatMessages');
-            const assistantMsgDiv = document.createElement('div');
-            assistantMsgDiv.className = 'message assistant';
-            assistantMsgDiv.innerHTML = '<div class="message-label">Assistant</div><div class="message-body">...</div>';
+            const { assistantMsgDiv, bodyDiv } = createAssistantMessageElement('...');
             messagesDiv.appendChild(assistantMsgDiv);
-            const bodyDiv = assistantMsgDiv.querySelector('.message-body');
 
             // Feature 4: Performance Tracking
             const startTime = Date.now();
@@ -4206,15 +6059,33 @@ function applySpeculativeFix() {
             let draftTokensFromSignals = 0;
             let hasUsageDraftTokens = false;
             let fullText = "";
+            let mcpLoopErrorLogged = false;
 
             try {
                 const messages = [];
                 const mcpToolCatalog = buildMcpToolCatalog();
-                if (currentParams.system_prompt.trim()) {
-                    messages.push({ role: 'system', content: currentParams.system_prompt.trim() });
+                const mcpModeActive = mcpToolCatalog.tools.length > 0;
+                const hasImageInputs = images.length > 0;
+                const forceMinimalSampling = isGlmFamilyActiveModel();
+                const streamOutputEnabled = currentParams.stream_output !== false && !hasImageInputs;
+                const combinedSystemParts = [];
+                combinedSystemParts.push(buildCurrentDateTimeSystemPrompt());
+                const effectiveSystemPrompt = getEffectiveSystemPrompt();
+                if (effectiveSystemPrompt) {
+                    combinedSystemParts.push(effectiveSystemPrompt);
                 }
                 if (sessionSystemMemory.trim()) {
-                    messages.push({ role: 'system', content: sessionSystemMemory.trim() });
+                    combinedSystemParts.push(sessionSystemMemory.trim());
+                }
+                if (mcpModeActive) {
+                    combinedSystemParts.push('MCP tool-call mode is enabled. If external data is needed, emit tool_calls immediately in this response. Do not ask the user to wait, queue, or send another message.');
+                }
+                const combinedSystemMessage = combinedSystemParts
+                    .map((part) => String(part || '').trim())
+                    .filter(Boolean)
+                    .join('\n\n');
+                if (combinedSystemMessage) {
+                    messages.push({ role: 'system', content: combinedSystemMessage });
                 }
                 updateMcpDebugStatus(`MCP context injection: off (${mcpToolCatalog.counts.included} callable, ${mcpToolCatalog.counts.skipped} skipped)`);
                 const historyToInclude = messageHistory.slice(-currentParams.history_limit);
@@ -4225,9 +6096,13 @@ function applySpeculativeFix() {
                     messages[messages.length-1].content = userContent;
                 }
 
-                if (mcpToolCatalog.tools.length > 0) {
-                    const maxIterations = 6;
+                if (mcpModeActive) {
+                    if (streamOutputEnabled) {
+                        updateMcpDebugStatus('MCP path uses non-streaming loop for tool-calls');
+                    }
+                    const maxIterations = clampMcpToolLoops(currentParams.mcp_tool_loops);
                     const requestMessages = messages.map((item) => ({ ...item }));
+                    let mcpFallbackToPlain = false;
                     let loopIteration = 0;
                     let completed = false;
                     let stopReason = 'max-iterations';
@@ -4238,43 +6113,69 @@ function applySpeculativeFix() {
                         maxIterations
                     });
 
-                    bodyDiv.innerHTML = '';
+                    bodyDiv.textContent = '';
 
                     while (loopIteration < maxIterations) {
+                        if (isGenerationStopRequested || !abortController || abortController.signal.aborted) {
+                            stopReason = 'cancelled';
+                            throw createAbortError('Generation interrupted by user.');
+                        }
+
                         loopIteration += 1;
 
+                        appendMcpLogEntry({
+                            timestamp: new Date().toISOString(),
+                            type: 'outbound',
+                            connectionId: 'llm',
+                            connectionName: 'LLM',
+                            toolName: '__chat_completion__',
+                            argumentsSnapshot: {
+                                iteration: loopIteration,
+                                messageCount: requestMessages.length,
+                                toolCount: mcpToolCatalog.tools.length
+                            }
+                        });
+
+                        const normalizedRequestMessages = normalizeTemplateMessages(requestMessages);
                         const completionResponse = await fetch('/v1/chat/completions', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             signal: abortController.signal,
-                            body: JSON.stringify({
-                                model: '',
-                                messages: requestMessages,
+                            body: JSON.stringify(buildChatCompletionPayload(normalizedRequestMessages, {
+                                hasImageInputs,
+                                forceMinimalSampling,
                                 tools: mcpToolCatalog.tools,
-                                tool_choice: 'auto',
-                                temperature: currentParams.temperature,
-                                top_p: currentParams.top_p,
-                                min_p: currentParams.min_p,
-                                top_k: currentParams.top_k,
-                                max_tokens: currentParams.max_tokens,
-                                repeat_penalty: currentParams.repeat_penalty,
-                                repeat_last_n: currentParams.repeat_last_n,
-                                presence_penalty: currentParams.presence_penalty,
-                                frequency_penalty: currentParams.frequency_penalty,
-                                xtc_probability: currentParams.xtc_probability,
-                                xtc_threshold: currentParams.xtc_threshold,
-                                dry_multiplier: currentParams.dry_multiplier,
-                                dry_base: currentParams.dry_base,
-                                dry_allowed_length: currentParams.dry_allowed_length,
-                                'speculative.n_max': currentParams.launch_draft_max,
-                                'speculative.p_min': currentParams.launch_draft_p_min,
-                                reasoning_format: currentParams.reasoning_format,
-                                reasoning_budget: currentParams.reasoning_budget,
-                                stream: false
-                            })
+                                forceNoStream: true
+                            }))
                         });
 
                         if (!completionResponse.ok) {
+                            const failureBody = await completionResponse.text().catch(() => '');
+                            const failureText = failureBody
+                                ? truncateMcpLogText(failureBody, 800)
+                                : 'No response body.';
+                            appendMcpLogEntry({
+                                timestamp: new Date().toISOString(),
+                                type: 'inbound',
+                                status: 'failure',
+                                connectionId: 'llm',
+                                connectionName: 'LLM',
+                                toolName: '__chat_completion__',
+                                resultSnippet: `HTTP ${completionResponse.status} ${completionResponse.statusText || ''} | ${failureText}`
+                            });
+                            const loweredFailure = String(failureBody || '').toLowerCase();
+                            const isTemplateParserError = completionResponse.status === 400 && (
+                                loweredFailure.includes('unable to generate parser for this template') ||
+                                loweredFailure.includes('system message must be at the beginning')
+                            );
+                            if (isTemplateParserError) {
+                                mcpFallbackToPlain = true;
+                                stopReason = 'template-parser-incompatible';
+                                updateMcpDebugStatus('MCP tools incompatible with active template; retrying without MCP tools.');
+                                setTextWithLineBreaks(bodyDiv, 'MCP tools are incompatible with this model template. Retrying without tools...');
+                                break;
+                            }
+                            mcpLoopErrorLogged = true;
                             throw new Error(`MCP chat request failed (${completionResponse.status})`);
                         }
 
@@ -4285,6 +6186,16 @@ function applySpeculativeFix() {
                         const assistantMessage = choice && choice.message ? choice.message : null;
 
                         if (!assistantMessage) {
+                            appendMcpLogEntry({
+                                timestamp: new Date().toISOString(),
+                                type: 'inbound',
+                                status: 'failure',
+                                connectionId: 'llm',
+                                connectionName: 'LLM',
+                                toolName: '__chat_completion__',
+                                resultSnippet: 'MCP chat response missing assistant message.'
+                            });
+                            mcpLoopErrorLogged = true;
                             throw new Error('MCP chat response missing assistant message');
                         }
 
@@ -4301,9 +6212,19 @@ function applySpeculativeFix() {
                             ? assistantMessage.tool_calls
                             : [];
 
+                        appendMcpLogEntry({
+                            timestamp: new Date().toISOString(),
+                            type: 'inbound',
+                            status: 'success',
+                            connectionId: 'llm',
+                            connectionName: 'LLM',
+                            toolName: '__chat_completion__',
+                            resultSnippet: `HTTP ${completionResponse.status}; tool_calls=${toolCalls.length}; has_content=${Boolean(extractAssistantMessageContent(assistantMessage).trim())}`
+                        });
+
                         if (toolCalls.length === 0) {
                             fullText = extractAssistantMessageContent(assistantMessage);
-                            bodyDiv.innerHTML = fullText.replace(/\n/g, '<br>');
+                            setTextWithLineBreaks(bodyDiv, fullText);
                             completed = true;
                             stopReason = 'assistant-content';
                             updateMcpDebugStatus(`MCP loop done (${loopIteration}/${maxIterations}): content`);
@@ -4316,6 +6237,17 @@ function applySpeculativeFix() {
                             count: toolCalls.length
                         });
 
+                        const toolCallNames = toolCalls
+                            .map((call) => {
+                                const fn = call && call.function ? call.function : null;
+                                const mapped = fn && mcpToolCatalog.toolMap[String(fn.name || '').trim()];
+                                return mapped ? mapped.toolName : String(fn && fn.name ? fn.name : 'unknown_tool');
+                            })
+                            .filter((name) => Boolean(String(name).trim()));
+                        if (toolCallNames.length > 0) {
+                            setTextWithLineBreaks(bodyDiv, `Using tools: ${toolCallNames.join(', ')}...`);
+                        }
+
                         requestMessages.push({
                             role: 'assistant',
                             content: assistantMessage.content || '',
@@ -4323,24 +6255,63 @@ function applySpeculativeFix() {
                         });
 
                         for (const toolCall of toolCalls) {
+                            if (isGenerationStopRequested || !abortController || abortController.signal.aborted) {
+                                stopReason = 'cancelled';
+                                throw createAbortError('Generation interrupted by user.');
+                            }
+
                             const functionPayload = toolCall && toolCall.function ? toolCall.function : {};
                             const aliasedName = String(functionPayload.name || '').trim();
                             const mappedTool = mcpToolCatalog.toolMap[aliasedName];
+                            const toolArguments = normalizeToolArguments(functionPayload.arguments);
+                            const mappedConnectionId = mappedTool ? String(mappedTool.connectionId || '') : '';
+                            const mappedConnectionName = getMcpConnectionName(mappedConnectionId);
+                            const mappedToolName = mappedTool
+                                ? String(mappedTool.toolName || 'unknown_tool')
+                                : String(aliasedName || 'unknown_tool');
                             let toolResultText = '';
+
+                            appendMcpLogEntry({
+                                timestamp: new Date().toISOString(),
+                                type: 'outbound',
+                                connectionId: mappedConnectionId,
+                                connectionName: mappedConnectionName,
+                                toolName: mappedToolName,
+                                argumentsSnapshot: toolArguments
+                            });
 
                             if (!mappedTool) {
                                 toolResultText = `MCP tool unavailable: unknown tool mapping for ${aliasedName || 'unnamed tool'}.`;
+                                appendMcpLogEntry({
+                                    timestamp: new Date().toISOString(),
+                                    type: 'inbound',
+                                    status: 'failure',
+                                    connectionId: mappedConnectionId,
+                                    connectionName: mappedConnectionName,
+                                    toolName: mappedToolName,
+                                    resultSnippet: toolResultText
+                                });
                             } else {
                                 try {
-                                    const toolArguments = normalizeToolArguments(functionPayload.arguments);
                                     const toolResult = await requestMcpToolCall({
                                         connectionId: mappedTool.connectionId,
                                         toolName: mappedTool.toolName,
                                         arguments: toolArguments
+                                    }, {
+                                        abortSignal: abortController ? abortController.signal : null
                                     });
 
                                     if (toolResult && toolResult.success && !toolResult.is_error) {
                                         toolResultText = String(toolResult.content || '').trim() || 'Tool completed successfully with empty output.';
+                                        appendMcpLogEntry({
+                                            timestamp: new Date().toISOString(),
+                                            type: 'inbound',
+                                            status: 'success',
+                                            connectionId: mappedConnectionId,
+                                            connectionName: mappedConnectionName,
+                                            toolName: mappedToolName,
+                                            resultSnippet: toolResultText
+                                        });
                                         console.log('[ChatUI][MCP] Tool execution success', {
                                             connectionId: mappedTool.connectionId,
                                             toolName: mappedTool.toolName
@@ -4350,6 +6321,15 @@ function applySpeculativeFix() {
                                             ? String(toolResult.content || toolResult.message || toolResult.error)
                                             : 'Tool returned an unknown error.';
                                         toolResultText = `Tool failed: ${failureText}`;
+                                        appendMcpLogEntry({
+                                            timestamp: new Date().toISOString(),
+                                            type: 'inbound',
+                                            status: 'failure',
+                                            connectionId: mappedConnectionId,
+                                            connectionName: mappedConnectionName,
+                                            toolName: mappedToolName,
+                                            resultSnippet: toolResultText
+                                        });
                                         console.warn('[ChatUI][MCP] Tool execution returned failure', {
                                             connectionId: mappedTool.connectionId,
                                             toolName: mappedTool.toolName,
@@ -4357,8 +6337,20 @@ function applySpeculativeFix() {
                                         });
                                     }
                                 } catch (toolError) {
+                                    if (toolError && toolError.name === 'AbortError') {
+                                        throw toolError;
+                                    }
                                     const toolErrorText = toolError && toolError.message ? toolError.message : String(toolError);
                                     toolResultText = `Tool unavailable: ${toolErrorText || 'request failed'}`;
+                                    appendMcpLogEntry({
+                                        timestamp: new Date().toISOString(),
+                                        type: 'inbound',
+                                        status: 'failure',
+                                        connectionId: mappedConnectionId,
+                                        connectionName: mappedConnectionName,
+                                        toolName: mappedToolName,
+                                        resultSnippet: toolResultText
+                                    });
                                     console.error('[ChatUI][MCP] Tool execution bridge error', {
                                         connectionId: mappedTool.connectionId,
                                         toolName: mappedTool.toolName,
@@ -4375,34 +6367,90 @@ function applySpeculativeFix() {
                         }
                     }
 
-                    if (!completed) {
+                    if (!completed && !mcpFallbackToPlain) {
                         stopReason = loopIteration >= maxIterations ? 'max-iterations' : stopReason;
                         fullText = 'MCP tool loop stopped before a final assistant message. Try simplifying the request or checking tool availability.';
-                        bodyDiv.innerHTML = fullText.replace(/\n/g, '<br>');
+                        setTextWithLineBreaks(bodyDiv, fullText);
                         updateMcpDebugStatus(`MCP loop stopped: ${stopReason}`);
                         console.warn('[ChatUI][MCP] Tool loop stopped without final content', { stopReason, loopIteration, maxIterations });
                     }
 
-                    const finalDraftTokens = 0;
-                    const mainTokens = Math.max(0, (totalTokens || 0) - finalDraftTokens);
+                    if (!mcpFallbackToPlain) {
+                        const finalDraftTokens = 0;
+                        const mainTokens = Math.max(0, (totalTokens || 0) - finalDraftTokens);
+                        const generationDurationMs = Math.max(1, Date.now() - startTime);
+                        const tokensPerSecond = ((totalTokens || 0) / (generationDurationMs / 1000)).toFixed(2);
+                        renderAssistantStats(assistantMsgDiv, {
+                            total: totalTokens || 0,
+                            main: mainTokens || 0,
+                            draft: finalDraftTokens || 0,
+                            ttft,
+                            tps: tokensPerSecond
+                        });
+
+                        appendBenchmarkLogEntry({
+                            model: getBenchmarkModelName(),
+                            total: totalTokens || 0,
+                            main: mainTokens || 0,
+                            draft: finalDraftTokens || 0,
+                            ttft: ttft || 0,
+                            tps: Number(tokensPerSecond) || 0
+                        });
+
+                        messageHistory.push({ role: 'assistant', content: fullText });
+                        if (CHAT_HISTORY_ENABLED && activeChatId) {
+                            await appendChatHistoryMessage(activeChatId, 'assistant', fullText);
+                        }
+                        await maybeAutoGenerateTitle();
+                        await refreshChatHistoryList(document.getElementById('chatHistorySearch')?.value || '');
+                        await refreshContextCounter();
+                        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                        return;
+                    }
+                }
+
+                const normalizedMessages = normalizeTemplateMessages(messages);
+                const response = await fetch('/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: abortController.signal,
+                    body: JSON.stringify(buildChatCompletionPayload(normalizedMessages, {
+                        hasImageInputs,
+                        forceMinimalSampling,
+                        forceNoStream: !streamOutputEnabled
+                    }))
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Chat request failed (${response.status})`);
+                }
+
+                if (!streamOutputEnabled) {
+                    const completionData = await response.json();
+                    const choice = completionData && Array.isArray(completionData.choices)
+                        ? completionData.choices[0]
+                        : null;
+                    const message = choice && choice.message ? choice.message : null;
+                    fullText = extractAssistantMessageContent(message || { content: '' });
+                    setTextWithLineBreaks(bodyDiv, fullText);
+                    if (!ttft) {
+                        ttft = Date.now() - startTime;
+                    }
+
+                    if (completionData && completionData.usage && typeof completionData.usage.completion_tokens === 'number') {
+                        totalTokens = completionData.usage.completion_tokens;
+                    }
+
+                    const finalDraftTokens = hasUsageDraftTokens ? draftTokens : draftTokensFromSignals;
+                    const mainTokens = Math.max(0, (totalTokens || 0) - (finalDraftTokens || 0));
                     const generationDurationMs = Math.max(1, Date.now() - startTime);
                     const tokensPerSecond = ((totalTokens || 0) / (generationDurationMs / 1000)).toFixed(2);
-                    const statsHtml = `<div class="message-stats">
-                    <span class="stat-item"><b>Total:</b> ${totalTokens || 0}</span>
-                    <span class="stat-item"><b>Main:</b> ${mainTokens || 0}</span>
-                    <span class="stat-item"><b>Draft:</b> ${finalDraftTokens || 0}</span>
-                    <span class="stat-item"><b>TTFT:</b> ${ttft}ms</span>
-                    <span class="stat-item"><b>TPS:</b> ${tokensPerSecond}</span>
-                </div>`;
-
-                    assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
-
-                    appendBenchmarkLogEntry({
-                        model: getBenchmarkModelName(),
+                    renderAssistantStats(assistantMsgDiv, {
                         total: totalTokens || 0,
                         main: mainTokens || 0,
                         draft: finalDraftTokens || 0,
-                        ttft: ttft || 0
+                        ttft,
+                        tps: tokensPerSecond
                     });
 
                     messageHistory.push({ role: 'assistant', content: fullText });
@@ -4416,47 +6464,13 @@ function applySpeculativeFix() {
                     return;
                 }
 
-                const response = await fetch('/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: abortController.signal,
-                    body: JSON.stringify({
-                        model: '',
-                        messages: messages,
-                        temperature: currentParams.temperature,
-                        top_p: currentParams.top_p,
-                        min_p: currentParams.min_p,
-                        top_k: currentParams.top_k,
-                        max_tokens: currentParams.max_tokens,
-                        repeat_penalty: currentParams.repeat_penalty,
-                        repeat_last_n: currentParams.repeat_last_n,
-                        presence_penalty: currentParams.presence_penalty,
-                        frequency_penalty: currentParams.frequency_penalty,
-                        xtc_probability: currentParams.xtc_probability,
-                        xtc_threshold: currentParams.xtc_threshold,
-                        dry_multiplier: currentParams.dry_multiplier,
-                        dry_base: currentParams.dry_base,
-                        dry_allowed_length: currentParams.dry_allowed_length,
-                        'speculative.n_max': currentParams.launch_draft_max,
-                        'speculative.p_min': currentParams.launch_draft_p_min,
-                        reasoning_format: currentParams.reasoning_format,
-                        reasoning_budget: currentParams.reasoning_budget,
-                        stream: true,
-                        stream_options: { include_usage: true }
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Chat request failed (${response.status})`);
-                }
-
                 if (!response.body) {
                     throw new Error('Missing response body');
                 }
 
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-                bodyDiv.innerHTML = ""; // Clear loader
+                bodyDiv.textContent = ''; // Clear loader
                 let streamBuffer = '';
                 let streamDone = false;
                 let streamDebugState = {
@@ -4531,9 +6545,9 @@ function applySpeculativeFix() {
                             }
 
                             if (isDraft) {
-                                bodyDiv.innerHTML += `<span class="draft-token">${content.replace(/\n/g, '<br>')}</span>`;
+                                appendTextWithLineBreaks(bodyDiv, content, 'draft-token');
                             } else {
-                                bodyDiv.innerHTML += content.replace(/\n/g, '<br>');
+                                appendTextWithLineBreaks(bodyDiv, content);
                             }
                             fullText += content;
 
@@ -4578,16 +6592,13 @@ function applySpeculativeFix() {
                 const mainTokens = Math.max(0, (totalTokens || 0) - (finalDraftTokens || 0));
                 const generationDurationMs = Math.max(1, Date.now() - startTime);
                 const tokensPerSecond = ((totalTokens || 0) / (generationDurationMs / 1000)).toFixed(2);
-                const statsHtml = `<div class="message-stats">
-                    <span class="stat-item"><b>Total:</b> ${totalTokens || 0}</span>
-                    <span class="stat-item"><b>Main:</b> ${mainTokens || 0}</span>
-                    <span class="stat-item"><b>Draft:</b> ${finalDraftTokens || 0}</span>
-                    <span class="stat-item"><b>TTFT:</b> ${ttft}ms</span>
-                    <span class="stat-item"><b>TPS:</b> ${tokensPerSecond}</span>
-                </div>`;
-
-                // Append stats to the specific message
-                assistantMsgDiv.innerHTML = `<div class="message-label">Assistant</div><div class="message-body">${bodyDiv.innerHTML}</div>${statsHtml}`;
+                renderAssistantStats(assistantMsgDiv, {
+                    total: totalTokens || 0,
+                    main: mainTokens || 0,
+                    draft: finalDraftTokens || 0,
+                    ttft,
+                    tps: tokensPerSecond
+                });
 
                 if (streamDone) {
                     appendBenchmarkLogEntry({
@@ -4595,7 +6606,8 @@ function applySpeculativeFix() {
                         total: totalTokens || 0,
                         main: mainTokens || 0,
                         draft: finalDraftTokens || 0,
-                        ttft: ttft || 0
+                        ttft: ttft || 0,
+                        tps: Number(tokensPerSecond) || 0
                     });
                 }
 
@@ -4611,9 +6623,25 @@ function applySpeculativeFix() {
                 if (error.name === 'AbortError') {
                     // Handled by stopGeneration
                 } else {
-                    bodyDiv.innerHTML += `<br><span style="color: #f44336;">Error: ${error.message}</span>`;
+                    if (typeof mcpModeActive !== 'undefined' && mcpModeActive && !mcpLoopErrorLogged) {
+                        appendMcpLogEntry({
+                            timestamp: new Date().toISOString(),
+                            type: 'inbound',
+                            status: 'failure',
+                            connectionId: 'llm',
+                            connectionName: 'LLM',
+                            toolName: '__chat_completion__',
+                            resultSnippet: `Unhandled MCP loop error: ${error && error.message ? error.message : String(error)}`
+                        });
+                    }
+                    bodyDiv.appendChild(document.createElement('br'));
+                    const errorSpan = document.createElement('span');
+                    errorSpan.style.color = '#f44336';
+                    errorSpan.textContent = `Error: ${error.message}`;
+                    bodyDiv.appendChild(errorSpan);
                 }
             } finally {
+                isGenerationStopRequested = false;
                 abortController = null;
                 document.getElementById('stopButton').style.display = 'none';
                 document.getElementById('sendButton').disabled = false;
@@ -4638,11 +6666,15 @@ function applySpeculativeFix() {
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            chatColorMap = loadChatColorMap();
             setupParameterListeners();
             updateParameterDisplay();
             applyRestartRequiredBadges();
             updateActiveModelSwitcherLabel();
+            applyStreamPreferenceForCurrentModel();
+            updateSupermemoryToggleUi();
             loadBenchmarkLog();
+            loadMcpLog();
             refreshContextCounter();
             if (contextCounterTimer) {
                 clearInterval(contextCounterTimer);
@@ -4652,11 +6684,21 @@ function applySpeculativeFix() {
             const switcherButton = document.getElementById('activeModelSwitcherButton');
             const switcherPanel = document.getElementById('activeModelSwitcherPanel');
             const switcherRoot = document.getElementById('activeModelSwitcher');
+            const mcpToolIndicator = document.getElementById('mcpToolIndicator');
+            const mcpToolPanel = document.getElementById('mcpToolPanel');
 
             if (switcherButton) {
                 switcherButton.addEventListener('click', (event) => {
                     event.stopPropagation();
                     toggleChatModelSwitcher();
+                });
+            }
+
+            if (mcpToolIndicator) {
+                mcpToolIndicator.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleMcpToolPanel();
                 });
             }
 
@@ -4678,6 +6720,13 @@ function applySpeculativeFix() {
                 }
             });
 
+            document.addEventListener('click', (event) => {
+                if (!mcpToolPanel || !mcpToolPanel.classList.contains('visible')) return;
+                if (mcpToolPanel.contains(event.target)) return;
+                if (mcpToolIndicator && mcpToolIndicator.contains(event.target)) return;
+                toggleMcpToolPanel(false);
+            });
+
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape' && chatModelSwitcherState.open) {
                     toggleChatModelSwitcher(false);
@@ -4685,18 +6734,25 @@ function applySpeculativeFix() {
 
                 if (event.key === 'Escape') {
                     toggleBenchmarkPanel(false);
+                    toggleMcpLogPanel(false);
                 }
             });
 
             const searchInput = document.getElementById('chatHistorySearch');
             if (CHAT_HISTORY_ENABLED && searchInput) {
                 searchInput.addEventListener('input', () => {
+                    if (isChatHistoryProcessing) {
+                        return;
+                    }
                     if (chatSearchDebounceTimer) {
                         clearTimeout(chatSearchDebounceTimer);
                     }
 
                     const term = searchInput.value || '';
                     chatSearchDebounceTimer = setTimeout(() => {
+                        if (isChatHistoryProcessing) {
+                            return;
+                        }
                         refreshChatHistoryList(term);
                     }, 150);
                 });
@@ -4705,50 +6761,68 @@ function applySpeculativeFix() {
             const chatList = document.getElementById('chatHistoryList');
             if (CHAT_HISTORY_ENABLED && chatList) {
                 async function handleChatListInteraction(event) {
-                    // Prevent concurrent operations
-                    if (isChatHistoryProcessing) {
+                    if (!beginChatHistoryInteraction()) {
                         if (getChatHistoryDebugEnabled()) {
                             console.log('[ChatUI][History] Ignoring interaction - already processing');
                         }
                         return;
                     }
 
-                    const deleteButton = event.target.closest('[data-action="delete"]');
-                    if (deleteButton) {
-                        event.stopPropagation();
-                        const chatId = deleteButton.getAttribute('data-chat-id');
-                        if (chatId) {
-                            isChatHistoryProcessing = true;
-                            chatList.style.pointerEvents = 'none';
-                            chatList.style.opacity = '0.6';
-                            try {
-                                await deleteChatById(chatId);
-                            } finally {
-                                isChatHistoryProcessing = false;
-                                chatList.style.pointerEvents = '';
-                                chatList.style.opacity = '';
-                            }
-                        }
-                        return;
-                    }
-
-                    const item = event.target.closest('.chat-history-item');
-                    if (!item || !chatList.contains(item)) return;
-
-                    const chatIdFromAttr = item.getAttribute('data-chat-id');
-                    const filePathFromAttr = item.getAttribute('data-chat-file-path');
-                    const chatId = normalizeChatId(chatIdFromAttr) || normalizeChatId(filePathFromAttr);
-                    if (!chatId) return;
-
-                    isChatHistoryProcessing = true;
-                    chatList.style.pointerEvents = 'none';
-                    chatList.style.opacity = '0.6';
                     try {
+                        const target = event && event.target instanceof Element ? event.target : null;
+                        if (!target) return;
+
+                        const deleteButton = target.closest('[data-action="delete"]');
+                        if (deleteButton) {
+                            event.stopPropagation();
+                            const chatIdFromButton = deleteButton.getAttribute('data-chat-id');
+                            const chatIdFromItem = deleteButton.closest('.chat-history-item')?.getAttribute('data-chat-id');
+                            const filePathFromButton = deleteButton.getAttribute('data-chat-file-path');
+                            const chatId = normalizeChatId(chatIdFromButton)
+                                || normalizeChatId(chatIdFromItem)
+                                || normalizeChatId(filePathFromButton);
+                            if (chatId) {
+                                await deleteChatById(chatId);
+                            }
+                            return;
+                        }
+
+                        const colorButton = target.closest('[data-action="color"]');
+                        if (colorButton) {
+                            event.stopPropagation();
+                            const chatIdFromButton = colorButton.getAttribute('data-chat-id');
+                            const chatIdFromItem = colorButton.closest('.chat-history-item')?.getAttribute('data-chat-id');
+                            const chatId = normalizeChatId(chatIdFromButton) || normalizeChatId(chatIdFromItem);
+                            if (chatId) {
+                                cycleChatColor(chatId);
+                                renderChatHistoryList();
+                            }
+                            return;
+                        }
+
+                        const renameTarget = target.closest('[data-action="rename"]');
+                        if (renameTarget) {
+                            event.stopPropagation();
+                            const chatIdFromTarget = renameTarget.getAttribute('data-chat-id');
+                            const chatIdFromItem = renameTarget.closest('.chat-history-item')?.getAttribute('data-chat-id');
+                            const chatId = normalizeChatId(chatIdFromTarget) || normalizeChatId(chatIdFromItem);
+                            if (chatId) {
+                                await renameChatById(chatId);
+                            }
+                            return;
+                        }
+
+                        const item = target.closest('.chat-history-item');
+                        if (!item || !chatList.contains(item)) return;
+
+                        const chatIdFromAttr = item.getAttribute('data-chat-id');
+                        const filePathFromAttr = item.getAttribute('data-chat-file-path');
+                        const chatId = normalizeChatId(chatIdFromAttr) || normalizeChatId(filePathFromAttr);
+                        if (!chatId) return;
+
                         await loadChatById(chatId);
                     } finally {
-                        isChatHistoryProcessing = false;
-                        chatList.style.pointerEvents = '';
-                        chatList.style.opacity = '';
+                        endChatHistoryInteraction();
                     }
                 }
 
@@ -4768,16 +6842,11 @@ function applySpeculativeFix() {
             const newBtn = document.getElementById('newChatButton');
             if (CHAT_HISTORY_ENABLED && newBtn) {
                 newBtn.addEventListener('click', async () => {
-                    if (isChatHistoryProcessing) return;
-                    isChatHistoryProcessing = true;
-                    newBtn.disabled = true;
-                    newBtn.style.opacity = '0.6';
+                    if (!beginChatHistoryInteraction()) return;
                     try {
                         await startNewChat();
                     } finally {
-                        isChatHistoryProcessing = false;
-                        newBtn.disabled = false;
-                        newBtn.style.opacity = '';
+                        endChatHistoryInteraction();
                     }
                 });
             }
@@ -4795,9 +6864,11 @@ function applySpeculativeFix() {
             const panel = document.getElementById('parameterPanel');
             const floatingToggle = document.getElementById('floatingToggle');
             const benchmarkToggle = document.getElementById('benchmarkToggle');
+            const mcpLogToggle = document.getElementById('mcpLogToggle');
             if (panel.classList.contains('collapsed')) {
                 floatingToggle.classList.add('visible');
                 if (benchmarkToggle) benchmarkToggle.classList.add('visible');
+                if (mcpLogToggle) mcpLogToggle.classList.add('visible');
             }
             
             document.getElementById('chatInput').focus();

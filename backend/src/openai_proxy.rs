@@ -161,6 +161,7 @@ async fn list_models(
                         architecture: None,
                         date: None,
                         path: None,
+                        has_custom_launch_config: None,
                     }];
                     let response = ModelsResponse {
                         object: "list".to_string(),
@@ -180,6 +181,7 @@ async fn list_models(
                         architecture: None,
                         date: None,
                         path: None,
+                        has_custom_launch_config: None,
                     }];
                     let response = ModelsResponse {
                         object: "list".to_string(),
@@ -233,6 +235,7 @@ async fn list_models_arandu(
                     architecture: Some(model.architecture),
                     date: Some(model.date),
                     path: Some(model.path.clone()),
+                    has_custom_launch_config: None,
                 })
                 .collect();
 
@@ -247,6 +250,7 @@ async fn list_models_arandu(
                     architecture: Some("test".to_string()),
                     date: Some(chrono::Utc::now().timestamp()),
                     path: Some("__ARANDU_FAKE_MODEL__".to_string()),
+                    has_custom_launch_config: Some(false),
                 });
             }
 

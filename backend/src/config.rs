@@ -46,6 +46,72 @@ fn make_path_absolute(relative_path: &str, models_dir: &str) -> String {
     full_path.to_string_lossy().to_string()
 }
 
+fn remap_arandu_path(path: &str, old_base: &Path, new_base: &Path) -> Option<String> {
+    let path_obj = Path::new(path);
+    if path_obj.starts_with(old_base) {
+        if let Ok(relative) = path_obj.strip_prefix(old_base) {
+            let remapped = new_base.join(relative).to_string_lossy().to_string();
+            if remapped != path {
+                return Some(remapped);
+            }
+        }
+    }
+
+    let lower = path.to_ascii_lowercase();
+    let marker = r"\.arandu\";
+    if lower.starts_with("c:\\") {
+        if let Some(index) = lower.find(marker) {
+            let suffix_start = index + marker.len();
+            let suffix = &path[suffix_start..];
+            let remapped = if suffix.is_empty() {
+                new_base.to_path_buf()
+            } else {
+                new_base.join(suffix)
+            }
+            .to_string_lossy()
+            .to_string();
+
+            if remapped != path {
+                return Some(remapped);
+            }
+        }
+    }
+
+    None
+}
+
+fn migrate_global_config_paths(config: &mut GlobalConfig) -> bool {
+    let old_base = dirs::home_dir().unwrap_or_default().join(".Arandu");
+    let new_base = preferred_arandu_base_dir();
+    let mut changed = false;
+
+    if let Some(remapped) = remap_arandu_path(&config.models_directory, &old_base, &new_base) {
+        config.models_directory = remapped;
+        changed = true;
+    }
+
+    if let Some(remapped) = remap_arandu_path(&config.executable_folder, &old_base, &new_base) {
+        config.executable_folder = remapped;
+        changed = true;
+    }
+
+    for directory in &mut config.additional_models_directories {
+        if let Some(remapped) = remap_arandu_path(directory, &old_base, &new_base) {
+            *directory = remapped;
+            changed = true;
+        }
+    }
+
+    if let Some(active_folder) = config.active_executable_folder.clone() {
+        if let Some(remapped) = remap_arandu_path(&active_folder, &old_base, &new_base) {
+            config.active_executable_folder = Some(remapped);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SettingsFile {
     global_config: GlobalConfig,
@@ -61,15 +127,30 @@ pub async fn load_settings(state: &AppState) -> Result<(), Box<dyn std::error::E
     }
     
     let contents = fs::read_to_string(&settings_path).await?;
-    let settings: SettingsFile = serde_json::from_str(&contents)?;
-    
+    let mut settings: SettingsFile = serde_json::from_str(&contents)?;
+
+    let migrated = migrate_global_config_paths(&mut settings.global_config);
+    if migrated {
+        let updated_contents = serde_json::to_string_pretty(&settings)?;
+        fs::write(&settings_path, updated_contents).await?;
+        tracing::info!(
+            "Migrated legacy .Arandu paths to preferred base in {:?}",
+            settings_path
+        );
+    }
+
+    let SettingsFile {
+        global_config,
+        model_configs: stored_model_configs,
+    } = settings;
+
     // Get models directory for path conversion
-    let models_dir = settings.global_config.models_directory.clone();
+    let models_dir = global_config.models_directory.clone();
     
     // Update global config
     {
         let mut config = state.config.lock().await;
-        *config = settings.global_config;
+        *config = global_config;
     }
     
     // Update model configs, converting relative paths to absolute
@@ -77,7 +158,7 @@ pub async fn load_settings(state: &AppState) -> Result<(), Box<dyn std::error::E
         let mut model_configs = state.model_configs.lock().await;
         let mut absolute_configs = HashMap::new();
         
-        for (relative_path, mut config) in settings.model_configs {
+        for (relative_path, mut config) in stored_model_configs {
             let absolute_path = make_path_absolute(&relative_path, &models_dir);
             config.model_path = absolute_path.clone();
             absolute_configs.insert(absolute_path, config);
@@ -183,5 +264,41 @@ mod tests {
         let base = "";
         let result = make_path_absolute(relative, base);
         assert_eq!(result, relative); // Should return original path
+    }
+
+    #[test]
+    fn test_remap_arandu_path_old_home_base() {
+        let old_base = PathBuf::from(r"C:\Users\tester\.Arandu");
+        let new_base = PathBuf::from(r"H:\Ardanu Fix\Arandu-maxi\.Arandu");
+        let old_models = r"C:\Users\tester\.Arandu\models";
+
+        let remapped = remap_arandu_path(old_models, &old_base, &new_base);
+        assert_eq!(
+            remapped,
+            Some(r"H:\Ardanu Fix\Arandu-maxi\.Arandu\models".to_string())
+        );
+    }
+
+    #[test]
+    fn test_remap_arandu_path_c_drive_marker_style() {
+        let old_base = PathBuf::from(r"D:\Different\.Arandu");
+        let new_base = PathBuf::from(r"H:\Ardanu Fix\Arandu-maxi\.Arandu");
+        let legacy = r"C:\Users\legacy\.Arandu\llama.cpp\versions\v1";
+
+        let remapped = remap_arandu_path(legacy, &old_base, &new_base);
+        assert_eq!(
+            remapped,
+            Some(r"H:\Ardanu Fix\Arandu-maxi\.Arandu\llama.cpp\versions\v1".to_string())
+        );
+    }
+
+    #[test]
+    fn test_remap_arandu_path_keeps_custom_path() {
+        let old_base = PathBuf::from(r"C:\Users\tester\.Arandu");
+        let new_base = PathBuf::from(r"H:\Ardanu Fix\Arandu-maxi\.Arandu");
+        let custom = r"D:\AI\models";
+
+        let remapped = remap_arandu_path(custom, &old_base, &new_base);
+        assert!(remapped.is_none());
     }
 }

@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +312,31 @@ pub struct McpToolCallResult {
     pub status_code: Option<u16>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupermemoryNativeCallRequest {
+    pub api_key: String,
+    pub tool_name: String,
+    #[serde(default = "default_mcp_tool_call_arguments")]
+    pub arguments: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupermemoryNativeCallResult {
+    pub success: bool,
+    pub latency_ms: i64,
+    pub message: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub is_error: bool,
+    #[serde(default)]
+    pub raw_result: Option<Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+}
+
 fn default_mcp_tool_call_arguments() -> Value {
     Value::Object(serde_json::Map::new())
 }
@@ -351,9 +377,18 @@ fn default_discovery_instance_id() -> String {
     Uuid::new_v4().to_string()
 }
 
+pub(crate) fn preferred_arandu_base_dir() -> PathBuf {
+    let preferred = PathBuf::from(r"H:\Ardanu Fix\Arandu-maxi\.Arandu");
+    if preferred.parent().is_some_and(|parent| parent.exists()) {
+        return preferred;
+    }
+
+    dirs::home_dir().unwrap_or_default().join(".Arandu")
+}
+
 impl Default for GlobalConfig {
     fn default() -> Self {
-        let base_dir = dirs::home_dir().unwrap_or_default().join(".Arandu");
+        let base_dir = preferred_arandu_base_dir();
         Self {
             models_directory: base_dir
                 .join("models")

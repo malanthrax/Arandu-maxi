@@ -3,6 +3,8 @@ use std::time::SystemTime;
 use sysinfo::{System};
 use std::path::Path;
 use std::fs;
+#[cfg(target_os = "windows")]
+use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemStats {
@@ -56,44 +58,110 @@ pub async fn get_system_stats(state: tauri::State<'_, crate::AppState>) -> Resul
 }
 
 fn get_gpu_info() -> (String, f32, f32, f32) {
-    // Try to get NVIDIA GPU info
-    match nvml_wrapper::Nvml::init() {
-        Ok(nvml) => {
-            match nvml.device_count() {
-                Ok(count) if count > 0 => {
-                    match nvml.device_by_index(0) {
-                        Ok(device) => {
-                            let name = device.name().unwrap_or_else(|_| "NVIDIA GPU".to_string());
-                            
-                            // Get GPU utilization
-                            let gpu_usage = match device.utilization_rates() {
-                                Ok(util) => util.gpu as f32,
-                                Err(_) => 0.0,
-                            };
-                            
-                            // Get GPU memory info
-                            let (gpu_memory_total_gb, gpu_memory_used_gb) = match device.memory_info() {
-                                Ok(mem_info) => {
-                                    let total = mem_info.total as f32 / (1024.0 * 1024.0 * 1024.0);
-                                    let used = mem_info.used as f32 / (1024.0 * 1024.0 * 1024.0);
-                                    (total, used)
-                                },
-                                Err(_) => (0.0, 0.0),
-                            };
-                            
-                            (name, gpu_usage, gpu_memory_total_gb, gpu_memory_used_gb)
-                        },
-                        Err(_) => ("NVIDIA GPU (info unavailable)".to_string(), 0.0, 0.0, 0.0)
-                    }
-                },
-                _ => ("No NVIDIA GPU detected".to_string(), 0.0, 0.0, 0.0)
-            }
-        },
-        Err(_) => {
-            // Fallback for non-NVIDIA GPUs or when NVML is not available
-            ("No NVIDIA GPU detected".to_string(), 0.0, 0.0, 0.0)
+    if let Some(nvidia_info) = get_nvidia_gpu_info() {
+        return nvidia_info;
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(windows_info) = get_windows_gpu_fallback_info() {
+        return windows_info;
+    }
+
+    ("No GPU detected".to_string(), 0.0, 0.0, 0.0)
+}
+
+fn get_nvidia_gpu_info() -> Option<(String, f32, f32, f32)> {
+    let nvml = nvml_wrapper::Nvml::init().ok()?;
+    let count = nvml.device_count().ok()?;
+    if count == 0 {
+        return None;
+    }
+
+    let device = nvml.device_by_index(0).ok()?;
+    let name = device.name().unwrap_or_else(|_| "NVIDIA GPU".to_string());
+
+    let gpu_usage = device
+        .utilization_rates()
+        .map(|util| util.gpu as f32)
+        .unwrap_or(0.0);
+
+    let (gpu_memory_total_gb, gpu_memory_used_gb) = device
+        .memory_info()
+        .map(|mem_info| {
+            let total = mem_info.total as f32 / (1024.0 * 1024.0 * 1024.0);
+            let used = mem_info.used as f32 / (1024.0 * 1024.0 * 1024.0);
+            (total, used)
+        })
+        .unwrap_or((0.0, 0.0));
+
+    Some((name, gpu_usage, gpu_memory_total_gb, gpu_memory_used_gb))
+}
+
+#[cfg(target_os = "windows")]
+fn get_windows_gpu_fallback_info() -> Option<(String, f32, f32, f32)> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM | ConvertTo-Json -Compress",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).ok()?;
+
+    let mut best_name = String::new();
+    let mut best_vram_bytes: u64 = 0;
+
+    let entries: Vec<&serde_json::Value> = match &parsed {
+        serde_json::Value::Array(items) => items.iter().collect(),
+        _ => vec![&parsed],
+    };
+
+    for entry in entries {
+        let name = entry
+            .get("Name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+
+        if name.is_empty() {
+            continue;
+        }
+
+        let lowered = name.to_lowercase();
+        if lowered.contains("microsoft basic") || lowered.contains("remote display") {
+            continue;
+        }
+
+        let adapter_ram_bytes = entry
+            .get("AdapterRAM")
+            .and_then(|v| v.as_u64())
+            .or_else(|| {
+                entry
+                    .get("AdapterRAM")
+                    .and_then(|v| v.as_i64())
+                    .and_then(|n| u64::try_from(n).ok())
+            })
+            .unwrap_or(0);
+
+        if best_name.is_empty() || adapter_ram_bytes > best_vram_bytes {
+            best_name = name.to_string();
+            best_vram_bytes = adapter_ram_bytes;
         }
     }
+
+    if best_name.is_empty() {
+        return None;
+    }
+
+    let total_gb = best_vram_bytes as f32 / (1024.0 * 1024.0 * 1024.0);
+    Some((best_name, 0.0, total_gb.max(0.0), 0.0))
 }
 
 async fn get_models_stats(state: &crate::AppState) -> (f32, u32) {

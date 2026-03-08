@@ -10,6 +10,7 @@ class LlamaCppReleasesManager {
         // UI state
         this.hideOtherPlatforms = true; // default ON: emphasize Windows assets
         this.lastReleases = null; // cache latest fetched releases for re-rendering
+        this.lastIkCudaInstallPath = null;
     }
     
     initTauriAPI() {
@@ -51,6 +52,73 @@ class LlamaCppReleasesManager {
         return normalized.toLowerCase();
     }
 
+    escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    async updateIkWorkspaceInfo() {
+        const infoEl = document.getElementById('ik-workspace-info');
+        if (!infoEl) return;
+
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) throw new Error('Tauri API not available');
+            const cfg = await invoke('get_config');
+            const executableFolder = cfg?.executable_folder;
+            if (!executableFolder) {
+                infoEl.innerHTML = '<div class="ik-workspace-row">Set Executable Folder to see IK workspace paths.</div>';
+                return;
+            }
+
+            const normalizedBase = String(executableFolder).replace(/[\\/]+$/g, '');
+            const workspaceBase = `${normalizedBase}\\versions\\ik_llama.cpp\\_installer_workspace`;
+            const mainDrop = `${workspaceBase}\\main_drop`;
+            const dllDrop = `${workspaceBase}\\dll_drop`;
+
+            infoEl.innerHTML = `
+                <div class="ik-workspace-row">
+                    <span class="ik-workspace-label">Main Drop:</span>
+                    <code class="ik-workspace-path" title="${this.escapeHtml(mainDrop)}">${this.escapeHtml(mainDrop)}</code>
+                    <button class="ik-workspace-copy" onclick="llamacppReleasesManager.copyIkWorkspacePath('${this.escapeForOnclick(mainDrop)}')">Copy</button>
+                </div>
+                <div class="ik-workspace-row">
+                    <span class="ik-workspace-label">DLL Drop:</span>
+                    <code class="ik-workspace-path" title="${this.escapeHtml(dllDrop)}">${this.escapeHtml(dllDrop)}</code>
+                    <button class="ik-workspace-copy" onclick="llamacppReleasesManager.copyIkWorkspacePath('${this.escapeForOnclick(dllDrop)}')">Copy</button>
+                </div>
+            `;
+        } catch (error) {
+            infoEl.innerHTML = `<div class="ik-workspace-row">Failed to load IK workspace path: ${this.escapeHtml(error?.message || String(error))}</div>`;
+        }
+    }
+
+    async copyIkWorkspacePath(pathValue) {
+        try {
+            await navigator.clipboard.writeText(pathValue);
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification('Workspace path copied', 'success');
+            }
+        } catch (error) {
+            console.error('Failed to copy workspace path:', error);
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification('Failed to copy workspace path', 'error');
+            }
+        }
+    }
+
+    async pickIkSourcePath(invoke, executableFolder, modeLabel) {
+        if (this.desktop?.showNotification) {
+            this.desktop.showNotification(`${modeLabel}: select a ZIP archive`, 'info');
+        }
+        return invoke('pick_llamacpp_zip_file', { initialDir: executableFolder || null });
+    }
+
     switchTopTab(tabButton, tabName) {
         const tabs = document.querySelectorAll('.llamacpp-top-tabs .top-tab');
         tabs.forEach(tab => tab.classList.remove('active'));
@@ -81,6 +149,7 @@ class LlamaCppReleasesManager {
                 invoke('get_config')
             ]);
             this.renderInstalledVersions(versions, cfg);
+            this.updateIkInstalledStatusDisplay(versions);
             this.updateLatestInstalledBuildDisplay();
         } catch (e) {
             console.error('Failed to load installed versions:', e);
@@ -247,6 +316,166 @@ class LlamaCppReleasesManager {
             alert(`Failed to delete version: ${e.message || e}`);
         }
     }
+
+    async installIkLlamaCppMainZip() {
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) throw new Error('Tauri API not available');
+
+            const cfg = await invoke('get_config');
+            const selectedZip = await this.pickIkSourcePath(
+                invoke,
+                cfg?.executable_folder || null,
+                'ik main install source'
+            );
+
+            if (!selectedZip) {
+                if (this.desktop?.showNotification) {
+                    this.desktop.showNotification('ik_llama.cpp install cancelled', 'info');
+                }
+                return;
+            }
+
+            const result = await invoke('install_local_llamacpp_zip', {
+                zipPath: selectedZip
+            });
+
+            if (result?.backend_type === 'cuda' && result?.install_path) {
+                this.lastIkCudaInstallPath = result.install_path;
+            }
+
+            const installedPath = result?.install_path || 'Unknown install path';
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification(
+                    `Installed ik_llama.cpp (${result.backend_type}) to: ${installedPath}`,
+                    'success'
+                );
+            }
+
+            this.updateIkWorkspaceInfo();
+
+            if (result?.workspace_path && this.desktop?.showNotification) {
+                this.desktop.showNotification(`IK installer workspace: ${result.workspace_path}`, 'info');
+            }
+
+            if (result?.backend_type === 'cuda' && result?.install_path) {
+                if (this.desktop?.showNotification) {
+                    this.desktop.showNotification('CUDA build detected. Next step: click "ik CUDA DLL" and select your DLL ZIP.', 'info');
+                }
+            }
+
+            const installedTab = document.querySelector('.llamacpp-top-tabs .top-tab[data-top-tab="installed"]');
+            if (installedTab) this.switchTopTab(installedTab, 'installed');
+
+            await this.loadInstalledVersions();
+            await this.loadLlamaCppReleases();
+            await this.updateLatestInstalledBuildDisplay();
+        } catch (error) {
+            console.error('Failed to install ik_llama.cpp from zip:', error);
+            const message = error?.message || error?.toString() || 'Unknown error';
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification(`Failed to install ik_llama.cpp: ${message}`, 'error');
+            }
+        }
+    }
+
+    async getPreferredIkCudaInstallPath() {
+        if (this.lastIkCudaInstallPath) {
+            return this.lastIkCudaInstallPath;
+        }
+
+        const invoke = this.getInvoke();
+        if (!invoke) throw new Error('Tauri API not available');
+
+        const [versions, cfg] = await Promise.all([
+            invoke('list_llamacpp_versions'),
+            invoke('get_config')
+        ]);
+
+        const cudaIkVersions = (Array.isArray(versions) ? versions : []).filter((version) => {
+            const versionName = String(version?.name || '').toLowerCase();
+            const backendType = String(version?.backend_type || '').toLowerCase();
+            return versionName.includes('ik_llama.cpp') && backendType === 'cuda' && version?.path;
+        });
+
+        if (cudaIkVersions.length === 0) {
+            throw new Error('No installed ik_llama.cpp CUDA backend found. Install an ik CUDA main ZIP first.');
+        }
+
+        const activePath = this.normalizePath(cfg?.active_executable_folder || '');
+        const activeVersion = cudaIkVersions.find((version) => this.normalizePath(version.path) === activePath);
+        if (activeVersion) {
+            this.lastIkCudaInstallPath = activeVersion.path;
+            return activeVersion.path;
+        }
+
+        if (cudaIkVersions.length === 1) {
+            this.lastIkCudaInstallPath = cudaIkVersions[0].path;
+            return cudaIkVersions[0].path;
+        }
+
+        const sortedByCreated = [...cudaIkVersions].sort((a, b) => Number(b?.created || 0) - Number(a?.created || 0));
+        const selected = sortedByCreated[0];
+        this.lastIkCudaInstallPath = selected.path;
+        if (this.desktop?.showNotification) {
+            this.desktop.showNotification(`Using newest ik CUDA install path: ${selected.path}`, 'info');
+        }
+        return selected.path;
+    }
+
+    async installIkLlamaCppCudaDllZip(targetInstallPath = null) {
+        try {
+            const invoke = this.getInvoke();
+            if (!invoke) throw new Error('Tauri API not available');
+
+            const cfg = await invoke('get_config');
+            const selectedZip = await this.pickIkSourcePath(
+                invoke,
+                cfg?.executable_folder || null,
+                'ik CUDA DLL source'
+            );
+
+            if (!selectedZip) {
+                if (this.desktop?.showNotification) {
+                    this.desktop.showNotification('ik CUDA DLL install cancelled', 'info');
+                }
+                return;
+            }
+
+            const installPath = targetInstallPath || await this.getPreferredIkCudaInstallPath();
+            const result = await invoke('install_local_llamacpp_cuda_dlls_zip', {
+                zipPath: selectedZip,
+                installPath
+            });
+
+            this.lastIkCudaInstallPath = result?.install_path || installPath;
+
+            const dllInstallPath = result?.install_path || installPath;
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification(
+                    `Installed ${result?.dll_count || 0} CUDA DLL(s) to: ${dllInstallPath}`,
+                    'success'
+                );
+            }
+
+            this.updateIkWorkspaceInfo();
+
+            if (result?.workspace_path && this.desktop?.showNotification) {
+                this.desktop.showNotification(`IK installer workspace: ${result.workspace_path}`, 'info');
+            }
+        } catch (error) {
+            console.error('Failed to install ik_llama.cpp CUDA DLL ZIP:', error);
+            const message = error?.message || error?.toString() || 'Unknown error';
+            if (this.desktop?.showNotification) {
+                this.desktop.showNotification(`Failed to install ik CUDA DLLs: ${message}`, 'error');
+            }
+        }
+    }
+
+    async installIkLlamaCppFromZip() {
+        await this.installIkLlamaCppMainZip();
+    }
+
     // Llama.cpp release methods
     async getLlamaCppReleases() {
         try {
@@ -540,7 +769,22 @@ class LlamaCppReleasesManager {
                     <button class="top-tab" data-top-tab="installed" onclick="llamacppReleasesManager.switchTopTab(this, 'installed')">
                         <span class="material-icons">inventory_2</span> Installed Versions
                     </button>
+                    <button class="top-tab top-tab-install-ik" onclick="llamacppReleasesManager.installIkLlamaCppMainZip()" title="Install ik_llama.cpp main build (ZIP)">
+                        <span class="material-icons">archive</span> ik_llama.cpp
+                    </button>
+                    <button class="top-tab top-tab-install-ik-dll" onclick="llamacppReleasesManager.installIkLlamaCppCudaDllZip()" title="Install ik_llama.cpp CUDA DLL package (ZIP)">
+                        <span class="material-icons">memory</span> ik CUDA DLL
+                    </button>
+                    <div class="ik-installed-status" id="ik-installed-status">ik: checking...</div>
                     <div class="latest-installed-build" id="latest-installed-build">Loading latest build...</div>
+                </div>
+                <div class="ik-workspace-panel">
+                    <div class="ik-workspace-title">
+                        <span class="material-icons">folder</span>
+                        IK Installer Workspace
+                    </div>
+                    <div class="ik-workspace-subtitle">ZIP sources are required. Use these paths to verify install locations.</div>
+                    <div class="ik-workspace-info" id="ik-workspace-info">Loading workspace paths...</div>
                 </div>
                 <div class="llamacpp-manager-content" id="llamacpp-manager-content">
                     <div class="loading-releases">Loading releases...</div>
@@ -560,6 +804,7 @@ class LlamaCppReleasesManager {
         this.loadLlamaCppReleases();
         this.loadInstalledVersions();
         this.updateLatestInstalledBuildDisplay();
+        this.updateIkWorkspaceInfo();
     }
 
     async loadLlamaCppReleases() {
@@ -839,24 +1084,13 @@ class LlamaCppReleasesManager {
                 return;
             }
             
-            // Group versions by base version (ignoring backend suffix)
-            const versionGroups = {};
-            versions.forEach(v => {
-                // Handle both new nested format (b7779-cuda) and old flat format
-                const baseName = v.name.includes('-') ? v.name.split('-')[0] : v.name;
-                if (!versionGroups[baseName]) {
-                    versionGroups[baseName] = [];
-                }
-                versionGroups[baseName].push(v);
+            const sortedByCreated = [...versions].sort((a, b) => {
+                const ac = Number(a?.created || 0);
+                const bc = Number(b?.created || 0);
+                return bc - ac;
             });
-            
-            // Sort version groups by numeric version descending
-            const sortedGroupNames = Object.keys(versionGroups).sort((a, b) =>
-                this.extractVersionNumber(b) - this.extractVersionNumber(a)
-            );
-            
-            // Get the latest build name (without backend suffix)
-            const latestBuildName = sortedGroupNames.length > 0 ? sortedGroupNames[0] : 'None';
+
+            const latestBuildName = sortedByCreated[0]?.name || 'None';
             
             const latestBuildElement = document.getElementById('latest-installed-build');
             if (latestBuildElement) {
@@ -871,5 +1105,31 @@ class LlamaCppReleasesManager {
                 latestBuildElement.title = 'Error loading build information';
             }
         }
+    }
+
+    updateIkInstalledStatusDisplay(versions) {
+        const statusEl = document.getElementById('ik-installed-status');
+        if (!statusEl) return;
+
+        const list = Array.isArray(versions) ? versions : [];
+        const ikVersions = list.filter((version) => String(version?.name || '').toLowerCase().includes('ik_llama.cpp'));
+
+        if (ikVersions.length === 0) {
+            statusEl.textContent = 'ik: not installed';
+            statusEl.title = 'ik_llama.cpp is not installed';
+            return;
+        }
+
+        const activeIk = ikVersions.find((version) => Boolean(version?.is_active));
+        const activeBackend = activeIk ? String(activeIk.backend_type || 'unknown').toUpperCase() : null;
+
+        if (activeBackend) {
+            statusEl.textContent = `ik: ${ikVersions.length} installed • active ${activeBackend}`;
+            statusEl.title = `ik_llama.cpp backends installed: ${ikVersions.length}. Active backend: ${activeBackend}.`;
+            return;
+        }
+
+        statusEl.textContent = `ik: ${ikVersions.length} installed`;
+        statusEl.title = `ik_llama.cpp backends installed: ${ikVersions.length}.`;
     }
 }

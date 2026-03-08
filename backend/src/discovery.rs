@@ -77,6 +77,7 @@ pub struct RemoteModel {
     pub architecture: Option<String>,
     pub date: Option<i64>,
     pub path: Option<String>,
+    pub has_custom_launch_config: Option<bool>,
 }
 
 impl RemoteModel {
@@ -100,6 +101,7 @@ impl RemoteModel {
             architecture: model.architecture,
             date: model.date,
             path: model.path,
+            has_custom_launch_config: model.has_custom_launch_config,
         }
     }
 }
@@ -1124,6 +1126,7 @@ mod tests {
             architecture: None,
             date: None,
             path: Some(path.to_string()),
+            has_custom_launch_config: Some(false),
         }
     }
 
